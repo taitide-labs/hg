@@ -4,7 +4,8 @@ use hg_contracts::ids::EpisodeKey;
 
 use crate::CatalogDeps;
 
-use super::command::FEATURE_NAME;
+use super::command::ensure_port_enabled;
+use super::handler;
 
 #[derive(Clone)]
 pub struct CatalogPlaybackTicketAdapter {
@@ -21,17 +22,11 @@ impl CatalogPlaybackTicketAdapter {
 impl CatalogPlaybackTicketPort for CatalogPlaybackTicketAdapter {
     fn fetch_playback_ticket(
         &self,
-        _key: EpisodeKey,
+        key: EpisodeKey,
     ) -> PortFuture<'_, Result<PlaybackTicket, PortError>> {
-        let err = if self.deps.flags.playback_and_cache {
-            PortError::InvalidState {
-                detail: format!("{FEATURE_NAME} 切片尚未实现"),
-            }
-        } else {
-            PortError::InvalidState {
-                detail: format!("{FEATURE_NAME} 特性开关未开启"),
-            }
-        };
-        Box::pin(async move { Err(err) })
+        Box::pin(async move {
+            ensure_port_enabled(self.deps.flags.playback_and_cache)?;
+            handler::fetch_playback_ticket(&self.deps, key).await
+        })
     }
 }
