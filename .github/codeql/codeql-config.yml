@@ -1,0 +1,5 @@
+name: "hg CodeQL Config"
+
+paths-ignore:
+  - "**/tests/**"
+  - "**/src/tests/**"
