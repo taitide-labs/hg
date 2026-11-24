@@ -4,7 +4,7 @@ use hg_contracts::catalog::{CommentReply, EpisodeComment, ListCommentRepliesRequ
 use hg_contracts::ids::{CommentId, PageInfo, PageRequest, SeriesId};
 use nsh_core::prelude::*;
 
-use super::super::store::{self, PlayerState};
+use super::super::store;
 use crate::gateway;
 
 pub const REPLIES_PAGE_SIZE: u16 = 20;
@@ -33,11 +33,6 @@ pub fn snapshot() -> CommentRepliesState {
     state().get()
 }
 
-#[must_use]
-pub fn is_open() -> bool {
-    state().with(|s| s.comment_id.is_some())
-}
-
 pub fn reset_state() {
     state().update(|s| {
         let next_seq = s.request_seq.wrapping_add(1);
@@ -50,31 +45,17 @@ pub fn reset_state() {
 
 pub fn close() {
     reset_state();
-    global::<PlayerState>().update(|s| {
-        s.active_replies_comment = None;
-    });
+    store::close_comment_replies();
 }
 
-pub fn sync_from_player_store() {
-    let snap = store::snapshot();
-    let target_cid = snap.active_replies_comment;
-    let series_id = snap.detail.as_ref().map(|d| d.summary.id);
+pub fn open_from_player_store(series_id: SeriesId, comment_id: CommentId) {
     let current = state().with_untracked(|s| (s.series_id, s.comment_id));
-
-    match (series_id, target_cid) {
-        (Some(sid), Some(cid)) => {
-            if current == (Some(sid), Some(cid)) {
-                return;
-            }
-            let parent = find_parent_comment(&snap.comments, cid);
-            open_and_load(sid, cid, parent);
-        }
-        _ => {
-            if current.1.is_some() {
-                reset_state();
-            }
-        }
+    if current == (Some(series_id), Some(comment_id)) {
+        return;
     }
+    let snap = store::snapshot();
+    let parent = find_parent_comment(&snap.comments, comment_id);
+    open_and_load(series_id, comment_id, parent);
 }
 
 pub fn retry() {

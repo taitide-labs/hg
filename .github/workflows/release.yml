@@ -44,18 +44,21 @@ jobs:
             nsh_target: macos
             nsh_args: "--arch arm64"
             ext: tar.gz
+            run_tests: true
           - name: windows-x86_64
             runner: windows-latest
             rust_target: x86_64-pc-windows-msvc
             nsh_target: windows
             nsh_args: ""
             ext: zip
+            run_tests: true
           - name: android-arm64
             runner: ubuntu-24.04
             rust_target: aarch64-linux-android
             nsh_target: android
             nsh_args: "--abi arm64-v8a"
             ext: apk
+            run_tests: false
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -63,6 +66,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install Linux native build tools
+        if: ${{ startsWith(matrix.runner, 'ubuntu-') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang llvm
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
@@ -74,9 +82,21 @@ jobs:
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install: false
-      - name: Install nsh
+      - name: Install release tools
         shell: bash
-        run: mise install "github:longbridge/nsh"
+        env:
+          RUN_TESTS: ${{ matrix.run_tests }}
+        run: |
+          mise install "github:longbridge/nsh"
+          if [ "$RUN_TESTS" = "true" ]; then
+            mise install "github:nextest-rs/nextest"
+          fi
+      - name: Run cross-platform tests
+        if: ${{ matrix.run_tests }}
+        shell: bash
+        env:
+          TARGET: ${{ matrix.rust_target }}
+        run: mise x -- cargo nextest run --workspace --locked --target "$TARGET"
       - name: Package client artifact
         shell: bash
         env:
@@ -86,30 +106,40 @@ jobs:
           EXT: ${{ matrix.ext }}
           TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          app_pkg=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.manifest_path | gsub("\\\\"; "/") | endswith("/clients/app/Cargo.toml")) | .name' | tr -d '\r')
+          app_pkg=$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.manifest_path | gsub("\\\\"; "/") | endswith("/clients/app/Cargo.toml")) | .name' \
+            | tr -d '\r')
           test -n "$app_pkg"
           mkdir -p out_tmp dist
-          # shellcheck disable=SC2086
-          mise x -- nsh package clients/app --target "$NSH_TARGET" --app-version "${TAG#v}" $NSH_ARGS -o out_tmp
-          if [ "$EXT" = "apk" ]; then
-            apk_file=$(find out_tmp -maxdepth 2 -type f -name '*.apk' | head -n 1)
-            test -n "$apk_file"
-            cp "$apk_file" "dist/${app_pkg}-${PKG_LABEL}.apk"
-          elif [ "$EXT" = "zip" ]; then
-            zip_file=$(find out_tmp -maxdepth 1 -type f -name '*.zip' | head -n 1)
-            if [ -n "$zip_file" ]; then
-              cp "$zip_file" "dist/${app_pkg}-${PKG_LABEL}.zip"
-            else
-              7z a "dist/${app_pkg}-${PKG_LABEL}.zip" ./out_tmp/*
-            fi
-          else
-            tar_file=$(find out_tmp -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)
-            if [ -n "$tar_file" ]; then
-              cp "$tar_file" "dist/${app_pkg}-${PKG_LABEL}.tar.gz"
-            else
-              tar -C out_tmp -czf "dist/${app_pkg}-${PKG_LABEL}.tar.gz" .
-            fi
-          fi
+          read -ra extra_args <<< "$NSH_ARGS"
+          mise x -- nsh package clients/app \
+            --target "$NSH_TARGET" \
+            --app-version "${TAG#v}" \
+            "${extra_args[@]}" \
+            -o out_tmp
+          case "$EXT" in
+            apk)
+              apk_file=$(find out_tmp -maxdepth 2 -type f -name '*.apk' | head -n 1)
+              test -n "$apk_file"
+              cp "$apk_file" "dist/${app_pkg}-${PKG_LABEL}.apk"
+              ;;
+            zip)
+              zip_file=$(find out_tmp -maxdepth 1 -type f -name '*.zip' | head -n 1)
+              if [ -n "$zip_file" ]; then
+                cp "$zip_file" "dist/${app_pkg}-${PKG_LABEL}.zip"
+              else
+                7z a "dist/${app_pkg}-${PKG_LABEL}.zip" ./out_tmp/*
+              fi
+              ;;
+            *)
+              tar_file=$(find out_tmp -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)
+              if [ -n "$tar_file" ]; then
+                cp "$tar_file" "dist/${app_pkg}-${PKG_LABEL}.tar.gz"
+              else
+                tar -C out_tmp -czf "dist/${app_pkg}-${PKG_LABEL}.tar.gz" .
+              fi
+              ;;
+          esac
           test -n "$(find dist -maxdepth 1 -type f)"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

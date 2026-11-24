@@ -13,7 +13,6 @@ use crate::gateway;
 
 #[derive(Debug, Clone, Default)]
 pub struct BatchDownloadState {
-    pub open: bool,
     pub series_id: Option<SeriesId>,
     pub segment_index: usize,
     pub selected: BTreeSet<u32>,
@@ -33,11 +32,6 @@ pub fn snapshot() -> BatchDownloadState {
     state().get()
 }
 
-#[must_use]
-pub fn is_open() -> bool {
-    state().with(|s| s.open)
-}
-
 pub fn reset_state() {
     state().update(|s| {
         let next_seq = s.request_seq.wrapping_add(1);
@@ -53,24 +47,16 @@ pub fn close() {
     store::set_batch_download_open(false);
 }
 
-pub fn sync_from_player_store() {
+pub fn open_from_player_store() {
     let snap = store::snapshot();
-    let should_open = snap.batch_download_open;
-    let series_id = snap.detail.as_ref().map(|d| d.summary.id);
-    let was_open = state().with_untracked(|s| s.open);
-
-    if should_open && !was_open {
-        let Some(sid) = series_id else {
-            store::set_batch_download_open(false);
-            return;
-        };
-        let initial_seg = snap.current_episode.map_or(0, |ep| {
-            ((ep.get().saturating_sub(1)) / BATCH_SEGMENT_SIZE) as usize
-        });
-        open_and_load_status(sid, initial_seg);
-    } else if !should_open && was_open {
-        reset_state();
-    }
+    let Some(sid) = snap.detail.as_ref().map(|d| d.summary.id) else {
+        store::set_batch_download_open(false);
+        return;
+    };
+    let initial_seg = snap.current_episode.map_or(0, |ep| {
+        ((ep.get().saturating_sub(1)) / BATCH_SEGMENT_SIZE) as usize
+    });
+    open_and_load_status(sid, initial_seg);
 }
 
 pub fn set_segment(index: usize) {
@@ -151,7 +137,6 @@ fn open_and_load_status(series_id: SeriesId, segment_index: usize) {
     state().update(|s| {
         seq = s.request_seq.wrapping_add(1);
         *s = BatchDownloadState {
-            open: true,
             series_id: Some(series_id),
             segment_index,
             selected: BTreeSet::new(),

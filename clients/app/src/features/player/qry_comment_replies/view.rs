@@ -1,6 +1,7 @@
 use hg_contracts::catalog::{CommentReply, EpisodeComment};
 use nsh_core::prelude::*;
 
+use super::super::store;
 use super::query::{
     self, CommentRepliesState, format_parent_meta, format_reply_meta, nickname_initial,
 };
@@ -12,11 +13,16 @@ use crate::ui::token;
 
 pub fn comment_replies_drawer() -> impl IntoElement {
     query::reset_state();
-    effect(query::sync_from_player_store);
+    let active_target = computed(store::active_replies_target);
 
-    when(query::is_open, move || {
+    dynamic(move || {
+        let Some((series_id, comment_id)) = active_target.get() else {
+            query::reset_state();
+            return view().into_element();
+        };
+        untracked(move || query::open_from_player_store(series_id, comment_id));
         on_key("escape", |_| query::close());
-        drawer_overlay()
+        drawer_overlay().into_element()
     })
 }
 

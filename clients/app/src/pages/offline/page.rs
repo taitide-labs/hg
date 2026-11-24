@@ -40,13 +40,12 @@ pub fn offline_page(
         .into_element();
     }
 
-    let tab_sig = global::<OfflineTab>();
     let default_tab = if flags.library {
         OfflineTab::Downloaded
     } else {
         OfflineTab::Queue
     };
-    tab_sig.set(default_tab);
+    let tab_sig = signal(default_tab);
 
     let tabs = vec![
         (OfflineTab::Downloaded, "已下载"),
@@ -58,7 +57,11 @@ pub fn offline_page(
         .min_h_0()
         .p_6()
         .gap_5()
-        .child(segmented_tabs(tabs, tab_sig, move |next| tab_sig.set(next)))
+        .child(segmented_tabs(
+            tabs,
+            move || tab_sig.get(),
+            move |next| tab_sig.set(next),
+        ))
         .child(scroll().flex_1().min_h_0().child(dynamic(move || {
             match tab_sig.get() {
                 OfflineTab::Downloaded if flags.library => {

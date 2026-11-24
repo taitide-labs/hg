@@ -56,7 +56,6 @@ pub fn download_policy_section() -> impl IntoElement {
 }
 
 fn loaded_policy_card() -> impl IntoElement {
-    let concurrency_sig = handler::concurrency_signal();
     let error_msg = computed(handler::error_message);
     let wifi_only = || {
         store::state().with(|s| {
@@ -121,7 +120,7 @@ fn loaded_policy_card() -> impl IntoElement {
                 )
                 .child(segmented_tabs(
                     CONCURRENCY_PRESETS.to_vec(),
-                    concurrency_sig,
+                    handler::selected_concurrency,
                     handler::select_max_concurrent,
                 )),
         )

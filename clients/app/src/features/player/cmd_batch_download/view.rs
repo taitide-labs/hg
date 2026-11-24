@@ -15,12 +15,17 @@ use crate::ui::token;
 
 pub fn batch_download_drawer() -> impl IntoElement {
     handler::reset_state();
-    effect(handler::sync_from_player_store);
+    let open = computed(store::is_batch_download_ready);
 
-    when(handler::is_open, move || {
-        on_key("escape", |_| handler::close());
-        drawer_overlay()
-    })
+    when(
+        move || open.get(),
+        move || {
+            untracked(handler::open_from_player_store);
+            cleanup(handler::reset_state);
+            on_key("escape", |_| handler::close());
+            drawer_overlay()
+        },
+    )
 }
 
 fn drawer_overlay() -> impl IntoElement {

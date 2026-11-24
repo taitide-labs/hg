@@ -1,4 +1,4 @@
-name: "hg CodeQL Config"
+name: "Workspace CodeQL Config"
 
 paths-ignore:
   - "**/tests/**"
