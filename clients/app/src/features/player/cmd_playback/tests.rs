@@ -3,9 +3,70 @@ use std::num::NonZeroU32;
 use hg_contracts::ids::EpisodeNumber;
 
 use super::command::{
-    AspectPreset, adjacent_episode, clamp_seek, episode_segment_ranges, folded_episode_window,
-    format_rate_trigger, step_rate,
+    AspectPreset, ResumePlan, adjacent_episode, clamp_seek, episode_segment_ranges,
+    folded_episode_window, format_rate_trigger, resume_plan, step_rate,
 };
+
+fn ep(value: u32) -> EpisodeNumber {
+    EpisodeNumber::new(NonZeroU32::new(value).unwrap_or(NonZeroU32::MIN))
+}
+
+#[test]
+fn resume_plan_continues_last_unfinished_episode_at_saved_position() {
+    assert_eq!(
+        resume_plan(None, Some((ep(7), 83, false)), 40),
+        ResumePlan {
+            episode: ep(7),
+            position_secs: Some(83)
+        }
+    );
+    assert_eq!(
+        resume_plan(Some(ep(7)), Some((ep(7), 83, false)), 40),
+        ResumePlan {
+            episode: ep(7),
+            position_secs: Some(83)
+        }
+    );
+}
+
+#[test]
+fn resume_plan_advances_past_completed_episode_and_respects_explicit_choice() {
+    assert_eq!(
+        resume_plan(None, Some((ep(7), 120, true)), 40),
+        ResumePlan {
+            episode: ep(8),
+            position_secs: None
+        }
+    );
+    assert_eq!(
+        resume_plan(None, Some((ep(40), 120, true)), 40),
+        ResumePlan {
+            episode: ep(40),
+            position_secs: None
+        }
+    );
+    assert_eq!(
+        resume_plan(Some(ep(3)), Some((ep(7), 83, false)), 40),
+        ResumePlan {
+            episode: ep(3),
+            position_secs: None
+        }
+    );
+    assert_eq!(
+        resume_plan(None, None, 40),
+        ResumePlan {
+            episode: ep(1),
+            position_secs: None
+        }
+    );
+    assert_eq!(
+        resume_plan(None, Some((ep(2), 0, false)), 40),
+        ResumePlan {
+            episode: ep(2),
+            position_secs: None
+        }
+    );
+}
 
 #[test]
 fn potplayer_aspect_digits_map_one_through_four() {

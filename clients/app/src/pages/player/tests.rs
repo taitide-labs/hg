@@ -24,6 +24,8 @@ pub(super) fn start_and_open_first_series(scheme: ColorScheme) -> Headless {
     .unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
     app.press("云端之上：千金归来 >> nth=0").unwrap();
+    app.wait_for("选集 (3/68)").unwrap();
+    app.press("1").unwrap();
     app.wait_for("选集 (1/68)").unwrap();
     app
 }

@@ -6,7 +6,7 @@ use hg_contracts::viewing::{PlaybackMode, PlaybackOrigin, ReportWatchProgressReq
 use nsh_core::prelude::*;
 
 use super::super::store;
-use super::command::{adjacent_episode, clamp_seek, step_rate, step_volume};
+use super::command::{adjacent_episode, clamp_seek, resume_plan, step_rate, step_volume};
 use crate::gateway;
 
 pub fn open_series(
@@ -16,16 +16,31 @@ pub fn open_series(
 ) {
     store::reset_for_open(default_mode);
     let gw = gateway::current();
-    let target_ep = initial_episode
-        .unwrap_or_else(|| EpisodeNumber::new(NonZeroU32::new(1).unwrap_or(NonZeroU32::MIN)));
 
     spawn(async move {
         let detail_res = gw.series_detail(series_id).await;
         let is_bookmarked = gw.is_bookmarked(series_id).await.unwrap_or(false);
+        let last_watched = gw.watch_history().await.ok().and_then(|entries| {
+            entries
+                .into_iter()
+                .find(|entry| entry.series_id == series_id)
+                .map(|entry| {
+                    (
+                        entry.last_episode,
+                        entry.position_secs,
+                        entry.episode_completed,
+                    )
+                })
+        });
         match detail_res {
             Ok(detail) => {
+                let plan = resume_plan(initial_episode, last_watched, detail.total_episodes);
                 store::set_detail(detail, is_bookmarked);
-                load_episode_internal(series_id, target_ep).await;
+                load_episode_internal(series_id, plan.episode).await;
+                if let Some(position) = plan.position_secs {
+                    store::seek_to(position);
+                    store::mark_progress_reported(position);
+                }
             }
             Err(err) => store::set_error(err.to_string()),
         }

@@ -149,6 +149,28 @@ fn parses_series_detail_with_aliases_and_status_flags() {
 }
 
 #[test]
+fn falls_back_to_episode_list_when_upstream_reports_zero_totals() {
+    let series_id = SeriesId::try_from(117).expect("series 117");
+    let payload = json!({
+        "status": 1,
+        "data": {
+            "title": "连载短剧",
+            "total_episodes": 0,
+            "episode_count": 0,
+            "episodes": [
+                { "ep": 1, "duration_secs": 90, "status": 1 },
+                { "ep": 2, "duration_secs": 95, "status": 1 },
+                { "ep": 3, "duration_secs": 99, "status": 1 }
+            ]
+        }
+    });
+
+    let detail = parse_series_detail(series_id, &payload).expect("detail should parse");
+    assert_eq!(detail.total_episodes, 3);
+    assert_eq!(detail.summary.episode_count, 3);
+}
+
+#[test]
 fn rejects_series_detail_without_data_or_zero_episode() {
     let series_id = SeriesId::try_from(7).expect("series 7");
     let missing_data = json!({ "status": 1 });
