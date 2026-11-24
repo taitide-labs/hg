@@ -29,3 +29,11 @@ run = "cargo deny check"
 [tasks.app]
 description = "Run NSH client app"
 run = "nsh run clients/app"
+
+[tasks.hooks]
+description = "Install quiet hk git hooks without progress bar spam"
+run = [
+  "hk install --mise",
+  "git config hook.hk-pre-commit.command 'test \"${HK:-1}\" = \"0\" || mise x -- hk run pre-commit --from-hook -q -n'",
+  "git config hook.hk-commit-msg.command 'test \"${HK:-1}\" = \"0\" || mise x -- hk run commit-msg --from-hook -q -n'",
+]
