@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/taitide-labs/hg/compare/v0.1.0...v0.1.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **player-windows:** 修复 MpvEngine 跨线程 Send 约束与事件线程句柄捕获 ([#79](https://github.com/taitide-labs/hg/issues/79)) ([e23a9fe](https://github.com/taitide-labs/hg/commit/e23a9fee9cd32a1776a52dba3ac4a10404536078))
+
 ## 0.1.0 (2026-11-24)
 
 
