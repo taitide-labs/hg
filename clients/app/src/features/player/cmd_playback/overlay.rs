@@ -18,15 +18,21 @@ pub fn video_surface_box(
     on_toggle_fullscreen: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
     let frame = view()
+        .label("视频画面")
         .w_full()
         .flex_1()
         .min_h_0()
         .relative()
         .overflow_hidden()
         .bg(token::cinema_bg)
+        .on_mouse_enter(|_: &nsh_core::MouseEvent| store::set_controls_hovered(true))
+        .on_mouse_move(|_: &nsh_core::MouseEvent| store::set_controls_hovered(true))
+        .on_mouse_leave(|_: &nsh_core::MouseEvent| store::set_controls_hovered(false))
         .child(video_picture_area(on_back))
         .child(bottom_right_popover())
-        .child(bottom_control_bar(on_toggle_fullscreen));
+        .child(when(store::should_show_controls, move || {
+            bottom_control_bar(on_toggle_fullscreen)
+        }));
 
     if fullscreen {
         frame.into_element()
@@ -37,9 +43,7 @@ pub fn video_surface_box(
 
 fn video_picture_area(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
     view()
-        .w_full()
-        .flex_1()
-        .min_h_0()
+        .size_full()
         .relative()
         .items_center()
         .justify_center()
@@ -188,9 +192,13 @@ fn speed_popover() -> impl IntoElement {
 }
 
 fn bottom_control_bar(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> impl IntoElement {
+    let enter = token::fade_enter();
     view()
-        .w_full()
-        .flex_shrink_0()
+        .bind_motion(&enter)
+        .absolute()
+        .left_0()
+        .right_0()
+        .bottom_0()
         .bg(token::cinema_scrim)
         .px_3()
         .pt_2()

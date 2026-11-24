@@ -72,6 +72,10 @@ fn synopsis_and_episodes_fold_by_default_and_expand_in_place() {
 fn in_video_bottom_right_settings_and_speed_popovers_work() {
     let mut app = start_and_open_first_series(ColorScheme::Dark);
 
+    assert!(!app.screen().shows("倍速"));
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+
     app.press("倍速").unwrap();
     app.wait_for("1.5×").unwrap();
     app.press("1.5×").unwrap();
@@ -91,15 +95,18 @@ fn in_video_bottom_right_settings_and_speed_popovers_work() {
 fn true_fullscreen_and_vertical_view_hide_chrome_and_restore_cleanly() {
     let mut app = start_and_open_first_series(ColorScheme::Light);
 
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
     app.press("全屏").unwrap();
     app.wait_for_gone("选集 (1/68)", Duration::from_secs(2))
         .unwrap();
     app.wait_for_gone("离线下载", Duration::from_secs(2))
         .unwrap();
 
-    app.press("全屏").unwrap();
+    app.press_key("enter").unwrap();
     app.wait_for("选集 (1/68)").unwrap();
 
+    app.hover("视频画面").unwrap();
     app.press("竖屏视图").unwrap();
     app.wait_for("详情视图").unwrap();
     app.press("详情视图").unwrap();

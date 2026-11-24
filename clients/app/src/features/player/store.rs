@@ -38,6 +38,7 @@ pub struct PlayerState {
     pub paused: bool,
     pub muted: bool,
     pub fullscreen: bool,
+    pub controls_hovered: bool,
     pub auto_advance: bool,
     pub loop_single: bool,
     pub bookmarked: bool,
@@ -65,6 +66,7 @@ impl Default for PlayerState {
             paused: false,
             muted: false,
             fullscreen: false,
+            controls_hovered: false,
             auto_advance: true,
             loop_single: false,
             bookmarked: false,
@@ -176,6 +178,18 @@ pub fn toggle_paused() {
 
 pub fn toggle_muted() {
     state().update(|s| s.muted = !s.muted);
+}
+
+#[must_use]
+pub fn should_show_controls() -> bool {
+    state().with(|s| s.controls_hovered || s.paused || s.popover != ActivePopover::None)
+}
+
+pub fn set_controls_hovered(hovered: bool) {
+    let current = state().with_untracked(|s| s.controls_hovered);
+    if current != hovered {
+        state().update(|s| s.controls_hovered = hovered);
+    }
 }
 
 #[must_use]
