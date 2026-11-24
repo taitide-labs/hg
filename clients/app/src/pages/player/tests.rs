@@ -4,8 +4,14 @@ use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Root, Size}
 use nsh_testing::Headless;
 
 use crate::App;
+use crate::app::flags::{self, FeatureFlags};
 
 fn start_and_open_first_series(scheme: ColorScheme) -> Headless {
+    start_with_flags(scheme, FeatureFlags::default())
+}
+
+fn start_with_flags(scheme: ColorScheme, override_flags: FeatureFlags) -> Headless {
+    flags::set_for_test(override_flags);
     let environment = Environment {
         os: Os::MacOs,
         color_scheme: scheme,
@@ -133,14 +139,33 @@ fn bookmark_and_offline_download_actions_update_state() {
 }
 
 #[test]
-#[ignore = "待 player 进阶切片实现并启用 PLAYER_ENHANCEMENTS 开关后激活"]
-fn expanding_comment_replies_and_batch_downloading_episodes_from_player() {
-    let mut app = start_and_open_first_series(ColorScheme::Light);
+#[ignore = "待 player/qry_comment_replies 切片实现后激活"]
+fn expanding_comment_replies_loads_nested_reply_drawer() {
+    let mut app = start_with_flags(
+        ColorScheme::Light,
+        FeatureFlags {
+            player_comment_replies: true,
+            ..FeatureFlags::default()
+        },
+    );
 
     app.wait_for("共 2 条回复").unwrap();
     app.press("共 2 条回复").unwrap();
+    app.wait_for("全部回复").unwrap();
     app.wait_for("南风知意").unwrap();
     app.wait_for("周游记").unwrap();
+}
+
+#[test]
+#[ignore = "待 player/cmd_batch_download 切片实现后激活"]
+fn batch_downloading_episodes_from_player_enqueues_selection() {
+    let mut app = start_with_flags(
+        ColorScheme::Light,
+        FeatureFlags {
+            player_batch_download: true,
+            ..FeatureFlags::default()
+        },
+    );
 
     app.press("离线下载").unwrap();
     app.wait_for("选择离线下载分集").unwrap();

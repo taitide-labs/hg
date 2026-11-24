@@ -62,16 +62,20 @@ pub fn app_shell() -> impl IntoElement {
         }))
         .child(
             when(in_player, || {
-                dynamic(|| match nav::active_player() {
-                    Some(route) => pages::player::page::player_page(
-                        route.series_id,
-                        route.initial_episode,
-                        flags::player_enhancements_enabled(),
-                        nav::close_player,
-                        nav::set_chrome_fullscreen,
-                    )
-                    .into_element(),
-                    None => view().into_element(),
+                dynamic(|| {
+                    let flags = flags::current();
+                    match nav::active_player() {
+                        Some(route) => pages::player::page::player_page(
+                            route.series_id,
+                            route.initial_episode,
+                            flags.player_comment_replies,
+                            flags.player_batch_download,
+                            nav::close_player,
+                            nav::set_chrome_fullscreen,
+                        )
+                        .into_element(),
+                        None => view().into_element(),
+                    }
                 })
             })
             .otherwise(main_chrome),
@@ -222,15 +226,30 @@ fn active_tab_content() -> impl IntoElement {
             )
             .into_element(),
             PrimaryTab::Watchlist => {
-                pages::watchlist::page::watchlist_page(flags::watchlist_enabled(), nav::open_player)
-                    .into_element()
+                let flags = flags::current();
+                pages::watchlist::page::watchlist_page(
+                    flags.watchlist_history,
+                    flags.watchlist_bookmarks,
+                    nav::open_player,
+                )
+                .into_element()
             }
             PrimaryTab::Offline => {
-                pages::offline::page::offline_page(flags::offline_enabled(), nav::open_player)
-                    .into_element()
+                let flags = flags::current();
+                pages::offline::page::offline_page(
+                    flags.offline_library,
+                    flags.offline_queue,
+                    nav::open_player,
+                )
+                .into_element()
             }
             PrimaryTab::Settings => {
-                pages::settings::page::settings_page(flags::settings_enabled()).into_element()
+                let flags = flags::current();
+                pages::settings::page::settings_page(
+                    flags.settings_preferences,
+                    flags.settings_storage,
+                )
+                .into_element()
             }
         }))
 }

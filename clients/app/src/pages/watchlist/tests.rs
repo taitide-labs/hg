@@ -4,8 +4,10 @@ use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Root, Size}
 use nsh_testing::Headless;
 
 use crate::App;
+use crate::app::flags::{self, FeatureFlags};
 
-fn start_on_watchlist() -> Headless {
+fn start_on_watchlist(override_flags: FeatureFlags) -> Headless {
+    flags::set_for_test(override_flags);
     let environment = Environment {
         os: Os::MacOs,
         color_scheme: ColorScheme::Light,
@@ -23,31 +25,38 @@ fn start_on_watchlist() -> Headless {
 }
 
 #[test]
-#[ignore = "待 watchlist 切片实现并启用 WATCHLIST_PAGE 开关后激活"]
-fn watchlist_displays_recent_history_and_bookmarks_and_resumes_episode() {
-    let mut app = start_on_watchlist();
+#[ignore = "待 watchlist/qry_history 切片实现后激活"]
+fn watch_history_shows_recent_items_resumes_episode_and_removes_entry() {
+    let mut app = start_on_watchlist(FeatureFlags {
+        watchlist_history: true,
+        ..FeatureFlags::default()
+    });
 
     app.wait_for("最近观看").unwrap();
-    app.wait_for("我的追剧").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
     app.wait_for("第 3 集").unwrap();
-    app.wait_for("雾港七日").unwrap();
+    app.wait_for("长安暗夜行").unwrap();
+
+    app.press("移除 长安暗夜行 观看记录").unwrap();
+    app.wait_for_gone("长安暗夜行", Duration::from_secs(2))
+        .unwrap();
 
     app.press("云端之上：千金归来 >> nth=0").unwrap();
     app.wait_for("选集 (3/68)").unwrap();
 }
 
 #[test]
-#[ignore = "待 watchlist 切片实现并启用 WATCHLIST_PAGE 开关后激活"]
-fn removing_history_entry_and_bookmark_updates_watchlist() {
-    let mut app = start_on_watchlist();
+#[ignore = "待 watchlist/qry_bookmarks 切片实现后激活"]
+fn bookmarks_shows_saved_series_and_allows_unbookmarking() {
+    let mut app = start_on_watchlist(FeatureFlags {
+        watchlist_bookmarks: true,
+        ..FeatureFlags::default()
+    });
 
-    app.wait_for("长安暗夜行").unwrap();
-    app.press("移除 长安暗夜行 观看记录").unwrap();
-    app.wait_for_gone("长安暗夜行", Duration::from_secs(2))
-        .unwrap();
-
+    app.wait_for("我的追剧").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
     app.wait_for("雾港七日").unwrap();
+
     app.press("取消追剧 雾港七日").unwrap();
     app.wait_for_gone("雾港七日", Duration::from_secs(2))
         .unwrap();

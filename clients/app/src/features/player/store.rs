@@ -1,5 +1,5 @@
 use hg_contracts::catalog::{EpisodeComment, SeriesDetail};
-use hg_contracts::ids::EpisodeNumber;
+use hg_contracts::ids::{CommentId, EpisodeNumber};
 use hg_contracts::viewing::{PlaybackMode, PlaybackSource};
 use nsh_core::prelude::*;
 
@@ -46,6 +46,8 @@ pub struct PlayerState {
     pub episodes_expanded: bool,
     pub episode_segment_index: usize,
     pub popover: ActivePopover,
+    pub active_replies_comment: Option<CommentId>,
+    pub batch_download_open: bool,
     pub volume_percent: u8,
     pub rate_hundredths: u16,
     pub position_secs: u32,
@@ -74,6 +76,8 @@ impl Default for PlayerState {
             episodes_expanded: false,
             episode_segment_index: 0,
             popover: ActivePopover::None,
+            active_replies_comment: None,
+            batch_download_open: false,
             volume_percent: 80,
             rate_hundredths: 100,
             position_secs: 0,
@@ -235,6 +239,14 @@ pub fn toggle_popover(target: ActivePopover) {
 
 pub fn close_popover() {
     state().update(|s| s.popover = ActivePopover::None);
+}
+
+pub fn open_comment_replies(comment_id: CommentId) {
+    state().update(|s| s.active_replies_comment = Some(comment_id));
+}
+
+pub fn set_batch_download_open(open: bool) {
+    state().update(|s| s.batch_download_open = open);
 }
 
 pub fn set_volume(volume_percent: u8) {
