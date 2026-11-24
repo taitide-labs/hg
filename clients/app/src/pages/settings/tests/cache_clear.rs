@@ -3,7 +3,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_settings;
 
 #[test]
-#[ignore = "待 settings/cmd_clear_cache 实现后激活"]
 fn clearing_cache_zeroes_cache_without_touching_offline_library() {
     let mut app = start_on_settings(FeatureFlags {
         settings_storage: true,
