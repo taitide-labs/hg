@@ -1331,6 +1331,7 @@ version = "0.1.0"
 dependencies = [
  "hg-contracts",
  "hg-gateway",
+ "hg-native-player",
  "nsh-base",
  "nsh-core",
  "nsh-engine",
@@ -1416,6 +1417,17 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "hg-native-player"
+version = "0.1.0"
+dependencies = [
+ "nsh-core",
+ "nsh-platform-macos",
+ "nsh-platform-windows",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
