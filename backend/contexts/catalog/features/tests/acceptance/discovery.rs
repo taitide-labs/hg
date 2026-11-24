@@ -124,7 +124,7 @@ async fn discovery_caches_home_feed_and_routes_search_dynamically() {
             .first()
             .expect("call")
             .scope,
-        EdgeChannelScope::Public
+        EdgeChannelScope::Dynamic
     );
 
     let search = qry_discovery::search_series(

@@ -130,7 +130,7 @@ fn page_req(page: u32, size: u16) -> PageRequest {
 #[test]
 fn static_routes_use_public_scope_and_expected_ttls() {
     assert_eq!(home_feed_route().path, "/api/home");
-    assert_eq!(home_feed_route().scope, EdgeChannelScope::Public);
+    assert_eq!(home_feed_route().scope, EdgeChannelScope::Dynamic);
     assert_eq!(
         home_feed_route().ttl_secs,
         Some(CATALOG_LIST_CACHE_TTL_SECS)
@@ -220,8 +220,8 @@ fn series_and_search_routes_assign_paths_and_dynamic_scopes() {
         search_suggestions_route("夜雨").expect("suggest").path,
         "/api/search/suggest?q=%E5%A4%9C%E9%9B%A8&type=video"
     );
-    assert_eq!(hot_keywords_route().scope, EdgeChannelScope::Dynamic);
-    assert_eq!(hot_tags_route().scope, EdgeChannelScope::Dynamic);
+    assert_eq!(hot_keywords_route().scope, EdgeChannelScope::Public);
+    assert_eq!(hot_tags_route().scope, EdgeChannelScope::Public);
     assert_eq!(percent_encode("a-b_c.d~1 "), "a-b_c.d~1%20");
 }
 

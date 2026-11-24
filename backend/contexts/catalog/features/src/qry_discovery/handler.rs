@@ -3,7 +3,6 @@ use hg_contracts::catalog::{
     RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesSummary, TagGroup,
 };
 use hg_contracts::error::ContractError;
-use hg_infra::edge_crypto::EdgeChannelScope;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -31,11 +30,7 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce(Value) -> Result<T, ContractError>,
 {
-    let cache_ttl = if route.scope == EdgeChannelScope::Public {
-        route.ttl_secs
-    } else {
-        None
-    };
+    let cache_ttl = route.ttl_secs;
 
     if cache_ttl.is_some() {
         let now = deps.clock.now_epoch_secs();

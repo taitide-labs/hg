@@ -314,7 +314,7 @@ async fn detail_cache_respects_ttl_and_comments_use_dynamic_scope() {
 
     let first = series_detail(&deps, series_id).await.expect("first detail");
     assert_eq!(first.summary.title, "测试剧目");
-    assert_eq!(*upstream.last_scope.lock(), Some(EdgeChannelScope::Public));
+    assert_eq!(*upstream.last_scope.lock(), Some(EdgeChannelScope::Dynamic));
     assert_eq!(upstream.detail_calls.load(Ordering::SeqCst), 1);
 
     let cached = series_detail(&deps, series_id)

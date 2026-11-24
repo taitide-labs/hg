@@ -93,6 +93,8 @@ async fn playback_prefers_offline_without_network_and_halts_on_delete() {
             kind: OnlineStreamKind::Hevc
         }
     );
+    assert!(online_source.playable_uri.starts_with("http://127.0.0.1:"));
+    assert!(online_source.playable_uri.contains("/online/"));
     assert_eq!(harness.catalog.recorded_ticket_calls(), vec![online_key]);
 
     harness.shutdown().await;

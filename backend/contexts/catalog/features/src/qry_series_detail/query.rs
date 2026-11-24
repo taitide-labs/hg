@@ -57,7 +57,7 @@ pub async fn fetch_series_detail(
     let path = format!("/api/videos/{series_id}");
     let payload = deps
         .upstream
-        .request_json(EdgeChannelScope::Public, "GET", &path, None)
+        .request_json(EdgeChannelScope::Dynamic, "GET", &path, None)
         .await?;
     let detail = parser::parse_series_detail(series_id, &payload)?;
     store_cached_series_detail(deps, &cache_key, &detail, now).await?;

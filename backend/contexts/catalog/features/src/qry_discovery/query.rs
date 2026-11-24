@@ -30,7 +30,7 @@ pub fn ensure_enabled(enabled: bool) -> Result<(), ContractError> {
 pub fn home_feed_route() -> UpstreamRoute {
     UpstreamRoute {
         path: "/api/home".to_owned(),
-        scope: EdgeChannelScope::Public,
+        scope: EdgeChannelScope::Dynamic,
         ttl_secs: Some(CATALOG_LIST_CACHE_TTL_SECS),
     }
 }
@@ -160,7 +160,7 @@ pub fn search_suggestions_route(keyword: &str) -> Option<UpstreamRoute> {
             "/api/search/suggest?q={}&type=video",
             percent_encode(trimmed)
         ),
-        scope: EdgeChannelScope::Dynamic,
+        scope: EdgeChannelScope::Public,
         ttl_secs: None,
     })
 }
@@ -169,7 +169,7 @@ pub fn search_suggestions_route(keyword: &str) -> Option<UpstreamRoute> {
 pub fn hot_keywords_route() -> UpstreamRoute {
     UpstreamRoute {
         path: "/api/search/hot".to_owned(),
-        scope: EdgeChannelScope::Dynamic,
+        scope: EdgeChannelScope::Public,
         ttl_secs: None,
     }
 }
@@ -178,7 +178,7 @@ pub fn hot_keywords_route() -> UpstreamRoute {
 pub fn hot_tags_route() -> UpstreamRoute {
     UpstreamRoute {
         path: "/api/search/tags/hot".to_owned(),
-        scope: EdgeChannelScope::Dynamic,
+        scope: EdgeChannelScope::Public,
         ttl_secs: None,
     }
 }

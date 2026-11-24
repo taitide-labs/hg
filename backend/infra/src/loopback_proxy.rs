@@ -3,6 +3,7 @@ use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use bytes::Bytes;
 use hg_backend_contracts::error::{PortError, PortFuture};
@@ -22,10 +23,20 @@ use tokio::sync::oneshot;
 use crate::error::InfraError;
 use crate::storage::StorageLayout;
 
+mod online;
+
+use online::{OnlineStreamSession, build_online_session, proxy_online_request};
+
+#[derive(Debug, Clone)]
+enum SessionTarget {
+    Offline { episode_dir: PathBuf },
+    Online(OnlineStreamSession),
+}
+
 #[derive(Debug, Clone)]
 struct RegisteredSession {
     key: EpisodeKey,
-    episode_dir: PathBuf,
+    target: SessionTarget,
 }
 
 #[derive(Debug, Default)]
@@ -37,6 +48,7 @@ struct SessionRegistry {
 struct LoopbackInner {
     addr: SocketAddr,
     storage: Arc<StorageLayout>,
+    http_client: reqwest::Client,
     registry: Mutex<SessionRegistry>,
     next_token: AtomicU64,
     shutdown_tx: Mutex<Option<oneshot::Sender<()>>>,
@@ -52,10 +64,18 @@ impl LoopbackProxyHandle {
         let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
         let addr = listener.local_addr()?;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
+        let http_client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|err| InfraError::Crypto {
+                detail: format!("初始化回环代理客户端失败: {err}"),
+            })?;
 
         let inner = Arc::new(LoopbackInner {
             addr,
             storage,
+            http_client,
             registry: Mutex::new(SessionRegistry::default()),
             next_token: AtomicU64::new(1),
             shutdown_tx: Mutex::new(Some(shutdown_tx)),
@@ -100,13 +120,39 @@ impl LoopbackProxyHandle {
             key.ep_num,
             self.inner.next_token.fetch_add(1, Ordering::SeqCst)
         );
-        self.inner
-            .registry
-            .lock()
-            .sessions
-            .insert(token.clone(), RegisteredSession { key, episode_dir });
+        self.inner.registry.lock().sessions.insert(
+            token.clone(),
+            RegisteredSession {
+                key,
+                target: SessionTarget::Offline { episode_dir },
+            },
+        );
 
         Ok(format!("{}/offline/{token}/{file_name}", self.base_url()))
+    }
+
+    pub fn register_online_stream(
+        &self,
+        key: EpisodeKey,
+        stream_url: &str,
+        headers: &[(String, String)],
+    ) -> Result<String, InfraError> {
+        let session = build_online_session(stream_url, headers)?;
+        let token = format!(
+            "online-{}-{}-{}",
+            key.series_id,
+            key.ep_num,
+            self.inner.next_token.fetch_add(1, Ordering::SeqCst)
+        );
+        self.inner.registry.lock().sessions.insert(
+            token.clone(),
+            RegisteredSession {
+                key,
+                target: SessionTarget::Online(session),
+            },
+        );
+
+        Ok(format!("{}/online/{token}/manifest.m3u8", self.base_url()))
     }
 
     #[must_use]
@@ -173,16 +219,47 @@ async fn handle_request(req: Request<Incoming>, inner: &LoopbackInner) -> Respon
         return empty_response(StatusCode::METHOD_NOT_ALLOWED);
     }
 
-    let Some((token, rel_file)) = parse_offline_request_path(req.uri().path()) else {
-        return empty_response(StatusCode::BAD_REQUEST);
-    };
+    if let Some((token, rel_file)) = parse_scoped_path(req.uri().path(), "/offline/") {
+        return handle_offline_request(req.method(), token, rel_file, inner).await;
+    }
 
+    if let Some((token, subpath)) = parse_scoped_path(req.uri().path(), "/online/") {
+        let session = {
+            let guard = inner.registry.lock();
+            match guard.sessions.get(token).map(|s| &s.target) {
+                Some(SessionTarget::Online(online_session)) => Some(online_session.clone()),
+                Some(SessionTarget::Offline { .. }) | None => None,
+            }
+        };
+        let Some(online_session) = session else {
+            return empty_response(StatusCode::GONE);
+        };
+        return proxy_online_request(
+            &inner.http_client,
+            req.method(),
+            token,
+            subpath,
+            req.uri().query(),
+            &online_session,
+        )
+        .await;
+    }
+
+    empty_response(StatusCode::BAD_REQUEST)
+}
+
+async fn handle_offline_request(
+    method: &Method,
+    token: &str,
+    rel_file: &str,
+    inner: &LoopbackInner,
+) -> Response<Full<Bytes>> {
     let episode_dir = {
         let guard = inner.registry.lock();
-        guard
-            .sessions
-            .get(token)
-            .map(|session| session.episode_dir.clone())
+        match guard.sessions.get(token).map(|s| &s.target) {
+            Some(SessionTarget::Offline { episode_dir }) => Some(episode_dir.clone()),
+            Some(SessionTarget::Online(_)) | None => None,
+        }
     };
 
     let Some(base_dir) = episode_dir else {
@@ -203,7 +280,7 @@ async fn handle_request(req: Request<Incoming>, inner: &LoopbackInner) -> Respon
     };
 
     let content_type = content_type_for_path(&target_file);
-    let body = if req.method() == Method::HEAD {
+    let body = if *method == Method::HEAD {
         Bytes::new()
     } else {
         Bytes::from(bytes)
@@ -216,8 +293,8 @@ async fn handle_request(req: Request<Incoming>, inner: &LoopbackInner) -> Respon
         .unwrap_or_else(|_| empty_response(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
-fn parse_offline_request_path(path: &str) -> Option<(&str, &str)> {
-    let trimmed = path.strip_prefix("/offline/")?;
+fn parse_scoped_path<'a>(path: &'a str, prefix: &str) -> Option<(&'a str, &'a str)> {
+    let trimmed = path.strip_prefix(prefix)?;
     let (token, rel) = trimmed.split_once('/')?;
     if token.is_empty() || rel.is_empty() {
         return None;

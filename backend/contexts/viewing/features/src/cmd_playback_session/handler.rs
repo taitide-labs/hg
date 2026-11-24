@@ -78,7 +78,37 @@ async fn resolve_online_playback_source(
         .fetch_playback_ticket(key)
         .await
         .map_err(ContractError::from)?;
-    plan_online_source(key, &ticket, preferred_profile)
+    let mut source = plan_online_source(key, &ticket, preferred_profile)?;
+    let headers = collect_cdn_headers(&ticket.cdn);
+    source.playable_uri = deps
+        .loopback
+        .register_online_stream(key, &source.playable_uri, &headers)
+        .map_err(|err| ContractError::from(PortError::from(err)))?;
+    Ok(source)
+}
+
+fn collect_cdn_headers(
+    cdn: &hg_backend_contracts::catalog::CdnAuthHeaders,
+) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    if !cdn.referer.trim().is_empty() {
+        headers.push(("Referer".to_owned(), cdn.referer.clone()));
+    }
+    if !cdn.user_agent.trim().is_empty() {
+        headers.push(("User-Agent".to_owned(), cdn.user_agent.clone()));
+    }
+    if let (Some(name), Some(value)) = (&cdn.auth_header_name, &cdn.auth_header_value)
+        && !name.trim().is_empty()
+        && !value.trim().is_empty()
+    {
+        headers.push((name.clone(), value.clone()));
+    }
+    if let Some(app) = &cdn.cdn_app
+        && !app.trim().is_empty()
+    {
+        headers.push(("x-cdn-app".to_owned(), app.clone()));
+    }
+    headers
 }
 
 async fn load_preferred_profile(deps: &ViewingDeps) -> Result<StreamProfile, ContractError> {
