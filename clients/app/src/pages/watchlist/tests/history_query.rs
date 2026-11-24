@@ -3,7 +3,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_watchlist;
 
 #[test]
-#[ignore = "待 watchlist/qry_history 实现后激活"]
 fn watch_history_shows_recent_items_and_resumes_episode() {
     let mut app = start_on_watchlist(FeatureFlags {
         watchlist_history: true,
