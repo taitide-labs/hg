@@ -99,7 +99,6 @@ async fn series_detail_disabled_by_default_returns_feature_flag_error() {
 }
 
 #[tokio::test]
-#[ignore = "待实现剧目详情、评论与封面解密切片后激活"]
 async fn series_detail_comments_and_metadata_port_decrypt_and_cache_covers() {
     let cover_plain = b"\x89PNG\r\n\x1a\ncatalog-cover-image";
     let key: [u8; 16] = *b"f5d965df75336270";

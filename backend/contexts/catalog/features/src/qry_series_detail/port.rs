@@ -4,7 +4,7 @@ use hg_contracts::ids::{EpisodeKey, SeriesId};
 
 use crate::CatalogDeps;
 
-use super::query::FEATURE_NAME;
+use super::query::{fetch_decrypted_cover, fetch_series_detail};
 
 #[derive(Clone)]
 pub struct CatalogMetadataAdapter {
@@ -16,42 +16,52 @@ impl CatalogMetadataAdapter {
     pub const fn new(deps: CatalogDeps) -> Self {
         Self { deps }
     }
-
-    fn disabled_or_stub(&self) -> PortError {
-        if self.deps.flags.detail_and_comments {
-            PortError::InvalidState {
-                detail: format!("{FEATURE_NAME} 切片尚未实现"),
-            }
-        } else {
-            PortError::InvalidState {
-                detail: format!("{FEATURE_NAME} 特性开关未开启"),
-            }
-        }
-    }
 }
 
 impl CatalogMetadataPort for CatalogMetadataAdapter {
     fn fetch_series_snapshot(
         &self,
-        _series_id: SeriesId,
+        series_id: SeriesId,
     ) -> PortFuture<'_, Result<SeriesSnapshot, PortError>> {
-        let err = self.disabled_or_stub();
-        Box::pin(async move { Err(err) })
+        Box::pin(async move {
+            let detail = fetch_series_detail(&self.deps, series_id).await?;
+            Ok(SeriesSnapshot {
+                series_id: detail.summary.id,
+                title: detail.summary.title,
+                cover_url: detail.summary.cover_url,
+                total_episodes: detail.total_episodes,
+                is_finished: detail.summary.is_finished,
+                score: detail.summary.score,
+            })
+        })
     }
 
     fn fetch_episode_snapshot(
         &self,
-        _key: EpisodeKey,
+        key: EpisodeKey,
     ) -> PortFuture<'_, Result<EpisodeSnapshot, PortError>> {
-        let err = self.disabled_or_stub();
-        Box::pin(async move { Err(err) })
+        Box::pin(async move {
+            let detail = fetch_series_detail(&self.deps, key.series_id).await?;
+            let episode = detail
+                .episodes
+                .into_iter()
+                .find(|ep| ep.ep_num == key.ep_num)
+                .ok_or_else(|| PortError::NotFound {
+                    resource: format!("series/{}/episodes/{}", key.series_id, key.ep_num),
+                })?;
+            Ok(EpisodeSnapshot {
+                key,
+                title: episode.title,
+                duration_secs: episode.duration_secs,
+                playable: episode.playable,
+            })
+        })
     }
 
     fn fetch_decrypted_cover<'a>(
         &'a self,
-        _cover_url: &'a str,
+        cover_url: &'a str,
     ) -> PortFuture<'a, Result<Vec<u8>, PortError>> {
-        let err = self.disabled_or_stub();
-        Box::pin(async move { Err(err) })
+        Box::pin(async move { fetch_decrypted_cover(&self.deps, cover_url).await })
     }
 }
