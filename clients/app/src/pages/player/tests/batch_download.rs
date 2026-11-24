@@ -5,7 +5,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_with_flags;
 
 #[test]
-#[ignore = "待 player/cmd_batch_download 实现后激活"]
 fn batch_downloading_episodes_from_player_enqueues_selection() {
     let mut app = start_with_flags(
         ColorScheme::Light,
