@@ -1,6 +1,7 @@
 use hg_contracts::catalog::RankingKind;
 use nsh_core::prelude::*;
 
+use crate::app::flags;
 use crate::app::nav::{self, DiscoverSubPage, PrimaryTab};
 use crate::features::discover::store::BrowseKind;
 use crate::pages;
@@ -65,6 +66,7 @@ pub fn app_shell() -> impl IntoElement {
                     Some(route) => pages::player::page::player_page(
                         route.series_id,
                         route.initial_episode,
+                        flags::player_enhancements_enabled(),
                         nav::close_player,
                         nav::set_chrome_fullscreen,
                     )
@@ -219,8 +221,16 @@ fn active_tab_content() -> impl IntoElement {
                 |id| nav::open_player(id, None),
             )
             .into_element(),
-            PrimaryTab::Watchlist => pages::placeholder::watchlist_placeholder().into_element(),
-            PrimaryTab::Offline => pages::placeholder::offline_placeholder().into_element(),
-            PrimaryTab::Settings => pages::placeholder::settings_placeholder().into_element(),
+            PrimaryTab::Watchlist => {
+                pages::watchlist::page::watchlist_page(flags::watchlist_enabled(), nav::open_player)
+                    .into_element()
+            }
+            PrimaryTab::Offline => {
+                pages::offline::page::offline_page(flags::offline_enabled(), nav::open_player)
+                    .into_element()
+            }
+            PrimaryTab::Settings => {
+                pages::settings::page::settings_page(flags::settings_enabled()).into_element()
+            }
         }))
 }

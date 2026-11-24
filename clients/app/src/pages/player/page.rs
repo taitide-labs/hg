@@ -6,9 +6,11 @@ use crate::features::player::cmd_playback::view::player_view;
 pub fn player_page(
     series_id: SeriesId,
     initial_episode: Option<EpisodeNumber>,
+    enhancements_enabled: bool,
     on_back: impl Fn() + Copy + 'static,
     on_fullscreen_change: impl Fn(bool) + Copy + 'static,
 ) -> impl IntoElement {
+    let _ = enhancements_enabled;
     view().flex_1().min_h_0().child(player_view(
         series_id,
         initial_episode,

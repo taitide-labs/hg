@@ -131,3 +131,20 @@ fn bookmark_and_offline_download_actions_update_state() {
     app.press("离线下载").unwrap();
     app.wait_for("第 5 集已加入离线下载").unwrap();
 }
+
+#[test]
+#[ignore = "待 player 进阶切片实现并启用 PLAYER_ENHANCEMENTS 开关后激活"]
+fn expanding_comment_replies_and_batch_downloading_episodes_from_player() {
+    let mut app = start_and_open_first_series(ColorScheme::Light);
+
+    app.wait_for("共 2 条回复").unwrap();
+    app.press("共 2 条回复").unwrap();
+    app.wait_for("南风知意").unwrap();
+    app.wait_for("周游记").unwrap();
+
+    app.press("离线下载").unwrap();
+    app.wait_for("选择离线下载分集").unwrap();
+    app.press("全选当前段").unwrap();
+    app.press("加入离线队列").unwrap();
+    app.wait_for("text:/已加入离线下载/").unwrap();
+}
