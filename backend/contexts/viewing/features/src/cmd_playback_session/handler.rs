@@ -1,46 +1,97 @@
+use hg_backend_contracts::error::PortError;
+use hg_backend_contracts::viewing::PlaybackHaltPort as _;
 use hg_contracts::error::ContractError;
-use hg_contracts::ids::{EpisodeKey, SeriesId};
+use hg_contracts::ids::{EpisodeKey, SeriesId, StreamProfile};
 use hg_contracts::viewing::PlaybackSource;
+use hg_viewing_domain::preference::default_playback_preference;
 
 use crate::ViewingDeps;
 
-use super::command::{FEATURE_NAME, ensure_enabled};
-
-fn unimplemented_stub() -> ContractError {
-    ContractError::Internal {
-        detail: format!("{FEATURE_NAME} 切片尚未实现"),
-    }
-}
+use super::command::ensure_enabled;
+use super::workflow::{parse_preferred_profile, plan_offline_registration, plan_online_source};
 
 pub async fn prepare_episode_playback(
     deps: &ViewingDeps,
-    _key: EpisodeKey,
+    key: EpisodeKey,
 ) -> Result<PlaybackSource, ContractError> {
     ensure_enabled(deps.flags.playback_resolution)?;
-    tokio::task::yield_now().await;
-    Err(unimplemented_stub())
+
+    if let Some(offline_asset) = deps
+        .offline_assets
+        .find_committed_episode(key)
+        .await
+        .map_err(ContractError::from)?
+    {
+        let registration = plan_offline_registration(&offline_asset)?;
+        let playable_uri = deps
+            .loopback
+            .register_offline_episode(key, &registration.playlist_rel_path)
+            .map_err(|err| ContractError::from(PortError::from(err)))?;
+        return Ok(PlaybackSource {
+            key,
+            playable_uri,
+            origin: registration.origin,
+            duration_secs: registration.duration_secs,
+        });
+    }
+
+    resolve_online_playback_source(deps, key).await
 }
 
 pub async fn refresh_online_playback(
     deps: &ViewingDeps,
-    _key: EpisodeKey,
+    key: EpisodeKey,
 ) -> Result<PlaybackSource, ContractError> {
     ensure_enabled(deps.flags.playback_resolution)?;
-    Err(unimplemented_stub())
+    resolve_online_playback_source(deps, key).await
 }
 
 pub async fn stop_deleted_offline_episode(
     deps: &ViewingDeps,
-    _key: EpisodeKey,
+    key: EpisodeKey,
 ) -> Result<(), ContractError> {
     ensure_enabled(deps.flags.playback_resolution)?;
-    Err(unimplemented_stub())
+    deps.loopback
+        .halt_episode(key)
+        .await
+        .map_err(ContractError::from)
 }
 
 pub async fn stop_deleted_offline_series(
     deps: &ViewingDeps,
-    _series_id: SeriesId,
+    series_id: SeriesId,
 ) -> Result<(), ContractError> {
     ensure_enabled(deps.flags.playback_resolution)?;
-    Err(unimplemented_stub())
+    deps.loopback
+        .halt_series(series_id)
+        .await
+        .map_err(ContractError::from)
+}
+
+async fn resolve_online_playback_source(
+    deps: &ViewingDeps,
+    key: EpisodeKey,
+) -> Result<PlaybackSource, ContractError> {
+    let preferred_profile = load_preferred_profile(deps).await?;
+    let ticket = deps
+        .catalog_tickets
+        .fetch_playback_ticket(key)
+        .await
+        .map_err(ContractError::from)?;
+    plan_online_source(key, &ticket, preferred_profile)
+}
+
+async fn load_preferred_profile(deps: &ViewingDeps) -> Result<StreamProfile, ContractError> {
+    let row: Option<(String,)> =
+        sqlx::query_as("SELECT preferred_profile FROM viewing_playback_preference WHERE id = 1")
+            .fetch_optional(deps.pool())
+            .await
+            .map_err(|err| ContractError::Internal {
+                detail: format!("读取播放清晰度偏好失败: {err}"),
+            })?;
+
+    match row {
+        Some((raw_profile,)) => parse_preferred_profile(&raw_profile),
+        None => Ok(default_playback_preference().preferred_profile),
+    }
 }
