@@ -224,6 +224,12 @@ fn resolve_fn<T>(label: &str, module: HMODULE, symbol: PCSTR) -> Result<T, Strin
 #[derive(Clone, Copy)]
 struct RawMpvHandle(*mut MpvHandle);
 
+impl RawMpvHandle {
+    const fn as_ptr(self) -> *mut MpvHandle {
+        self.0
+    }
+}
+
 #[expect(
     unsafe_code,
     reason = "libmpv 文档明确 mpv_handle 线程安全，允许工作线程与主线程并发调用"
@@ -321,6 +327,12 @@ pub struct MpvEngine {
     render_thread: Option<JoinHandle<()>>,
     event_thread: Option<JoinHandle<()>>,
 }
+
+#[expect(
+    unsafe_code,
+    reason = "MpvEngine 持有的 render_signal_raw 指向同结构体管理的 Arc<RenderSignal>，可安全在线程池中转移所有权"
+)]
+unsafe impl Send for MpvEngine {}
 
 impl MpvEngine {
     pub fn acquire_or_create() -> Result<Self, String> {
@@ -708,12 +720,13 @@ fn spawn_event_worker(
     shared: Arc<EngineShared>,
 ) -> JoinHandle<()> {
     std::thread::spawn(move || {
+        let mpv_handle = mpv;
         while !shared.shutdown.load(Ordering::Acquire) {
             #[expect(
                 unsafe_code,
                 reason = "事件线程轮询 mpv_wait_event，返回值指针在下一次调用前有效"
             )]
-            let event_ptr = unsafe { (lib.wait_event)(mpv.0, 0.25) };
+            let event_ptr = unsafe { (lib.wait_event)(mpv_handle.as_ptr(), 0.25) };
             if event_ptr.is_null() {
                 continue;
             }
