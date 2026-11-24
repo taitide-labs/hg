@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/taitide-labs/hg/compare/v0.1.1...v0.1.2) (2026-11-24)
+
+
+### Bug Fixes
+
+* **release:** 同步全部工作区成员至 release-please 锁文件配置 ([#81](https://github.com/taitide-labs/hg/issues/81)) ([479c85f](https://github.com/taitide-labs/hg/commit/479c85f03b682f6912be47b5826ea814b27a92ea))
+
 ## [0.1.1](https://github.com/taitide-labs/hg/compare/v0.1.0...v0.1.1) (2026-11-24)
 
 
