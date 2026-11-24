@@ -9,6 +9,7 @@ ignore = [
   { id = "RUSTSEC-2026-0543", reason = "chrono is unmaintained; pulled in transitively by nsh-core and nsh-base with no upstream replacement yet" },
   { id = "RUSTSEC-2026-0206", reason = "rustybuzz is unmaintained; pulled in transitively by usvg/resvg via nsh-core" },
   { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; pulled in transitively by nsh-core, nsh-macros, and usvg" },
+  { id = "RUSTSEC-2026-0459", reason = "sqlx-sqlite 0.9.1 pins libsqlite3-sys 0.30.1; HG only opens its own private local-storage database and never untrusted db/wal files; remove once sqlx-sqlite upgrades to libsqlite3-sys >= 0.39.0" },
 ]
 
 [licenses]

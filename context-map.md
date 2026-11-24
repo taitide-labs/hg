@@ -9,9 +9,11 @@
 ## 关系模式
 
 - 片库目录 [OHS, PL] -> 离线下载 [CF]
-  - 同步端口：下载入队时拉取剧目与分集元数据快照及解密后封面；下载调度与凭据失效刷新时获取单集在线播放凭据。
+  - 同步端口 `CatalogMetadataPort`：下载入队时拉取剧目与分集元数据快照及解密后封面字节。
+  - 同步端口 `CatalogPlaybackTicketPort`：下载调度与凭据失效刷新时获取单集在线播放凭据。
 - 片库目录 [OHS, PL] -> 观影追剧 [CF]
-  - 同步端口：在线起播及签名失效刷新时获取单集播放凭据；记录观看历史与追剧收藏时获取剧目摘要信息。
+  - 同步端口 `CatalogMetadataPort`：记录观看历史与追剧收藏时获取剧目摘要信息。
+  - 同步端口 `CatalogPlaybackTicketPort`：在线起播及签名失效刷新时获取单集播放凭据。
 - 离线下载 [OHS, PL] -> 观影追剧 [CF]
-  - 事件：发布 `OfflineEpisodeRemoved` 与 `OfflineSeriesRemoved`，下游订阅触发 `StopDeletedOfflinePlayback`，先安全停止当前离线播放并释放文件占用。
-  - 同步端口：单集起播选源时查询指定分集是否已有完整可用的离线分集资产。
+  - 异步事件（Transactional Outbox）：发布 `OfflineEpisodeRemoved` 与 `OfflineSeriesRemoved`，下游订阅触发 `StopDeletedOfflinePlayback`，先安全停止当前离线播放并释放回环代理文件句柄。
+  - 同步端口 `OfflineAssetQueryPort`：单集起播选源时查询指定分集是否已有完整可用的离线分集资产，以及聚合离线片库总占用体积。

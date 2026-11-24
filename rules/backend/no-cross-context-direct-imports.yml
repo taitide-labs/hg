@@ -1,0 +1,29 @@
+id: no-catalog-import-other-contexts
+language: rust
+severity: error
+message: "片库目录上下文严禁直接导入 offline 或 viewing 的 domain/features 包，必须通过 hg_backend_contracts 端口解耦"
+files:
+  - "backend/contexts/catalog/**/src/**/*.rs"
+rule:
+  kind: scoped_identifier
+  regex: "^hg_(offline|viewing)_(domain|features)::"
+---
+id: no-offline-import-other-contexts
+language: rust
+severity: error
+message: "离线下载上下文严禁直接导入 catalog 或 viewing 的 domain/features 包，必须通过 hg_backend_contracts 端口解耦"
+files:
+  - "backend/contexts/offline/**/src/**/*.rs"
+rule:
+  kind: scoped_identifier
+  regex: "^hg_(catalog|viewing)_(domain|features)::"
+---
+id: no-viewing-import-other-contexts
+language: rust
+severity: error
+message: "观影追剧上下文严禁直接导入 catalog 或 offline 的 domain/features 包，必须通过 hg_backend_contracts 端口解耦"
+files:
+  - "backend/contexts/viewing/**/src/**/*.rs"
+rule:
+  kind: scoped_identifier
+  regex: "^hg_(catalog|offline)_(domain|features)::"

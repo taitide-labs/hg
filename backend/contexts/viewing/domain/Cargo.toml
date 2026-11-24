@@ -1,0 +1,15 @@
+[package]
+name = "hg-viewing-domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+hg-backend-contracts.workspace = true
+hg-contracts.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

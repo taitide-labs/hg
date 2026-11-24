@@ -1,0 +1,25 @@
+[package]
+name = "hg-offline-features"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+hg-backend-contracts.workspace = true
+hg-contracts.workspace = true
+hg-infra.workspace = true
+hg-offline-domain.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+parking_lot.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true
