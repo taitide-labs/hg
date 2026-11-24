@@ -1,0 +1,31 @@
+{
+  "name": "HG",
+  "id": "com.taitidelabs.hg",
+  "version": "0.1.0",
+  "build": 1,
+  "appearance": "system",
+  "rust": ".",
+  "root": "App",
+  "theme": "theme.json",
+  "window": {
+    "title": "HG",
+    "defaultSize": {
+      "width": 1240,
+      "height": 800
+    },
+    "titleBar": {
+      "style": "hidden",
+      "height": 44
+    }
+  },
+  "macos": {
+    "infoPlist": {
+      "NSAppTransportSecurity": {
+        "NSAllowsLocalNetworking": true
+      }
+    }
+  },
+  "android": {
+    "usesCleartextTraffic": true
+  }
+}

@@ -1,0 +1,26 @@
+[package]
+name = "hg-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+hg-contracts.workspace = true
+hg-gateway.workspace = true
+nsh-base.workspace = true
+nsh-core.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+nsh-platform-macos.workspace = true
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nsh-platform-windows.workspace = true
+
+[dev-dependencies]
+nsh-engine.workspace = true
+nsh-testing.workspace = true
+
+[lints]
+workspace = true
