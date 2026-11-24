@@ -4,7 +4,8 @@ use nsh_core::prelude::*;
 
 use super::super::store;
 use super::query::{self, progress_ratio, progress_summary};
-use crate::ui::icons::{IconKind, icon};
+use crate::ui::icons::IconKind;
+use crate::ui::poster;
 use crate::ui::surface::{BadgeTone, badge, empty_state, progress_track};
 use crate::ui::token;
 
@@ -180,23 +181,7 @@ where
 }
 
 fn poster_thumb(cover_key: String) -> impl IntoElement {
-    view()
-        .w(px(52.0))
-        .h(px(70.0))
-        .flex_shrink_0()
-        .rounded(token::radius)
-        .bg(move || token::poster_surface(&cover_key))
-        .items_center()
-        .justify_center()
-        .child(
-            view()
-                .size(px(26.0))
-                .rounded_full()
-                .bg(token::cinema_scrim)
-                .items_center()
-                .justify_center()
-                .child(icon(IconKind::Play, 12.0, token::cinema_fg)),
-        )
+    poster::poster_thumb(cover_key, 52.0, 70.0, IconKind::Play, 26.0, 12.0)
 }
 
 fn history_meta(
