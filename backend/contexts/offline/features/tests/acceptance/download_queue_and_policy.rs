@@ -89,7 +89,6 @@ async fn download_queue_disabled_by_default_returns_feature_flag_error() {
 }
 
 #[tokio::test]
-#[ignore = "待实现离线下载队列、策略与原子提交切片后激活"]
 async fn download_queue_enqueues_commits_atomically_and_rejects_preview_only() {
     let (catalog, fetcher, series_id, key1, key2) = build_queue_harness_inputs();
     let flags = OfflineFeatureFlags {
