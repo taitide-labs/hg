@@ -3,7 +3,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_settings;
 
 #[test]
-#[ignore = "待 settings/cmd_download_policy 实现后激活"]
 fn settings_updates_offline_download_policy() {
     let mut app = start_on_settings(FeatureFlags {
         settings_download_policy: true,
