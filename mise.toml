@@ -30,6 +30,14 @@ run = "cargo deny check"
 description = "Run NSH client app"
 run = "nsh run clients/app"
 
+[tasks.e2e]
+description = "Run deterministic end-to-end integration test suite"
+run = "cargo nextest run -p hg-e2e --locked"
+
+[tasks."e2e:live"]
+description = "Run live upstream smoke test"
+run = "cargo nextest run -p hg-e2e --locked --run-ignored ignored-only live_"
+
 [tasks.hooks]
 description = "Install quiet hk git hooks without progress bar spam"
 run = [

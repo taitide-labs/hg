@@ -1382,6 +1382,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "hg-e2e"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "base64 0.23.1",
+ "bytes",
+ "hg-app",
+ "hg-contracts",
+ "hg-gateway",
+ "hg-infra",
+ "hg-runtime",
+ "hkdf",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "nsh-core",
+ "nsh-engine",
+ "nsh-testing",
+ "p256",
+ "parking_lot 0.13.0",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "tempfile",
+ "tokio",
+ "url",
+]
+
+[[package]]
 name = "hg-gateway"
 version = "0.1.0"
 dependencies = [
