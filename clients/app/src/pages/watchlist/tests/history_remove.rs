@@ -5,7 +5,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_watchlist;
 
 #[test]
-#[ignore = "待 watchlist/cmd_remove_history 实现后激活"]
 fn removing_and_clearing_watch_history_updates_list() {
     let mut app = start_on_watchlist(FeatureFlags {
         watchlist_history: true,
