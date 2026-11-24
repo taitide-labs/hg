@@ -1,6 +1,8 @@
 use hg_contracts::ids::{EpisodeNumber, SeriesId};
 use nsh_core::prelude::*;
 
+use crate::ui::platform;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PrimaryTab {
     #[default]
@@ -106,6 +108,7 @@ pub fn set_chrome_fullscreen(fullscreen: bool) {
     let sig = fullscreen_signal();
     if sig.with_untracked(|f| f.0) != fullscreen {
         sig.set(ChromeFullscreen(fullscreen));
+        platform::set_window_fullscreen(fullscreen);
     }
 }
 

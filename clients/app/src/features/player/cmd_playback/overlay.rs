@@ -24,7 +24,7 @@ pub fn video_surface_box(
         .relative()
         .overflow_hidden()
         .bg(token::cinema_bg)
-        .child(video_picture_area(fullscreen, on_back))
+        .child(video_picture_area(on_back))
         .child(bottom_right_popover())
         .child(bottom_control_bar(on_toggle_fullscreen));
 
@@ -35,7 +35,7 @@ pub fn video_surface_box(
     }
 }
 
-fn video_picture_area(fullscreen: bool, on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
+fn video_picture_area(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
     view()
         .w_full()
         .flex_1()
@@ -43,39 +43,25 @@ fn video_picture_area(fullscreen: bool, on_back: impl Fn() + Copy + 'static) -> 
         .relative()
         .items_center()
         .justify_center()
-        .child(aspect_frame_preview(fullscreen))
+        .child(aspect_frame_preview())
         .child(top_overlay_strip(on_back))
         .child(osd_hint_pill())
 }
 
-fn aspect_frame_preview(fullscreen: bool) -> impl IntoElement {
-    view()
-        .w(move || match store::snapshot().aspect {
-            AspectPreset::Portrait9x16 => px(240.0),
-            AspectPreset::Fill => {
-                if fullscreen {
-                    px(1240.0)
-                } else {
-                    px(840.0)
-                }
-            }
-            AspectPreset::Original | AspectPreset::Cinema16x9 => {
-                if fullscreen {
-                    px(1100.0)
-                } else {
-                    px(720.0)
-                }
-            }
-        })
-        .h(move || if fullscreen { px(680.0) } else { px(420.0) })
-        .bg(move || {
-            let cover = store::snapshot()
-                .detail
-                .map_or_else(String::new, |d| d.summary.cover_url);
-            token::poster_surface(&cover)
-        })
-        .items_center()
-        .justify_center()
+fn aspect_frame_preview() -> impl IntoElement {
+    let is_portrait = computed(|| store::snapshot().aspect == AspectPreset::Portrait9x16);
+    view().size_full().items_center().justify_center().child(
+        view()
+            .h_full()
+            .w_full()
+            .style_when(move || is_portrait.get(), |s| s.w(px(340.0)))
+            .bg(move || {
+                let cover = store::snapshot()
+                    .detail
+                    .map_or_else(String::new, |d| d.summary.cover_url);
+                token::poster_surface(&cover)
+            }),
+    )
 }
 
 fn top_overlay_strip(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
@@ -118,8 +104,12 @@ fn osd_hint_pill() -> impl IntoElement {
 fn bottom_right_popover() -> impl IntoElement {
     view()
         .absolute()
-        .right_3()
         .bottom(px(56.0))
+        .right(move || match store::snapshot().popover {
+            ActivePopover::Speed => px(124.0),
+            ActivePopover::Settings => px(48.0),
+            ActivePopover::None => px(12.0),
+        })
         .child(dynamic(|| match store::snapshot().popover {
             ActivePopover::None => view().into_element(),
             ActivePopover::Settings => settings_popover().into_element(),

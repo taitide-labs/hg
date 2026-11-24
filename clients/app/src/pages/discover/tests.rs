@@ -34,11 +34,12 @@ fn discover_home_shows_featured_ranking_and_categories_without_hero_banner() {
 }
 
 #[test]
-fn opening_featured_ranking_and_search_reuses_shared_browse_page() {
+fn opening_featured_and_ranking_hides_search_bar() {
     let mut app = start_desktop(ColorScheme::Light);
 
     app.press("查看排行榜全部").unwrap();
     app.wait_for("热播榜").unwrap();
+    assert!(!app.screen().shows("热搜"));
     app.press("潜力榜").unwrap();
     app.wait_for("潜力榜").unwrap();
 
@@ -46,24 +47,25 @@ fn opening_featured_ranking_and_search_reuses_shared_browse_page() {
     app.wait_for("查看精选推荐全部").unwrap();
 
     app.press("查看精选推荐全部").unwrap();
-    app.wait_for("热搜").unwrap();
-    app.press("悬疑").unwrap();
-    app.wait_for("标签 · 悬疑").unwrap();
-    app.wait_for("长安暗夜行").unwrap();
-    app.wait_for_gone("春风十里不及卿", Duration::from_secs(2))
-        .unwrap();
+    app.wait_for("春风十里不及卿").unwrap();
+    assert!(!app.screen().shows("热搜"));
+    assert!(!app.screen().shows("题材"));
 }
 
 #[test]
-fn searching_from_home_enters_shared_list_page_with_tag_filters() {
+fn searching_from_home_enters_search_page_with_tag_filters() {
     let mut app = start_desktop(ColorScheme::Dark);
 
     app.press("搜索").unwrap();
-    app.wait_for("搜索与标签筛选").unwrap();
+    app.wait_for("热搜").unwrap();
     app.press("千金归来").unwrap();
-    app.wait_for("搜索 “千金归来”").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
     app.wait_for_gone("星穹机甲纪元", Duration::from_secs(2))
+        .unwrap();
+
+    app.press("悬疑").unwrap();
+    app.wait_for("长安暗夜行").unwrap();
+    app.wait_for_gone("春风十里不及卿", Duration::from_secs(2))
         .unwrap();
 }
 

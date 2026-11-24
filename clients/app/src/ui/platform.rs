@@ -1,4 +1,4 @@
-use nsh_core::desktop::{TitleBarOptions, TitleBarStyle, WindowAttributes};
+use nsh_core::desktop::{TitleBarOptions, TitleBarStyle, WindowAttributes, WindowMode};
 use nsh_core::element::desktop::{current_window, title_bar};
 use nsh_core::prelude::*;
 
@@ -7,6 +7,18 @@ use crate::ui::token;
 #[must_use]
 pub fn is_desktop() -> bool {
     matches!(platform_name(), "macos" | "windows" | "linux")
+}
+
+pub fn set_window_fullscreen(fullscreen: bool) {
+    if !is_desktop() {
+        return;
+    }
+    let mode = if fullscreen {
+        WindowMode::FullScreen
+    } else {
+        WindowMode::Normal
+    };
+    current_window().set_mode(mode);
 }
 
 pub fn configure_hidden_title_bar() {

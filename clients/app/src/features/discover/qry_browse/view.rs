@@ -18,7 +18,13 @@ pub fn browse_view(
     on_back: impl Fn() + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
-    query::load_meta();
+    let is_search_mode = matches!(
+        initial_kind,
+        BrowseKind::Search { .. } | BrowseKind::Tag { .. }
+    );
+    if is_search_mode {
+        query::load_meta();
+    }
     query::load_browse(initial_kind);
     let search_sig = store::search_input_signal();
     let is_ranking = computed(|| matches!(store::browse_snapshot().kind, BrowseKind::Ranking(_)));
@@ -28,12 +34,9 @@ pub fn browse_view(
             .p_6()
             .gap_5()
             .pb_safe_area_plus(px(24.0))
-            .child(browse_header(search_sig, on_back))
-            .child(title_bar())
-            .child(
-                when(move || is_ranking.get(), ranking_tabs)
-                    .otherwise(|| dynamic(browse_filters_panel)),
-            )
+            .child(browse_header(is_search_mode, search_sig, on_back))
+            .children(is_search_mode.then(|| dynamic(browse_filters_panel)))
+            .children((!is_search_mode).then(move || when(move || is_ranking.get(), ranking_tabs)))
             .child(dynamic(move || {
                 browse_results_panel(on_back, on_open_series)
             })),
@@ -74,38 +77,53 @@ fn browse_results_panel(
 }
 
 fn browse_header(
+    is_search_mode: bool,
     search_sig: Signal<String>,
     on_back: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
-    view()
-        .w_full()
-        .flex_row()
-        .items_center()
-        .gap_3()
-        .child(app_icon_text_button(
-            IconKind::ChevronLeft,
-            "返回",
-            ButtonVariant::Ghost,
-            ControlSize::Md,
-            on_back,
-        ))
-        .child(view().flex_1().max_w(px(480.0)).child(search_input(
-            search_sig,
-            "搜索剧名、标签...",
-            move |submitted| {
-                query::load_browse(BrowseKind::Search { query: submitted });
-            },
-        )))
-        .child(app_button(
-            "搜索",
-            ButtonVariant::Primary,
-            ControlSize::Md,
-            move || {
-                query::load_browse(BrowseKind::Search {
-                    query: search_sig.get(),
-                });
-            },
-        ))
+    let back = app_icon_text_button(
+        IconKind::ChevronLeft,
+        "返回",
+        ButtonVariant::Ghost,
+        ControlSize::Md,
+        on_back,
+    );
+
+    if is_search_mode {
+        view()
+            .w_full()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .child(back)
+            .child(view().flex_1().max_w(px(480.0)).child(search_input(
+                search_sig,
+                "搜索剧名、标签...",
+                move |submitted| {
+                    query::load_browse(BrowseKind::Search { query: submitted });
+                },
+            )))
+            .child(app_button(
+                "搜索",
+                ButtonVariant::Primary,
+                ControlSize::Md,
+                move || {
+                    query::load_browse(BrowseKind::Search {
+                        query: search_sig.get(),
+                    });
+                },
+            ))
+            .into_element()
+    } else {
+        view()
+            .w_full()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .child(back)
+            .child(title_bar())
+            .into_element()
+    }
 }
 
 fn title_bar() -> impl IntoElement {
