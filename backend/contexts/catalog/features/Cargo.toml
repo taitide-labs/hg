@@ -7,7 +7,20 @@ repository.workspace = true
 publish = false
 
 [dependencies]
+hg-backend-contracts.workspace = true
 hg-catalog-domain.workspace = true
+hg-contracts.workspace = true
+hg-infra.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+aes.workspace = true
+cbc.workspace = true
+parking_lot.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
