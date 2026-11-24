@@ -26,7 +26,6 @@ async fn watchlist_and_settings_disabled_by_default_returns_feature_flag_error()
 }
 
 #[tokio::test]
-#[ignore = "待实现追剧收藏、历史清理、播放偏好与清播放缓存切片后激活"]
 async fn watchlist_settings_and_cache_clear_preserve_offline_library() {
     let s101 = SeriesId::try_from(101).expect("series 101");
     let ep1 = EpisodeKey::new(s101, EpisodeNumber::try_from(1).expect("ep 1"));
