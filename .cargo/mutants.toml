@@ -1,4 +1,5 @@
 test_tool = "nextest"
+additional_cargo_args = ["--locked"]
 timeout_multiplier = 3.0
 minimum_test_timeout = 20
 cap_lints = true
