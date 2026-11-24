@@ -1,0 +1,16 @@
+id: no-raw-colors-or-base-controls-outside-ui
+language: rust
+severity: error
+message: "业务切片与页面禁止直接使用 rgb/rgba/hsla 原始色值或绕过 crate::ui 直接导入 nsh_base 交互控件"
+files:
+  - "clients/app/src/features/**/*.rs"
+  - "clients/app/src/pages/**/*.rs"
+ignores:
+  - "**/tests.rs"
+  - "**/tests/**/*.rs"
+rule:
+  any:
+    - kind: call_expression
+      regex: "^(rgb|rgba|hsla)\\("
+    - kind: use_declaration
+      regex: "nsh_base::.*(button|input|switch|checkbox|select|tabs|dialog|sheet|popover|menu)"
