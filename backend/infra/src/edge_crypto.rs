@@ -5,7 +5,9 @@ use aes::Aes128;
 use aes_gcm::aead::{Aead as _, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit as _, Nonce};
 use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::engine::general_purpose::{
+    STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD,
+};
 use cbc::cipher::block_padding::Pkcs7;
 use cbc::cipher::{BlockModeDecrypt as _, KeyIvInit as _};
 use hkdf::Hkdf;
@@ -24,9 +26,12 @@ use crate::clock::Clock;
 use crate::error::InfraError;
 
 pub const DEFAULT_IMAGE_ORIGIN: &str = "https://pic.qnlycc.cn";
+pub const DEFAULT_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 pub const EDGE_PROTOCOL: &str = "dx150-edge-v1";
 const MAX_SEQUENCE: u32 = 16_384;
-const SESSION_REFRESH_MARGIN_MS: u64 = 15_000;
+const SESSION_REFRESH_MARGIN_SECS: i64 = 5;
+const MAX_HANDSHAKE_TTL_SECS: i64 = 600;
+const EXPECTED_SALT_LEN: usize = 32;
 const COVER_AES_KEY: [u8; 16] = *b"f5d965df75336270";
 const COVER_AES_IV: [u8; 16] = *b"97b60394abc2fbe1";
 const JPEG_MAGIC: [u8; 3] = [0xFF, 0xD8, 0xFF];
@@ -69,7 +74,8 @@ pub struct EdgeSessionKeys {
     pub site: String,
     pub scope: EdgeChannelScope,
     pub info: String,
-    pub expires_at_ms: u64,
+    pub clock_offset_secs: i64,
+    pub expires_at_secs: i64,
     pub req_key: [u8; 32],
     pub res_key: [u8; 32],
     pub sequence: u32,
@@ -83,36 +89,48 @@ pub struct EdgeHttpResponse {
 
 #[derive(Debug, Serialize)]
 struct HandshakeRequest {
-    protocol: &'static str,
-    scope: &'static str,
-    client_public_key: String,
+    v: u8,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    client_pub: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct HandshakeResponse {
+    v: u8,
+    #[serde(rename = "type")]
+    kind: String,
     kid: String,
     sid: String,
     site: String,
-    server_public_key: String,
+    server_pub: String,
     salt: String,
-    expires_at: u64,
+    server_time: i64,
+    expires_at: i64,
 }
 
 #[derive(Debug, Serialize)]
 struct EncryptedEnvelope {
-    protocol: &'static str,
+    v: u8,
+    #[serde(rename = "type")]
+    kind: &'static str,
     kid: String,
     sid: String,
     seq: u32,
     ts: u64,
-    payload: String,
+    ciphertext: String,
 }
 
 #[derive(Debug, Deserialize)]
 struct EncryptedResponseEnvelope {
+    v: u8,
+    #[serde(rename = "type")]
+    kind: String,
+    kid: String,
+    sid: String,
     seq: u32,
     ts: u64,
-    payload: String,
+    ciphertext: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -129,13 +147,9 @@ struct InnerRequest<'a> {
 }
 
 #[derive(Debug, Deserialize)]
-struct InnerResponseWrapper {
-    response: InnerResponse,
-}
-
-#[derive(Debug, Deserialize)]
 struct InnerResponse {
     status: u16,
+    #[serde(default)]
     body: String,
 }
 
@@ -284,6 +298,7 @@ pub fn resolve_cover_url(raw_url: &str) -> String {
 pub struct EdgeHttpClient {
     http: reqwest::Client,
     base_url: Url,
+    referer: String,
     clock: Arc<dyn Clock>,
     public_session: Mutex<Option<EdgeSessionKeys>>,
     dynamic_session: Mutex<Option<EdgeSessionKeys>>,
@@ -295,7 +310,9 @@ impl EdgeHttpClient {
         let parsed = Url::parse(base_url).map_err(|err| InfraError::Protocol {
             detail: format!("无效的上游基础地址 {base_url}: {err}"),
         })?;
+        let referer = format!("{}/", parsed.as_str().trim_end_matches('/'));
         let http = reqwest::Client::builder()
+            .user_agent(DEFAULT_USER_AGENT)
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(20))
             .build()?;
@@ -303,6 +320,7 @@ impl EdgeHttpClient {
         Ok(Self {
             http,
             base_url: parsed,
+            referer,
             clock,
             public_session: Mutex::new(None),
             dynamic_session: Mutex::new(None),
@@ -359,15 +377,28 @@ impl EdgeHttpClient {
         path_with_query: &str,
     ) -> Result<Option<EdgeHttpResponse>, InfraError> {
         let canonical = canonicalize_public_path(path_with_query);
-        let url = self.join_url(&canonical)?;
+        let url = self.join_url(EdgeChannelScope::Public.endpoint_path())?;
+        let packet = InnerRequest {
+            method: "GET",
+            path: &canonical,
+            body: String::new(),
+            content_type: "",
+        };
         let resp = self
             .http
-            .get(url)
+            .post(url)
             .header("X-HG-Public-JSON", HeaderValue::from_static("1"))
+            .header(reqwest::header::REFERER, &self.referer)
+            .json(&packet)
             .send()
             .await?;
 
         let status = resp.status().as_u16();
+        let has_public_header = resp
+            .headers()
+            .get("X-HG-Public-JSON")
+            .and_then(|v| v.to_str().ok())
+            == Some("1");
         let is_json = resp
             .headers()
             .get(reqwest::header::CONTENT_TYPE)
@@ -378,7 +409,19 @@ impl EdgeHttpClient {
             return Ok(None);
         }
 
-        let body: Value = resp.json().await.map_err(|err| InfraError::Protocol {
+        let raw_text = resp.text().await?;
+        if status == 400
+            && !has_public_header
+            && let Ok(err_payload) = serde_json::from_str::<EdgeErrorPayload>(&raw_text)
+            && matches!(
+                err_payload.error.as_deref(),
+                Some("invalid_request" | "unsupported_version")
+            )
+        {
+            return Ok(None);
+        }
+
+        let body: Value = serde_json::from_str(&raw_text).map_err(|err| InfraError::Protocol {
             detail: format!("公共快路径 JSON 解析失败: {err}"),
         })?;
         Ok(Some(EdgeHttpResponse { status, body }))
@@ -418,8 +461,10 @@ impl EdgeHttpClient {
         path_with_query: &str,
         body: Option<&Value>,
     ) -> Result<EdgeHttpResponse, InfraError> {
-        let (kid, sid, info, req_key, res_key, seq) = self.next_session_params(scope).await?;
-        let ts = self.clock.now_epoch_millis();
+        let (kid, sid, info, req_key, res_key, seq, clock_offset_secs) =
+            self.next_session_params(scope).await?;
+        let local_secs = i64::try_from(self.clock.now_epoch_millis() / 1_000).unwrap_or(0);
+        let ts = u64::try_from(local_secs.saturating_add(clock_offset_secs).max(0)).unwrap_or(0);
 
         let body_bytes = match body {
             Some(val) => serde_json::to_vec(val).map_err(|err| InfraError::Protocol {
@@ -431,7 +476,11 @@ impl EdgeHttpClient {
             request: InnerRequest {
                 method,
                 path: path_with_query,
-                body: BASE64_STANDARD.encode(&body_bytes),
+                body: if body_bytes.is_empty() {
+                    String::new()
+                } else {
+                    BASE64_STANDARD.encode(&body_bytes)
+                },
                 content_type: if body.is_some() {
                     "application/json"
                 } else {
@@ -446,16 +495,23 @@ impl EdgeHttpClient {
         let req_aad = build_aad(&info, "req", seq, ts);
         let ciphertext = encrypt_envelope_payload(&req_key, seq, &req_aad, &plaintext)?;
         let envelope = EncryptedEnvelope {
-            protocol: EDGE_PROTOCOL,
-            kid,
-            sid,
+            v: 1,
+            kind: "call",
+            kid: kid.clone(),
+            sid: sid.clone(),
             seq,
             ts,
-            payload: BASE64_STANDARD.encode(&ciphertext),
+            ciphertext: BASE64_URL_SAFE_NO_PAD.encode(&ciphertext),
         };
 
         let url = self.join_url(scope.endpoint_path())?;
-        let resp = self.http.post(url).json(&envelope).send().await?;
+        let resp = self
+            .http
+            .post(url)
+            .header(reqwest::header::REFERER, &self.referer)
+            .json(&envelope)
+            .send()
+            .await?;
         let http_status = resp.status();
         let raw_text = resp.text().await?;
 
@@ -476,48 +532,20 @@ impl EdgeHttpClient {
             serde_json::from_str(&raw_text).map_err(|err| InfraError::Protocol {
                 detail: format!("解析响应信封失败: {err}"),
             })?;
-        let res_cipher =
-            BASE64_STANDARD
-                .decode(&res_env.payload)
-                .map_err(|err| InfraError::Crypto {
-                    detail: format!("响应密文 Base64 解码失败: {err}"),
-                })?;
-        let res_aad = build_aad(&info, "res", res_env.seq, res_env.ts);
-        let res_plain = decrypt_envelope_payload(&res_key, res_env.seq, &res_aad, &res_cipher)?;
-        let wrapped: InnerResponseWrapper =
-            serde_json::from_slice(&res_plain).map_err(|err| InfraError::Protocol {
-                detail: format!("解析内层响应失败: {err}"),
-            })?;
-        let decoded_body = BASE64_STANDARD
-            .decode(&wrapped.response.body)
-            .map_err(|err| InfraError::Protocol {
-                detail: format!("内层响应体 Base64 解码失败: {err}"),
-            })?;
-        let parsed_body = if decoded_body.is_empty() {
-            Value::Null
-        } else {
-            serde_json::from_slice(&decoded_body).map_err(|err| InfraError::Protocol {
-                detail: format!("内层响应体 JSON 解析失败: {err}"),
-            })?
-        };
-
-        Ok(EdgeHttpResponse {
-            status: wrapped.response.status,
-            body: parsed_body,
-        })
+        decode_encrypted_response(&res_env, &res_key, &info, &kid, &sid, seq, ts)
     }
 
     async fn next_session_params(
         &self,
         scope: EdgeChannelScope,
-    ) -> Result<(String, String, String, [u8; 32], [u8; 32], u32), InfraError> {
+    ) -> Result<(String, String, String, [u8; 32], [u8; 32], u32, i64), InfraError> {
         let mut guard = self.session_slot(scope).lock().await;
-        let now_ms = self.clock.now_epoch_millis();
+        let now_secs = i64::try_from(self.clock.now_epoch_millis() / 1_000).unwrap_or(0);
         let need_handshake = match guard.as_ref() {
             None => true,
             Some(sess) => {
                 sess.sequence >= MAX_SEQUENCE
-                    || now_ms.saturating_add(SESSION_REFRESH_MARGIN_MS) >= sess.expires_at_ms
+                    || now_secs.saturating_add(SESSION_REFRESH_MARGIN_SECS) >= sess.expires_at_secs
             }
         };
 
@@ -539,6 +567,7 @@ impl EdgeHttpClient {
             sess.req_key,
             sess.res_key,
             sess.sequence,
+            sess.clock_offset_secs,
         ))
     }
 
@@ -564,13 +593,19 @@ impl EdgeHttpClient {
         let client_pub_bytes = client_pub.to_sec1_point(false);
 
         let payload = HandshakeRequest {
-            protocol: EDGE_PROTOCOL,
-            scope: scope.as_str(),
-            client_public_key: BASE64_STANDARD.encode(client_pub_bytes.as_bytes()),
+            v: 1,
+            kind: "hello",
+            client_pub: BASE64_URL_SAFE_NO_PAD.encode(client_pub_bytes.as_bytes()),
         };
 
-        let url = self.join_url("/api/edge/handshake")?;
-        let resp = self.http.post(url).json(&payload).send().await?;
+        let url = self.join_url(scope.endpoint_path())?;
+        let resp = self
+            .http
+            .post(url)
+            .header(reqwest::header::REFERER, &self.referer)
+            .json(&payload)
+            .send()
+            .await?;
         let status = resp.status();
         if !status.is_success() {
             return Err(InfraError::Protocol {
@@ -581,21 +616,32 @@ impl EdgeHttpClient {
         let hs: HandshakeResponse = resp.json().await.map_err(|err| InfraError::Protocol {
             detail: format!("边缘握手响应解析失败: {err}"),
         })?;
+        let ttl = hs.expires_at.saturating_sub(hs.server_time);
+        if hs.v != 1 || hs.kind != "hello" || ttl <= 0 || ttl > MAX_HANDSHAKE_TTL_SECS {
+            return Err(InfraError::Protocol {
+                detail: "边缘握手响应元数据非法".to_owned(),
+            });
+        }
 
-        let server_pub_raw = BASE64_STANDARD
-            .decode(&hs.server_public_key)
+        let server_pub_raw = BASE64_URL_SAFE_NO_PAD
+            .decode(&hs.server_pub)
             .map_err(|err| InfraError::Crypto {
-                detail: format!("服务端公钥 Base64 解码失败: {err}"),
+                detail: format!("服务端公钥 Base64Url 解码失败: {err}"),
             })?;
         let server_pub =
             PublicKey::from_sec1_bytes(&server_pub_raw).map_err(|_| InfraError::Crypto {
                 detail: "服务端 P-256 公钥格式非法".to_owned(),
             })?;
-        let salt = BASE64_STANDARD
+        let salt = BASE64_URL_SAFE_NO_PAD
             .decode(&hs.salt)
             .map_err(|err| InfraError::Crypto {
-                detail: format!("握手 salt Base64 解码失败: {err}"),
+                detail: format!("握手 salt Base64Url 解码失败: {err}"),
             })?;
+        if salt.len() != EXPECTED_SALT_LEN {
+            return Err(InfraError::Crypto {
+                detail: "握手 salt 长度非法".to_owned(),
+            });
+        }
 
         let shared = secret.diffie_hellman(&server_pub);
         let (req_key, res_key, info) = derive_session_keys(
@@ -606,6 +652,7 @@ impl EdgeHttpClient {
             &hs.kid,
             &hs.sid,
         )?;
+        let local_now_secs = i64::try_from(self.clock.now_epoch_millis() / 1_000).unwrap_or(0);
 
         Ok(EdgeSessionKeys {
             kid: hs.kid,
@@ -613,7 +660,8 @@ impl EdgeHttpClient {
             site: hs.site,
             scope,
             info,
-            expires_at_ms: hs.expires_at,
+            clock_offset_secs: hs.server_time.saturating_sub(local_now_secs),
+            expires_at_secs: local_now_secs.saturating_add(ttl),
             req_key,
             res_key,
             sequence: 0,
@@ -627,4 +675,59 @@ impl EdgeHttpClient {
                 detail: format!("拼接上游地址失败 {path_with_query}: {err}"),
             })
     }
+}
+
+fn decode_encrypted_response(
+    res_env: &EncryptedResponseEnvelope,
+    res_key: &[u8; 32],
+    info: &str,
+    kid: &str,
+    sid: &str,
+    seq: u32,
+    ts: u64,
+) -> Result<EdgeHttpResponse, InfraError> {
+    if res_env.v != 1
+        || res_env.kind != "result"
+        || res_env.kid != kid
+        || res_env.sid != sid
+        || res_env.seq != seq
+        || res_env.ts != ts
+    {
+        return Err(InfraError::Protocol {
+            detail: "边缘响应信封元数据不匹配".to_owned(),
+        });
+    }
+
+    let res_cipher = BASE64_URL_SAFE_NO_PAD
+        .decode(&res_env.ciphertext)
+        .map_err(|err| InfraError::Crypto {
+            detail: format!("响应密文 Base64Url 解码失败: {err}"),
+        })?;
+    let res_aad = build_aad(info, "res", res_env.seq, res_env.ts);
+    let res_plain = decrypt_envelope_payload(res_key, res_env.seq, &res_aad, &res_cipher)?;
+    let inner_resp: InnerResponse =
+        serde_json::from_slice(&res_plain).map_err(|err| InfraError::Protocol {
+            detail: format!("解析内层响应失败: {err}"),
+        })?;
+    let decoded_body = if inner_resp.body.is_empty() {
+        Vec::new()
+    } else {
+        BASE64_STANDARD
+            .decode(&inner_resp.body)
+            .map_err(|err| InfraError::Protocol {
+                detail: format!("内层响应体 Base64 解码失败: {err}"),
+            })?
+    };
+    let parsed_body = if decoded_body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&decoded_body).map_err(|err| InfraError::Protocol {
+            detail: format!("内层响应体 JSON 解析失败: {err}"),
+        })?
+    };
+
+    Ok(EdgeHttpResponse {
+        status: inner_resp.status,
+        body: parsed_body,
+    })
 }

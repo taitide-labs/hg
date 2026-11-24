@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use aes_gcm::aead::{Aead as _, Payload};
 use aes_gcm::{Aes256Gcm, KeyInit as _, Nonce};
 use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use base64::engine::general_purpose::{
+    STANDARD as BASE64_STANDARD, URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD,
+};
 use bytes::Bytes;
 use hg_runtime::infra::clock::{Clock, SystemClock};
 use hkdf::Hkdf;
@@ -65,36 +67,48 @@ pub struct FakeUpstreamServer {
 
 #[derive(Debug, Deserialize)]
 struct HandshakeRequest {
-    protocol: String,
-    scope: String,
-    client_public_key: String,
+    v: u8,
+    #[serde(rename = "type")]
+    kind: String,
+    client_pub: String,
 }
 
 #[derive(Debug, Serialize)]
 struct HandshakeResponse {
+    v: u8,
+    #[serde(rename = "type")]
+    kind: &'static str,
     kid: String,
     sid: String,
     site: &'static str,
-    server_public_key: String,
+    server_pub: String,
     salt: String,
-    expires_at: u64,
+    server_time: i64,
+    expires_at: i64,
 }
 
 #[derive(Debug, Deserialize)]
 struct EncryptedEnvelope {
-    protocol: String,
+    v: u8,
+    #[serde(rename = "type")]
+    kind: String,
     kid: String,
     sid: String,
     seq: u32,
     ts: u64,
-    payload: String,
+    ciphertext: String,
 }
 
 #[derive(Debug, Serialize)]
 struct EncryptedResponseEnvelope {
+    v: u8,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    kid: String,
+    sid: String,
     seq: u32,
     ts: u64,
-    payload: String,
+    ciphertext: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,11 +122,6 @@ struct InnerRequest {
     path: String,
     #[serde(default)]
     body: String,
-}
-
-#[derive(Debug, Serialize)]
-struct InnerResponseWrapper {
-    response: InnerResponse,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,19 +235,16 @@ async fn handle_http(req: Request<Incoming>, state: &UpstreamState) -> Response<
 
     let method = req.method().clone();
     let path = req.uri().path().to_owned();
-
-    if method == Method::GET && req.headers().contains_key("X-HG-Public-JSON") {
-        return empty_status(StatusCode::UPGRADE_REQUIRED);
-    }
-
-    if method == Method::POST && (path == "/api/edge/handshake" || path == "/api/handshake") {
-        return handle_handshake(req, state).await;
-    }
+    let is_public_json = req
+        .headers()
+        .get("X-HG-Public-JSON")
+        .and_then(|v| v.to_str().ok())
+        == Some("1");
 
     if method == Method::POST
         && let Some(scope) = parse_encrypted_scope(&path)
     {
-        return handle_encrypted_channel(req, state, scope).await;
+        return handle_scope_post(req, state, scope, is_public_json).await;
     }
 
     if method == Method::GET || method == Method::HEAD {
@@ -246,6 +252,58 @@ async fn handle_http(req: Request<Incoming>, state: &UpstreamState) -> Response<
     }
 
     empty_status(StatusCode::NOT_FOUND)
+}
+
+async fn handle_scope_post(
+    req: Request<Incoming>,
+    state: &UpstreamState,
+    scope: &str,
+    is_public_json: bool,
+) -> Response<Full<Bytes>> {
+    let bytes = match read_body_bytes(req).await {
+        Ok(b) => b,
+        Err((status, msg)) => return json_response(status, &json!({ "error": msg })),
+    };
+
+    if scope == "public" && is_public_json {
+        return handle_public_json_request(&bytes, state);
+    }
+
+    let kind = serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("type").and_then(Value::as_str).map(str::to_owned));
+    match kind.as_deref() {
+        Some("hello") => handle_handshake(&bytes, state, scope),
+        Some("call") => handle_encrypted_channel(&bytes, state, scope),
+        _ => json_response(
+            StatusCode::BAD_REQUEST,
+            &json!({ "error": "invalid_request" }),
+        ),
+    }
+}
+
+fn handle_public_json_request(bytes: &[u8], state: &UpstreamState) -> Response<Full<Bytes>> {
+    let Ok(inner_req) = serde_json::from_slice::<InnerRequest>(bytes) else {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            &json!({ "error": "invalid_request" }),
+        );
+    };
+    state.calls.lock().push(RecordedUpstreamCall {
+        scope: "public".to_owned(),
+        method: inner_req.method.clone(),
+        path: inner_req.path.clone(),
+    });
+    let (status_code, body) =
+        dispatch_api_route(&inner_req.method, &inner_req.path, &state.base_url);
+    let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let encoded = serde_json::to_vec(&body).unwrap_or_default();
+    Response::builder()
+        .status(status)
+        .header(CONTENT_TYPE, "application/json")
+        .header("X-HG-Public-JSON", "1")
+        .body(Full::new(Bytes::from(encoded)))
+        .unwrap_or_else(|_| empty_status(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 fn parse_encrypted_scope(path: &str) -> Option<&'static str> {
@@ -265,26 +323,23 @@ async fn read_body_bytes(req: Request<Incoming>) -> Result<Bytes, (StatusCode, &
         .map_err(|_| (StatusCode::BAD_REQUEST, "bad_body"))
 }
 
-async fn handle_handshake(req: Request<Incoming>, state: &UpstreamState) -> Response<Full<Bytes>> {
-    let bytes = match read_body_bytes(req).await {
-        Ok(b) => b,
-        Err((status, msg)) => return json_response(status, &json!({ "error": msg })),
-    };
-    let Ok(hs_req) = serde_json::from_slice::<HandshakeRequest>(&bytes) else {
+fn handle_handshake(bytes: &[u8], state: &UpstreamState, scope: &str) -> Response<Full<Bytes>> {
+    let Ok(hs_req) = serde_json::from_slice::<HandshakeRequest>(bytes) else {
         return json_response(
             StatusCode::BAD_REQUEST,
             &json!({ "error": "invalid_handshake" }),
         );
     };
-    if hs_req.protocol != EDGE_PROTOCOL
-        || !matches!(hs_req.scope.as_str(), "public" | "dynamic" | "playback")
+    if hs_req.v != 1
+        || hs_req.kind != "hello"
+        || !matches!(scope, "public" | "dynamic" | "playback")
     {
         return json_response(
             StatusCode::BAD_REQUEST,
             &json!({ "error": "unsupported_protocol" }),
         );
     }
-    let Ok(client_pub_bytes) = BASE64_STANDARD.decode(&hs_req.client_public_key) else {
+    let Ok(client_pub_bytes) = BASE64_URL_SAFE_NO_PAD.decode(&hs_req.client_pub) else {
         return json_response(
             StatusCode::BAD_REQUEST,
             &json!({ "error": "invalid_client_key_b64" }),
@@ -297,7 +352,7 @@ async fn handle_handshake(req: Request<Incoming>, state: &UpstreamState) -> Resp
         );
     };
 
-    let Ok(response) = create_session_and_response(state, &hs_req.scope, &client_pub) else {
+    let Ok(response) = create_session_and_response(state, scope, &client_pub) else {
         return json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &json!({ "error": "key_derivation_failed" }),
@@ -315,7 +370,7 @@ fn create_session_and_response(
     let kid = format!("kid-{seq_id}");
     let sid = format!("sid-{seq_id}");
     let site = "hg-e2e";
-    let salt = format!("salt-{seq_id:012}").into_bytes();
+    let salt = format!("salt-{seq_id:027}").into_bytes();
 
     let server_secret = EphemeralSecret::generate();
     let server_pub = server_secret.public_key();
@@ -343,33 +398,33 @@ fn create_session_and_response(
         },
     );
 
-    let expires_at = state.clock.now_epoch_millis().saturating_add(3_600_000);
+    let server_time = i64::try_from(state.clock.now_epoch_millis() / 1_000).unwrap_or(0);
+    let expires_at = server_time.saturating_add(300);
     Ok(HandshakeResponse {
+        v: 1,
+        kind: "hello",
         kid,
         sid,
         site,
-        server_public_key: BASE64_STANDARD.encode(server_pub_bytes.as_bytes()),
-        salt: BASE64_STANDARD.encode(&salt),
+        server_pub: BASE64_URL_SAFE_NO_PAD.encode(server_pub_bytes.as_bytes()),
+        salt: BASE64_URL_SAFE_NO_PAD.encode(&salt),
+        server_time,
         expires_at,
     })
 }
 
-async fn handle_encrypted_channel(
-    req: Request<Incoming>,
+fn handle_encrypted_channel(
+    bytes: &[u8],
     state: &UpstreamState,
     scope: &str,
 ) -> Response<Full<Bytes>> {
-    let bytes = match read_body_bytes(req).await {
-        Ok(b) => b,
-        Err((status, msg)) => return json_response(status, &json!({ "error": msg })),
-    };
-    let Ok(env) = serde_json::from_slice::<EncryptedEnvelope>(&bytes) else {
+    let Ok(env) = serde_json::from_slice::<EncryptedEnvelope>(bytes) else {
         return json_response(
             StatusCode::BAD_REQUEST,
             &json!({ "error": "invalid_envelope" }),
         );
     };
-    if env.protocol != EDGE_PROTOCOL {
+    if env.v != 1 || env.kind != "call" {
         return json_response(
             StatusCode::BAD_REQUEST,
             &json!({ "error": "invalid_protocol" }),
@@ -398,7 +453,7 @@ async fn handle_encrypted_channel(
     let (inner_status, inner_body) =
         dispatch_api_route(&inner_req.method, &inner_req.path, &state.base_url);
 
-    match encrypt_inner_response(&session, env.seq, env.ts, inner_status, &inner_body) {
+    match encrypt_inner_response(&session, &env, inner_status, &inner_body) {
         Ok(res_env) => json_response(StatusCode::OK, &res_env),
         Err(_) => json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -427,8 +482,8 @@ fn decrypt_inner_request(
     session: &UpstreamSession,
     env: &EncryptedEnvelope,
 ) -> Result<InnerRequest, String> {
-    let cipher_bytes = BASE64_STANDARD
-        .decode(&env.payload)
+    let cipher_bytes = BASE64_URL_SAFE_NO_PAD
+        .decode(&env.ciphertext)
         .map_err(|err| err.to_string())?;
     let aad = format!("{}\nreq\n{}\n{}", session.info, env.seq, env.ts).into_bytes();
     let plain = aes_gcm_decrypt(&session.req_key, env.seq, &aad, &cipher_bytes)?;
@@ -439,25 +494,26 @@ fn decrypt_inner_request(
 
 fn encrypt_inner_response(
     session: &UpstreamSession,
-    seq: u32,
-    ts: u64,
+    env: &EncryptedEnvelope,
     status: u16,
     body: &Value,
 ) -> Result<EncryptedResponseEnvelope, String> {
     let body_bytes = serde_json::to_vec(body).map_err(|err| err.to_string())?;
-    let wrapper = InnerResponseWrapper {
-        response: InnerResponse {
-            status,
-            body: BASE64_STANDARD.encode(&body_bytes),
-        },
+    let inner = InnerResponse {
+        status,
+        body: BASE64_STANDARD.encode(&body_bytes),
     };
-    let plain = serde_json::to_vec(&wrapper).map_err(|err| err.to_string())?;
-    let aad = format!("{}\nres\n{seq}\n{ts}", session.info).into_bytes();
-    let cipher = aes_gcm_encrypt(&session.res_key, seq, &aad, &plain)?;
+    let plain = serde_json::to_vec(&inner).map_err(|err| err.to_string())?;
+    let aad = format!("{}\nres\n{}\n{}", session.info, env.seq, env.ts).into_bytes();
+    let cipher = aes_gcm_encrypt(&session.res_key, env.seq, &aad, &plain)?;
     Ok(EncryptedResponseEnvelope {
-        seq,
-        ts,
-        payload: BASE64_STANDARD.encode(&cipher),
+        v: 1,
+        kind: "result",
+        kid: env.kid.clone(),
+        sid: env.sid.clone(),
+        seq: env.seq,
+        ts: env.ts,
+        ciphertext: BASE64_URL_SAFE_NO_PAD.encode(&cipher),
     })
 }
 
