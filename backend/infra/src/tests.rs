@@ -316,6 +316,93 @@ async fn loopback_proxy_forwards_online_hls_with_cdn_headers_and_rewrites_uris()
     drop(cdn_task);
 }
 
+#[tokio::test]
+async fn loopback_proxy_decrypts_and_disk_caches_cover_images() {
+    use bytes::Bytes;
+    use http_body_util::Full;
+    use hyper::body::Incoming;
+    use hyper::server::conn::http1;
+    use hyper::service::service_fn;
+    use hyper::{Request, Response, StatusCode};
+    use hyper_util::rt::TokioIo;
+    use tokio::net::TcpListener;
+
+    let dir = tempdir().expect("temp dir");
+    let storage = Arc::new(
+        StorageLayout::new(&dir.path().join("data"), &dir.path().join("cache")).expect("layout"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+
+    let plain_png: &[u8] = &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4];
+    let encrypted = Aes128CbcEncryptor::new(
+        &(*b"f5d965df75336270").into(),
+        &(*b"97b60394abc2fbe1").into(),
+    )
+    .encrypt_padded_vec::<Pkcs7>(plain_png);
+    let encrypted_bytes = Bytes::from(encrypted);
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let cdn_addr = listener.local_addr().expect("addr");
+    let cdn_task = tokio::spawn(async move {
+        if let Ok((stream, _)) = listener.accept().await {
+            let io = TokioIo::new(stream);
+            let body = encrypted_bytes.clone();
+            let svc = service_fn(move |_req: Request<Incoming>| {
+                let body = body.clone();
+                async move {
+                    Ok::<_, std::convert::Infallible>(
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .body(Full::new(body))
+                            .expect("resp"),
+                    )
+                }
+            });
+            drop(http1::Builder::new().serve_connection(io, svc).await);
+        }
+    });
+
+    let proxy = LoopbackProxyHandle::start(Arc::clone(&storage))
+        .await
+        .expect("start proxy");
+    let remote_cover = format!("http://{cdn_addr}/cover/101.png");
+    let proxied = proxy.cover_proxy_url(&remote_cover);
+    assert!(proxied.starts_with(&format!("{}/cover/", proxy.base_url())));
+
+    let client = reqwest::Client::new();
+    let first = client.get(&proxied).send().await.expect("first fetch");
+    assert_eq!(first.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        first
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok()),
+        Some("image/png")
+    );
+    assert_eq!(first.bytes().await.expect("bytes").as_ref(), plain_png);
+
+    drop(cdn_task);
+
+    let second = client
+        .get(&proxied)
+        .send()
+        .await
+        .expect("cached offline fetch");
+    assert_eq!(second.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        second.bytes().await.expect("cached bytes").as_ref(),
+        plain_png
+    );
+    assert!(
+        StorageLayout::dir_size_bytes(storage.catalog_cache_dir())
+            .await
+            .expect("cache bytes")
+            >= plain_png.len() as u64
+    );
+
+    proxy.shutdown();
+}
+
 #[test]
 fn fixed_clock_advances_deterministically() {
     let clock = FixedClock::new(1_700_000_000);

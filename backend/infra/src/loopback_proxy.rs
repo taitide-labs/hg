@@ -23,8 +23,10 @@ use tokio::sync::oneshot;
 use crate::error::InfraError;
 use crate::storage::StorageLayout;
 
+mod cover;
 mod online;
 
+use cover::{build_cover_proxy_url, proxy_cover_request};
 use online::{OnlineStreamSession, build_online_session, proxy_online_request};
 
 #[derive(Debug, Clone)]
@@ -92,6 +94,11 @@ impl LoopbackProxyHandle {
     #[must_use]
     pub fn base_url(&self) -> String {
         format!("http://{}", self.inner.addr)
+    }
+
+    #[must_use]
+    pub fn cover_proxy_url(&self, raw_cover_url: &str) -> String {
+        build_cover_proxy_url(&self.base_url(), raw_cover_url)
     }
 
     pub fn register_offline_episode(
@@ -217,6 +224,14 @@ async fn run_accept_loop(
 async fn handle_request(req: Request<Incoming>, inner: &LoopbackInner) -> Response<Full<Bytes>> {
     if req.method() != Method::GET && req.method() != Method::HEAD {
         return empty_response(StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    if let Some(encoded) = req.uri().path().strip_prefix("/cover/")
+        && !encoded.is_empty()
+        && !encoded.contains('/')
+    {
+        return proxy_cover_request(&inner.http_client, &inner.storage, req.method(), encoded)
+            .await;
     }
 
     if let Some((token, rel_file)) = parse_scoped_path(req.uri().path(), "/offline/") {
