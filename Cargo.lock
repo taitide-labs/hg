@@ -1429,7 +1429,17 @@ dependencies = [
 name = "hg-offline-features"
 version = "0.1.0"
 dependencies = [
+ "hg-backend-contracts",
+ "hg-contracts",
+ "hg-infra",
  "hg-offline-domain",
+ "parking_lot 0.13.0",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]
