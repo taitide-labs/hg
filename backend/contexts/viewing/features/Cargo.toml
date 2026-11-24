@@ -1,0 +1,20 @@
+[package]
+name = "hg-viewing-features"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+hg-backend-contracts.workspace = true
+hg-contracts.workspace = true
+hg-infra.workspace = true
+hg-viewing-domain.workspace = true
+sqlx.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

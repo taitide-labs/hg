@@ -1,6 +1,19 @@
 [workspace]
 resolver = "3"
-members = ["contracts", "clients/gateway", "clients/app", "backend/runtime"]
+members = [
+  "contracts",
+  "clients/gateway",
+  "clients/app",
+  "backend/contracts",
+  "backend/infra",
+  "backend/contexts/catalog/domain",
+  "backend/contexts/catalog/features",
+  "backend/contexts/offline/domain",
+  "backend/contexts/offline/features",
+  "backend/contexts/viewing/domain",
+  "backend/contexts/viewing/features",
+  "backend/runtime",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,16 +22,42 @@ license = "MIT"
 repository = "https://github.com/taitide-labs/hg"
 
 [workspace.dependencies]
+aes = { version = "0.9", default-features = false }
+aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc", "getrandom"] }
+base64 = { version = "0.23", default-features = false, features = ["std"] }
+bytes = { version = "1", default-features = false, features = ["std"] }
+cbc = { version = "0.2", default-features = false, features = ["alloc", "block-padding"] }
+hg-backend-contracts = { path = "backend/contracts" }
+hg-catalog-domain = { path = "backend/contexts/catalog/domain" }
+hg-catalog-features = { path = "backend/contexts/catalog/features" }
 hg-contracts = { path = "contracts" }
 hg-gateway = { path = "clients/gateway" }
+hg-infra = { path = "backend/infra" }
+hg-offline-domain = { path = "backend/contexts/offline/domain" }
+hg-offline-features = { path = "backend/contexts/offline/features" }
+hg-viewing-domain = { path = "backend/contexts/viewing/domain" }
+hg-viewing-features = { path = "backend/contexts/viewing/features" }
+hkdf = { version = "0.13", default-features = false }
+http-body-util = { version = "0.1", default-features = false }
+hyper = { version = "1", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio", "http1"] }
 nsh-base = { version = "0.6.1", default-features = false }
 nsh-core = { version = "0.6.1", default-features = false }
 nsh-engine = { version = "0.6.1", default-features = false }
 nsh-platform-macos = { version = "0.6.1", default-features = false }
 nsh-platform-windows = { version = "0.6.1", default-features = false }
 nsh-testing = { version = "0.6.1", default-features = false }
-parking_lot = "0.12"
+p256 = { version = "0.14", default-features = false, features = ["ecdh", "arithmetic", "getrandom"] }
+parking_lot = "0.13"
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "gzip"] }
 serde = { version = "1.0", default-features = false, features = ["derive", "std"] }
+serde_json = { version = "1.0", default-features = false, features = ["std"] }
+sha2 = { version = "0.11", default-features = false }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
+tempfile = { version = "3", default-features = false }
+thiserror = { version = "2", default-features = false }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "sync", "time", "net", "fs", "io-util"] }
+url = { version = "2", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

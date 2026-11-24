@@ -6,5 +6,16 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+hg-backend-contracts.workspace = true
+hg-catalog-features.workspace = true
+hg-infra.workspace = true
+hg-offline-features.workspace = true
+hg-viewing-features.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true
+
 [lints]
 workspace = true
