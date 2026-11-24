@@ -93,7 +93,6 @@ async fn discovery_disabled_by_default_returns_feature_flag_error() {
 }
 
 #[tokio::test]
-#[ignore = "待实现片库发现与检索切片后激活"]
 async fn discovery_caches_home_feed_and_routes_search_dynamically() {
     let upstream = FakeCatalogUpstream::default()
         .with_json("/api/home", sample_home_payload())
