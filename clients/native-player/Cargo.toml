@@ -16,6 +16,7 @@ nsh-platform-macos.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nsh-platform-windows.workspace = true
+parking_lot.workspace = true
 
 [lints.rust]
 unsafe_code = "deny"
