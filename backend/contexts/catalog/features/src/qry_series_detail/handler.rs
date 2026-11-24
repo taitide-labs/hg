@@ -7,34 +7,36 @@ use hg_contracts::ids::SeriesId;
 
 use crate::CatalogDeps;
 
-use super::query::{FEATURE_NAME, ensure_enabled};
-
-fn unimplemented_stub() -> ContractError {
-    ContractError::Internal {
-        detail: format!("{FEATURE_NAME} 切片尚未实现"),
-    }
-}
+use super::query::{
+    ensure_enabled, fetch_comment_replies, fetch_episode_comments, fetch_series_detail,
+};
 
 pub async fn series_detail(
     deps: &CatalogDeps,
-    _series_id: SeriesId,
+    series_id: SeriesId,
 ) -> Result<SeriesDetail, ContractError> {
     ensure_enabled(deps.flags.detail_and_comments)?;
-    Err(unimplemented_stub())
+    fetch_series_detail(deps, series_id)
+        .await
+        .map_err(ContractError::from)
 }
 
 pub async fn list_episode_comments(
     deps: &CatalogDeps,
-    _request: ListEpisodeCommentsRequest,
+    request: ListEpisodeCommentsRequest,
 ) -> Result<PagedResult<EpisodeComment>, ContractError> {
     ensure_enabled(deps.flags.detail_and_comments)?;
-    Err(unimplemented_stub())
+    fetch_episode_comments(deps, request)
+        .await
+        .map_err(ContractError::from)
 }
 
 pub async fn list_comment_replies(
     deps: &CatalogDeps,
-    _request: ListCommentRepliesRequest,
+    request: ListCommentRepliesRequest,
 ) -> Result<PagedResult<CommentReply>, ContractError> {
     ensure_enabled(deps.flags.detail_and_comments)?;
-    Err(unimplemented_stub())
+    fetch_comment_replies(deps, request)
+        .await
+        .map_err(ContractError::from)
 }
