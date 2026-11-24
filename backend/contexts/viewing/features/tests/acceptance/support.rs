@@ -13,7 +13,6 @@ use hg_infra::db::LocalDatabase;
 use hg_infra::loopback_proxy::LoopbackProxyHandle;
 use hg_infra::storage::StorageLayout;
 use hg_viewing_features::ViewingDeps;
-use hg_viewing_features::flags::ViewingFeatureFlags;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
@@ -169,11 +168,7 @@ pub struct ViewingTestHarness {
 }
 
 impl ViewingTestHarness {
-    pub async fn new(
-        flags: ViewingFeatureFlags,
-        catalog: StubViewingCatalog,
-        offline_assets: StubOfflineAssets,
-    ) -> Self {
+    pub async fn new(catalog: StubViewingCatalog, offline_assets: StubOfflineAssets) -> Self {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let storage = Arc::new(
             StorageLayout::new(
@@ -199,7 +194,6 @@ impl ViewingTestHarness {
             catalog_tickets: Arc::clone(&catalog) as _,
             offline_assets,
             loopback,
-            flags,
         };
         Self {
             _temp_dir: temp_dir,

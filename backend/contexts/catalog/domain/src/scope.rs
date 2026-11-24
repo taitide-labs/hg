@@ -36,15 +36,45 @@ pub fn resolve_edge_scope(method: &str, path_with_query: &str) -> EdgeScope {
         return EdgeScope::Playback;
     }
 
-    if path.starts_with("/api/search")
-        || path.contains("/comments")
-        || has_dynamic_sort(query)
-        || !method.eq_ignore_ascii_case("GET")
-    {
+    if !method.eq_ignore_ascii_case("GET") || has_dynamic_sort(query) {
         return EdgeScope::Dynamic;
     }
 
-    EdgeScope::Public
+    if is_public_readonly_path(path) {
+        EdgeScope::Public
+    } else {
+        EdgeScope::Dynamic
+    }
+}
+
+fn is_public_readonly_path(path: &str) -> bool {
+    if matches!(
+        path,
+        "/api/home/latest"
+            | "/api/home/recommends"
+            | "/api/search/hot"
+            | "/api/search/suggest"
+            | "/api/search/tags/hot"
+            | "/api/site/categories/video"
+            | "/api/site/sorts/video"
+            | "/api/tags"
+            | "/api/topics"
+            | "/api/videos"
+            | "/api/videos/long"
+    ) {
+        return true;
+    }
+
+    is_single_segment_under(path, "/api/ranks/")
+        || is_single_segment_under(path, "/api/topics/")
+        || is_single_segment_under(path, "/api/videos/category/")
+        || is_single_segment_under(path, "/api/videos/sort/")
+        || is_single_segment_under(path, "/api/videos/tag/")
+}
+
+fn is_single_segment_under(path: &str, prefix: &str) -> bool {
+    path.strip_prefix(prefix)
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('/'))
 }
 
 fn has_dynamic_sort(query: &str) -> bool {

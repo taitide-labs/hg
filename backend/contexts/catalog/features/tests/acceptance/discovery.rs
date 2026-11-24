@@ -1,6 +1,5 @@
 use std::num::{NonZeroU16, NonZeroU32};
 
-use hg_catalog_features::flags::CatalogFeatureFlags;
 use hg_catalog_features::qry_discovery;
 use hg_contracts::catalog::SearchSeriesRequest;
 use hg_contracts::ids::{PageRequest, SeriesId};
@@ -79,29 +78,11 @@ fn sample_search_payload() -> Value {
 }
 
 #[tokio::test]
-async fn discovery_disabled_by_default_returns_feature_flag_error() {
-    let harness = CatalogTestHarness::new(
-        CatalogFeatureFlags::default(),
-        FakeCatalogUpstream::default(),
-    )
-    .await;
-
-    let err = qry_discovery::home_feed(&harness.deps)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-}
-
-#[tokio::test]
 async fn discovery_caches_home_feed_and_routes_search_dynamically() {
     let upstream = FakeCatalogUpstream::default()
         .with_json("/api/home", sample_home_payload())
         .with_json("/api/search", sample_search_payload());
-    let flags = CatalogFeatureFlags {
-        discovery: true,
-        ..CatalogFeatureFlags::default()
-    };
-    let harness = CatalogTestHarness::new(flags, upstream).await;
+    let harness = CatalogTestHarness::new(upstream).await;
 
     let first_home = qry_discovery::home_feed(&harness.deps)
         .await
@@ -124,7 +105,7 @@ async fn discovery_caches_home_feed_and_routes_search_dynamically() {
             .first()
             .expect("call")
             .scope,
-        EdgeChannelScope::Public
+        EdgeChannelScope::Dynamic
     );
 
     let search = qry_discovery::search_series(

@@ -6,12 +6,9 @@ use hg_infra::edge_crypto::EdgeChannelScope;
 
 use crate::CatalogDeps;
 
-use super::command::{ensure_enabled, ensure_port_enabled};
 use super::workflow::{parse_playback_ticket, playback_request_path};
 
 pub async fn clear_catalog_cache(deps: &CatalogDeps) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.playback_and_cache)?;
-
     let mut tx = deps
         .pool()
         .begin()
@@ -52,8 +49,6 @@ pub(crate) async fn fetch_playback_ticket(
     deps: &CatalogDeps,
     key: EpisodeKey,
 ) -> Result<PlaybackTicket, PortError> {
-    ensure_port_enabled(deps.flags.playback_and_cache)?;
-
     let path = playback_request_path(key);
     let empty_body = serde_json::json!({});
     let payload = deps

@@ -14,7 +14,6 @@ use serde_json::{Value, json};
 use super::super::handler::{list_comment_replies, list_episode_comments, series_detail};
 use super::super::port::CatalogMetadataAdapter;
 use crate::CatalogDeps;
-use crate::flags::CatalogFeatureFlags;
 use crate::upstream::CatalogUpstream;
 
 use super::cover_cache::build_cover_rel_path;
@@ -90,7 +89,6 @@ impl CatalogUpstream for StubUpstream {
 }
 
 async fn make_deps(
-    flags: CatalogFeatureFlags,
     upstream: Arc<StubUpstream>,
 ) -> (tempfile::TempDir, Arc<FixedClock>, CatalogDeps) {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -105,7 +103,6 @@ async fn make_deps(
         storage,
         clock: Arc::clone(&clock) as _,
         upstream,
-        flags,
     };
     (dir, clock, deps)
 }
@@ -264,39 +261,14 @@ fn builds_deterministic_safe_cover_cache_paths() {
 }
 
 #[tokio::test]
-async fn metadata_port_rejects_when_disabled_and_missing_episode() {
+async fn metadata_port_rejects_missing_episode() {
     let upstream = Arc::new(StubUpstream::new(b"\x89PNGraw".to_vec()));
-    let (_dir, _clock, disabled_deps) =
-        make_deps(CatalogFeatureFlags::default(), Arc::clone(&upstream)).await;
-
     let series_id = SeriesId::try_from(101).expect("series 101");
-    let ep1 = EpisodeNumber::try_from(1).expect("ep 1");
-    let port = CatalogMetadataAdapter::new(disabled_deps);
-
-    assert!(matches!(
-        port.fetch_series_snapshot(series_id).await,
-        Err(PortError::InvalidState { .. })
-    ));
-    assert!(matches!(
-        port.fetch_episode_snapshot(EpisodeKey::new(series_id, ep1))
-            .await,
-        Err(PortError::InvalidState { .. })
-    ));
-    assert!(matches!(
-        port.fetch_decrypted_cover("/covers/101.png").await,
-        Err(PortError::InvalidState { .. })
-    ));
-
-    let flags = CatalogFeatureFlags {
-        detail_and_comments: true,
-        ..CatalogFeatureFlags::default()
-    };
-    let (_dir2, _clock2, enabled_deps) = make_deps(flags, upstream).await;
-    let enabled_port = CatalogMetadataAdapter::new(enabled_deps);
+    let (_dir, _clock, deps) = make_deps(upstream).await;
+    let port = CatalogMetadataAdapter::new(deps);
     let ep99 = EpisodeNumber::try_from(99).expect("ep 99");
     assert!(matches!(
-        enabled_port
-            .fetch_episode_snapshot(EpisodeKey::new(series_id, ep99))
+        port.fetch_episode_snapshot(EpisodeKey::new(series_id, ep99))
             .await,
         Err(PortError::NotFound { .. })
     ));
@@ -305,16 +277,12 @@ async fn metadata_port_rejects_when_disabled_and_missing_episode() {
 #[tokio::test]
 async fn detail_cache_respects_ttl_and_comments_use_dynamic_scope() {
     let upstream = Arc::new(StubUpstream::new(b"\x89PNGraw".to_vec()));
-    let flags = CatalogFeatureFlags {
-        detail_and_comments: true,
-        ..CatalogFeatureFlags::default()
-    };
-    let (_dir, clock, deps) = make_deps(flags, Arc::clone(&upstream)).await;
+    let (_dir, clock, deps) = make_deps(Arc::clone(&upstream)).await;
     let series_id = SeriesId::try_from(101).expect("series 101");
 
     let first = series_detail(&deps, series_id).await.expect("first detail");
     assert_eq!(first.summary.title, "测试剧目");
-    assert_eq!(*upstream.last_scope.lock(), Some(EdgeChannelScope::Public));
+    assert_eq!(*upstream.last_scope.lock(), Some(EdgeChannelScope::Dynamic));
     assert_eq!(upstream.detail_calls.load(Ordering::SeqCst), 1);
 
     let cached = series_detail(&deps, series_id)
@@ -365,11 +333,7 @@ async fn detail_cache_respects_ttl_and_comments_use_dynamic_scope() {
 async fn cover_cache_heals_missing_disk_file_and_rejects_empty_url() {
     let png = b"\x89PNG\r\n\x1a\ncover-bytes".to_vec();
     let upstream = Arc::new(StubUpstream::new(png.clone()));
-    let flags = CatalogFeatureFlags {
-        detail_and_comments: true,
-        ..CatalogFeatureFlags::default()
-    };
-    let (_dir, _clock, deps) = make_deps(flags, Arc::clone(&upstream)).await;
+    let (_dir, _clock, deps) = make_deps(Arc::clone(&upstream)).await;
     let port = CatalogMetadataAdapter::new(deps.clone());
 
     assert!(matches!(

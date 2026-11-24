@@ -4,7 +4,6 @@ use hg_contracts::viewing::PlaybackPreference;
 
 use crate::ViewingDeps;
 
-use super::command::ensure_enabled;
 use super::workflow::{
     BookmarkWrite, check_playback_preference, plan_bookmark_series, profile_as_str,
 };
@@ -13,7 +12,6 @@ pub async fn remove_watch_history(
     deps: &ViewingDeps,
     series_id: SeriesId,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.watchlist_and_settings)?;
     let series_id = sqlite_i64(series_id.get(), "剧目标识")?;
     let mut tx = begin_write_tx(deps, "移除观看历史").await?;
 
@@ -29,7 +27,6 @@ pub async fn remove_watch_history(
 }
 
 pub async fn clear_watch_history(deps: &ViewingDeps) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.watchlist_and_settings)?;
     let mut tx = begin_write_tx(deps, "清空观看历史").await?;
 
     sqlx::query("DELETE FROM viewing_watch_history")
@@ -43,7 +40,6 @@ pub async fn clear_watch_history(deps: &ViewingDeps) -> Result<(), ContractError
 }
 
 pub async fn bookmark_series(deps: &ViewingDeps, series_id: SeriesId) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.watchlist_and_settings)?;
     let series = deps
         .catalog_metadata
         .fetch_series_snapshot(series_id)
@@ -59,7 +55,6 @@ pub async fn unbookmark_series(
     deps: &ViewingDeps,
     series_id: SeriesId,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.watchlist_and_settings)?;
     let series_id = sqlite_i64(series_id.get(), "剧目标识")?;
     let mut tx = begin_write_tx(deps, "取消追剧收藏").await?;
 
@@ -78,7 +73,6 @@ pub async fn update_playback_preference(
     deps: &ViewingDeps,
     preference: PlaybackPreference,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.watchlist_and_settings)?;
     check_playback_preference(&preference)?;
 
     let profile = profile_as_str(preference.preferred_profile);
@@ -109,7 +103,6 @@ pub async fn update_playback_preference(
 }
 
 pub async fn clear_playback_cache(deps: &ViewingDeps) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.watchlist_and_settings)?;
     let mut tx = begin_write_tx(deps, "清理播放缓存").await?;
 
     sqlx::query("DELETE FROM viewing_playback_cache_segments")

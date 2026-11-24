@@ -13,7 +13,6 @@ use hg_infra::storage::StorageLayout;
 
 use crate::OfflineDeps;
 
-use super::command::ensure_enabled;
 use super::store::{
     ClaimedTask, CompletedEpisodeCommit, claim_next_queued_task, commit_completed_episode,
     fail_task, insert_queued_tasks, load_existing_episode_keys, load_policy_prefs, read_task_state,
@@ -54,7 +53,6 @@ pub async fn enqueue_episode_downloads(
     deps: &OfflineDeps,
     request: EnqueueEpisodeDownloadsRequest,
 ) -> Result<EnqueueEpisodeDownloadsResult, ContractError> {
-    ensure_enabled(deps.flags.download_queue)?;
     let existing = load_existing_episode_keys(deps.pool(), request.series_id).await?;
     let plan = plan_enqueue(request.series_id, &request.episodes, &existing)?;
 
@@ -100,7 +98,6 @@ pub async fn control_download(
     deps: &OfflineDeps,
     request: ControlDownloadRequest,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.download_queue)?;
     let now = deps.clock.now_epoch_secs();
     transition_single_task(deps.pool(), request.key, request.action, now).await?;
     if request.action == ControlDownloadAction::Cancel {
@@ -113,7 +110,6 @@ pub async fn control_all_downloads(
     deps: &OfflineDeps,
     action: ControlAllDownloadsAction,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.download_queue)?;
     let now = deps.clock.now_epoch_secs();
     transition_all_tasks(deps.pool(), action, now).await
 }
@@ -122,7 +118,6 @@ pub async fn update_download_policy(
     deps: &OfflineDeps,
     policy: DownloadPolicy,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.download_queue)?;
     check_download_policy(&policy)?;
     upsert_policy(deps.pool(), &policy).await
 }
@@ -130,7 +125,6 @@ pub async fn update_download_policy(
 pub async fn execute_next_queued_task(
     deps: &OfflineDeps,
 ) -> Result<Option<EpisodeKey>, ContractError> {
-    ensure_enabled(deps.flags.download_queue)?;
     let (preferred_profile, max_concurrent_tasks) = load_policy_prefs(deps.pool()).await?;
     let now = deps.clock.now_epoch_secs();
 

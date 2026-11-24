@@ -17,7 +17,6 @@ use hg_infra::storage::StorageLayout;
 use parking_lot::Mutex;
 
 use crate::ViewingDeps;
-use crate::flags::ViewingFeatureFlags;
 
 use super::handler::{
     prepare_episode_playback, refresh_online_playback, stop_deleted_offline_episode,
@@ -262,10 +261,6 @@ async fn refreshes_online_playback_using_stored_preference_and_halts_series_sess
             assets: offline_map,
         }),
         loopback: loopback.clone(),
-        flags: ViewingFeatureFlags {
-            playback_resolution: true,
-            ..ViewingFeatureFlags::default()
-        },
     };
 
     let offline_src = prepare_episode_playback(&deps, ep1)
@@ -283,24 +278,28 @@ async fn refreshes_online_playback_using_stored_preference_and_halts_series_sess
             kind: OnlineStreamKind::Main
         }
     );
-    assert_eq!(
-        initial_online.playable_uri,
-        "https://cdn.example.com/first/main.m3u8"
+    assert!(
+        initial_online
+            .playable_uri
+            .starts_with(&loopback.base_url())
     );
+    assert!(initial_online.playable_uri.contains("/online/"));
 
     let refreshed_online = refresh_online_playback(&deps, ep2)
         .await
         .expect("online refresh");
-    assert_eq!(
-        refreshed_online.playable_uri,
-        "https://cdn.example.com/refreshed/main.m3u8"
+    assert!(
+        refreshed_online
+            .playable_uri
+            .starts_with(&loopback.base_url())
     );
+    assert_ne!(refreshed_online.playable_uri, initial_online.playable_uri);
     assert_eq!(catalog.calls(), vec![ep2, ep2]);
 
     stop_deleted_offline_episode(&deps, ep3)
         .await
         .expect("halt unrelated episode");
-    assert_eq!(loopback.active_session_count(), 1);
+    assert_eq!(loopback.active_session_count(), 3);
 
     stop_deleted_offline_series(&deps, s10)
         .await

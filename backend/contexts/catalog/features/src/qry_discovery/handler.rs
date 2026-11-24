@@ -3,7 +3,6 @@ use hg_contracts::catalog::{
     RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesSummary, TagGroup,
 };
 use hg_contracts::error::ContractError;
-use hg_infra::edge_crypto::EdgeChannelScope;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
@@ -16,9 +15,9 @@ use super::codec::{
     parse_paged_series, parse_ranking, parse_search_suggestions, parse_tag_groups,
 };
 use super::query::{
-    UpstreamRoute, categories_route, ensure_enabled, home_feed_route, hot_keywords_route,
-    hot_tags_route, list_ranking_route, list_series_route, search_series_route,
-    search_suggestions_route, tag_groups_route,
+    UpstreamRoute, categories_route, home_feed_route, hot_keywords_route, hot_tags_route,
+    list_ranking_route, list_series_route, search_series_route, search_suggestions_route,
+    tag_groups_route,
 };
 
 async fn execute_route<T, F>(
@@ -31,11 +30,7 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce(Value) -> Result<T, ContractError>,
 {
-    let cache_ttl = if route.scope == EdgeChannelScope::Public {
-        route.ttl_secs
-    } else {
-        None
-    };
+    let cache_ttl = route.ttl_secs;
 
     if cache_ttl.is_some() {
         let now = deps.clock.now_epoch_secs();
@@ -61,32 +56,28 @@ where
 }
 
 pub async fn home_feed(deps: &CatalogDeps) -> Result<HomeFeed, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
     let route = home_feed_route();
     execute_route(deps, &route, "首页聚合", parse_home_feed).await
 }
 
 pub async fn categories(deps: &CatalogDeps) -> Result<Vec<Category>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
     let route = categories_route();
     execute_route(deps, &route, "频道分类", parse_categories).await
 }
 
 pub async fn tag_groups(deps: &CatalogDeps) -> Result<Vec<TagGroup>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
     let route = tag_groups_route();
-    execute_route(deps, &route, "分组标签", parse_tag_groups).await
+    execute_route(deps, &route, "标签分组", parse_tag_groups).await
 }
 
 pub async fn list_series(
     deps: &CatalogDeps,
     request: ListSeriesRequest,
 ) -> Result<PagedResult<SeriesSummary>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
+    let page_req = request.page;
     let route = list_series_route(&request)?;
-    let page = request.page;
-    execute_route(deps, &route, "条件筛选片库", |data| {
-        parse_paged_series(data, page, "条件筛选片库")
+    execute_route(deps, &route, "剧目列表", move |data| {
+        parse_paged_series(data, page_req, "剧目列表")
     })
     .await
 }
@@ -95,12 +86,11 @@ pub async fn list_ranking(
     deps: &CatalogDeps,
     request: ListRankingRequest,
 ) -> Result<PagedResult<RankingEntry>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
-    let route = list_ranking_route(request);
     let kind = request.kind;
-    let page = request.page;
-    execute_route(deps, &route, "榜单", |data| {
-        parse_ranking(data, kind, page)
+    let page_req = request.page;
+    let route = list_ranking_route(request);
+    execute_route(deps, &route, "排行榜", move |data| {
+        parse_ranking(data, kind, page_req)
     })
     .await
 }
@@ -109,11 +99,10 @@ pub async fn search_series(
     deps: &CatalogDeps,
     request: SearchSeriesRequest,
 ) -> Result<PagedResult<SeriesSummary>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
+    let page_req = request.page;
     let route = search_series_route(&request)?;
-    let page = request.page;
-    execute_route(deps, &route, "全文检索", |data| {
-        parse_paged_series(data, page, "全文检索")
+    execute_route(deps, &route, "全文检索", move |data| {
+        parse_paged_series(data, page_req, "全文检索")
     })
     .await
 }
@@ -122,7 +111,6 @@ pub async fn search_suggestions(
     deps: &CatalogDeps,
     keyword: String,
 ) -> Result<SearchSuggestion, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
     let Some(route) = search_suggestions_route(&keyword) else {
         return Ok(SearchSuggestion {
             series: Vec::new(),
@@ -130,17 +118,15 @@ pub async fn search_suggestions(
             tags: Vec::new(),
         });
     };
-    execute_route(deps, &route, "搜索联想", parse_search_suggestions).await
+    execute_route(deps, &route, "搜索建议", parse_search_suggestions).await
 }
 
 pub async fn hot_keywords(deps: &CatalogDeps) -> Result<Vec<HotKeyword>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
     let route = hot_keywords_route();
-    execute_route(deps, &route, "热门搜索词", parse_hot_keywords).await
+    execute_route(deps, &route, "热搜词", parse_hot_keywords).await
 }
 
 pub async fn hot_tags(deps: &CatalogDeps) -> Result<Vec<HotTag>, ContractError> {
-    ensure_enabled(deps.flags.discovery)?;
     let route = hot_tags_route();
     execute_route(deps, &route, "热门标签", parse_hot_tags).await
 }

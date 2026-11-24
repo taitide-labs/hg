@@ -14,7 +14,6 @@ use hg_infra::storage::StorageLayout;
 use tempfile::TempDir;
 
 use crate::ViewingDeps;
-use crate::flags::ViewingFeatureFlags;
 
 use super::handler::{bookmarks, is_bookmarked, playback_preference, storage_overview};
 
@@ -84,7 +83,7 @@ impl OfflineAssetQueryPort for StubOfflineBytes {
     }
 }
 
-async fn make_deps(enabled: bool, offline_bytes: u64) -> (TempDir, ViewingDeps) {
+async fn make_deps(offline_bytes: u64) -> (TempDir, ViewingDeps) {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let storage = Arc::new(
         StorageLayout::new(
@@ -108,55 +107,13 @@ async fn make_deps(enabled: bool, offline_bytes: u64) -> (TempDir, ViewingDeps) 
         catalog_tickets: catalog,
         offline_assets: Arc::new(StubOfflineBytes(offline_bytes)),
         loopback,
-        flags: ViewingFeatureFlags {
-            watchlist_and_settings: enabled,
-            ..ViewingFeatureFlags::default()
-        },
     };
     (temp_dir, deps)
 }
 
 #[tokio::test]
-async fn disabled_flag_rejects_all_queries() {
-    let (_temp, deps) = make_deps(false, 0).await;
-    let s1 = SeriesId::try_from(1).expect("series 1");
-
-    assert!(
-        bookmarks(&deps)
-            .await
-            .expect_err("bookmarks disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-    assert!(
-        is_bookmarked(&deps, s1)
-            .await
-            .expect_err("is_bookmarked disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-    assert!(
-        playback_preference(&deps)
-            .await
-            .expect_err("playback_preference disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-    assert!(
-        storage_overview(&deps)
-            .await
-            .expect_err("storage_overview disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-
-    deps.loopback.shutdown();
-    deps.db.close().await;
-}
-
-#[tokio::test]
 async fn bookmarks_orders_recent_first_and_maps_fields() {
-    let (_temp, deps) = make_deps(true, 0).await;
+    let (_temp, deps) = make_deps(0).await;
     let s10 = SeriesId::try_from(10).expect("series 10");
     let s20 = SeriesId::try_from(20).expect("series 20");
     let s30 = SeriesId::try_from(30).expect("series 30");
@@ -195,7 +152,7 @@ async fn bookmarks_orders_recent_first_and_maps_fields() {
 
 #[tokio::test]
 async fn playback_preference_reads_seed_default_and_handles_missing_row() {
-    let (_temp, deps) = make_deps(true, 0).await;
+    let (_temp, deps) = make_deps(0).await;
     let expected_default = PlaybackPreference {
         preferred_profile: StreamProfile::Hevc,
         playback_cache_limit_mb: 512,
@@ -226,7 +183,7 @@ async fn playback_preference_reads_seed_default_and_handles_missing_row() {
 
 #[tokio::test]
 async fn storage_overview_aggregates_offline_playback_and_catalog_bytes() {
-    let (_temp, deps) = make_deps(true, 8192).await;
+    let (_temp, deps) = make_deps(8192).await;
 
     tokio::fs::write(
         deps.storage.playback_cache_dir().join("seg.ts"),

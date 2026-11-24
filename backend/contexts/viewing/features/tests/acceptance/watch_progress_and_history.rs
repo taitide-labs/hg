@@ -1,7 +1,6 @@
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId};
 use hg_contracts::viewing::ReportWatchProgressRequest;
-use hg_viewing_features::flags::ViewingFeatureFlags;
 use hg_viewing_features::{cmd_record_watch_progress, qry_watch_history};
 
 use super::support::{StubOfflineAssets, StubViewingCatalog, ViewingTestHarness, sample_series};
@@ -12,12 +11,7 @@ async fn record_watch_progress_persists_deduplicates_and_orders_history() {
         sample_series(101, "夜雨长灯", 20),
         sample_series(202, "长安旧梦", 10),
     ]);
-    let harness = ViewingTestHarness::new(
-        ViewingFeatureFlags::default(),
-        catalog,
-        StubOfflineAssets::default(),
-    )
-    .await;
+    let harness = ViewingTestHarness::new(catalog, StubOfflineAssets::default()).await;
 
     let s101 = SeriesId::try_from(101).expect("series 101");
     let s202 = SeriesId::try_from(202).expect("series 202");
@@ -93,12 +87,8 @@ async fn record_watch_progress_persists_deduplicates_and_orders_history() {
 
 #[tokio::test]
 async fn record_watch_progress_rejects_unknown_series_without_persisting_dirty_row() {
-    let harness = ViewingTestHarness::new(
-        ViewingFeatureFlags::default(),
-        StubViewingCatalog::default(),
-        StubOfflineAssets::default(),
-    )
-    .await;
+    let harness =
+        ViewingTestHarness::new(StubViewingCatalog::default(), StubOfflineAssets::default()).await;
 
     let missing = SeriesId::try_from(999).expect("series 999");
     let ep1 = EpisodeNumber::try_from(1).expect("ep 1");

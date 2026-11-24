@@ -1,4 +1,5 @@
-use std::future;
+use std::future::Future;
+use std::sync::Arc;
 
 use hg_contracts::catalog::{
     Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
@@ -16,188 +17,382 @@ use hg_contracts::viewing::{
     PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
     SeriesBookmark, StorageOverview, WatchHistoryEntry,
 };
+use hg_runtime::catalog::upstream::{CatalogUpstream, EdgeCatalogUpstream};
+use hg_runtime::catalog::{cmd_playback_and_cache, qry_discovery, qry_series_detail};
+use hg_runtime::infra::clock::{Clock, SystemClock};
+use hg_runtime::infra::edge_crypto::EdgeHttpClient;
+use hg_runtime::offline::fetcher::{HttpSegmentFetcher, OfflineSegmentFetcher};
+use hg_runtime::offline::{
+    cmd_download_queue, cmd_offline_library, qry_download_queue, qry_offline_library,
+};
+use hg_runtime::viewing::{
+    cmd_playback_session, cmd_record_watch_progress, cmd_watchlist_and_settings, qry_watch_history,
+    qry_watchlist_and_settings,
+};
+use hg_runtime::{AssembledContexts, BackendRuntime, BackendRuntimeConfig};
+use tokio::runtime::{Handle, Runtime};
 
 use crate::contract::{AppGateway, GatewayFuture};
 
-#[derive(Debug, Default)]
-pub struct LocalGateway;
+pub struct LocalGateway {
+    runtime: BackendRuntime,
+    contexts: AssembledContexts,
+    tokio_handle: Handle,
+    _owned_tokio: Option<Arc<Runtime>>,
+}
+
+impl std::fmt::Debug for LocalGateway {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LocalGateway")
+            .field("loopback_base_url", &self.runtime.loopback().base_url())
+            .finish()
+    }
+}
 
 impl LocalGateway {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self
+    pub fn open(
+        config: &BackendRuntimeConfig,
+        upstream_base_url: &str,
+    ) -> Result<Self, ContractError> {
+        let tokio_rt = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .thread_name("hg-local-backend")
+                .build()
+                .map_err(|err| ContractError::Internal {
+                    detail: format!("创建本地后台运行时失败: {err}"),
+                })?,
+        );
+        let clock: Arc<dyn Clock> = Arc::new(SystemClock);
+        let edge_client =
+            EdgeHttpClient::new(upstream_base_url, Arc::clone(&clock)).map_err(|err| {
+                ContractError::Internal {
+                    detail: format!("初始化边缘加密客户端失败: {err}"),
+                }
+            })?;
+        let upstream: Arc<dyn CatalogUpstream> = Arc::new(EdgeCatalogUpstream::new(edge_client));
+        let segment_fetcher: Arc<dyn OfflineSegmentFetcher> =
+            Arc::new(HttpSegmentFetcher::new().map_err(ContractError::from)?);
+
+        let (runtime, contexts) = tokio_rt.block_on(async {
+            let runtime = BackendRuntime::open(config, clock).await.map_err(|err| {
+                ContractError::Internal {
+                    detail: format!("启动本地后端运行时失败: {err}"),
+                }
+            })?;
+            let contexts = runtime.assemble_contexts(upstream, segment_fetcher);
+            let _dispatched =
+                cmd_offline_library::dispatch_pending_outbox(&contexts.offline).await?;
+            Ok::<_, ContractError>((runtime, contexts))
+        })?;
+
+        let tokio_handle = tokio_rt.handle().clone();
+        Ok(Self {
+            runtime,
+            contexts,
+            tokio_handle,
+            _owned_tokio: Some(tokio_rt),
+        })
     }
 
-    fn unready<T: Send + 'static>() -> GatewayFuture<T> {
-        Box::pin(future::ready(Err(ContractError::Internal {
-            detail: "本地运行时适配器尚未接入，当前处于客户端契约预览阶段".to_owned(),
-        })))
+    #[must_use]
+    pub const fn from_assembled(
+        runtime: BackendRuntime,
+        contexts: AssembledContexts,
+        tokio_handle: Handle,
+    ) -> Self {
+        Self {
+            runtime,
+            contexts,
+            tokio_handle,
+            _owned_tokio: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn runtime(&self) -> &BackendRuntime {
+        &self.runtime
+    }
+
+    #[must_use]
+    pub const fn contexts(&self) -> &AssembledContexts {
+        &self.contexts
+    }
+
+    pub fn process_next_download(&self) -> GatewayFuture<Option<EpisodeKey>> {
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move { cmd_download_queue::execute_next_queued_task(&offline).await })
+    }
+
+    pub fn spawn_background_download_pump(&self) {
+        let offline = self.contexts.offline.clone();
+        self.tokio_handle.spawn(async move {
+            loop {
+                match cmd_download_queue::execute_next_queued_task(&offline).await {
+                    Ok(Some(_)) => {}
+                    Ok(None) | Err(_) => {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    }
+                }
+            }
+        });
+    }
+
+    fn dispatch<T, F>(&self, future: F) -> GatewayFuture<T>
+    where
+        T: Send + 'static,
+        F: Future<Output = Result<T, ContractError>> + Send + 'static,
+    {
+        let join = self.tokio_handle.spawn(future);
+        Box::pin(async move {
+            match join.await {
+                Ok(result) => result,
+                Err(err) => Err(ContractError::Internal {
+                    detail: format!("本地运行时任务执行中断: {err}"),
+                }),
+            }
+        })
+    }
+}
+
+impl Drop for LocalGateway {
+    fn drop(&mut self) {
+        if self._owned_tokio.is_some() {
+            self.runtime.loopback().shutdown();
+        }
     }
 }
 
 impl AppGateway for LocalGateway {
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::home_feed(&catalog).await })
     }
 
     fn categories(&self) -> GatewayFuture<Vec<Category>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::categories(&catalog).await })
     }
 
     fn tag_groups(&self) -> GatewayFuture<Vec<TagGroup>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::tag_groups(&catalog).await })
     }
 
-    fn list_series(
-        &self,
-        _request: ListSeriesRequest,
-    ) -> GatewayFuture<PagedResult<SeriesSummary>> {
-        Self::unready()
+    fn list_series(&self, request: ListSeriesRequest) -> GatewayFuture<PagedResult<SeriesSummary>> {
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::list_series(&catalog, request).await })
     }
 
     fn list_ranking(
         &self,
-        _request: ListRankingRequest,
+        request: ListRankingRequest,
     ) -> GatewayFuture<PagedResult<RankingEntry>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::list_ranking(&catalog, request).await })
     }
 
     fn search_series(
         &self,
-        _request: SearchSeriesRequest,
+        request: SearchSeriesRequest,
     ) -> GatewayFuture<PagedResult<SeriesSummary>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::search_series(&catalog, request).await })
     }
 
-    fn search_suggestions(&self, _keyword: String) -> GatewayFuture<SearchSuggestion> {
-        Self::unready()
+    fn search_suggestions(&self, keyword: String) -> GatewayFuture<SearchSuggestion> {
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::search_suggestions(&catalog, keyword).await })
     }
 
     fn hot_keywords(&self) -> GatewayFuture<Vec<HotKeyword>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::hot_keywords(&catalog).await })
     }
 
     fn hot_tags(&self) -> GatewayFuture<Vec<HotTag>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_discovery::hot_tags(&catalog).await })
     }
 
-    fn series_detail(&self, _series_id: SeriesId) -> GatewayFuture<SeriesDetail> {
-        Self::unready()
+    fn series_detail(&self, series_id: SeriesId) -> GatewayFuture<SeriesDetail> {
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { qry_series_detail::series_detail(&catalog, series_id).await })
     }
 
     fn list_episode_comments(
         &self,
-        _request: ListEpisodeCommentsRequest,
+        request: ListEpisodeCommentsRequest,
     ) -> GatewayFuture<PagedResult<EpisodeComment>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(
+            async move { qry_series_detail::list_episode_comments(&catalog, request).await },
+        )
     }
 
     fn list_comment_replies(
         &self,
-        _request: ListCommentRepliesRequest,
+        request: ListCommentRepliesRequest,
     ) -> GatewayFuture<PagedResult<CommentReply>> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(
+            async move { qry_series_detail::list_comment_replies(&catalog, request).await },
+        )
     }
 
     fn clear_catalog_cache(&self) -> GatewayFuture<()> {
-        Self::unready()
+        let catalog = self.contexts.catalog.clone();
+        self.dispatch(async move { cmd_playback_and_cache::clear_catalog_cache(&catalog).await })
     }
 
-    fn prepare_episode_playback(&self, _key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
-        Self::unready()
+    fn prepare_episode_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { cmd_playback_session::prepare_episode_playback(&viewing, key).await },
+        )
     }
 
-    fn refresh_online_playback(&self, _key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
-        Self::unready()
+    fn refresh_online_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { cmd_playback_session::refresh_online_playback(&viewing, key).await },
+        )
     }
 
     fn report_watch_progress(
         &self,
-        _request: ReportWatchProgressRequest,
+        request: ReportWatchProgressRequest,
     ) -> GatewayFuture<ReportWatchProgressResult> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move { cmd_record_watch_progress::execute(&viewing, request).await })
     }
 
     fn watch_history(&self) -> GatewayFuture<Vec<WatchHistoryEntry>> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move { qry_watch_history::execute(&viewing).await })
     }
 
-    fn remove_watch_history(&self, _series_id: SeriesId) -> GatewayFuture<()> {
-        Self::unready()
+    fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::remove_watch_history(&viewing, series_id).await
+        })
     }
 
     fn clear_watch_history(&self) -> GatewayFuture<()> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { cmd_watchlist_and_settings::clear_watch_history(&viewing).await },
+        )
     }
 
     fn bookmarks(&self) -> GatewayFuture<Vec<SeriesBookmark>> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move { qry_watchlist_and_settings::bookmarks(&viewing).await })
     }
 
-    fn is_bookmarked(&self, _series_id: SeriesId) -> GatewayFuture<bool> {
-        Self::unready()
+    fn is_bookmarked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            qry_watchlist_and_settings::is_bookmarked(&viewing, series_id).await
+        })
     }
 
-    fn bookmark_series(&self, _series_id: SeriesId) -> GatewayFuture<()> {
-        Self::unready()
+    fn bookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::bookmark_series(&viewing, series_id).await
+        })
     }
 
-    fn unbookmark_series(&self, _series_id: SeriesId) -> GatewayFuture<()> {
-        Self::unready()
+    fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::unbookmark_series(&viewing, series_id).await
+        })
     }
 
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { qry_watchlist_and_settings::playback_preference(&viewing).await },
+        )
     }
 
-    fn update_playback_preference(&self, _preference: PlaybackPreference) -> GatewayFuture<()> {
-        Self::unready()
+    fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::update_playback_preference(&viewing, preference).await
+        })
     }
 
     fn clear_playback_cache(&self) -> GatewayFuture<()> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { cmd_watchlist_and_settings::clear_playback_cache(&viewing).await },
+        )
     }
 
     fn storage_overview(&self) -> GatewayFuture<StorageOverview> {
-        Self::unready()
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move { qry_watchlist_and_settings::storage_overview(&viewing).await })
     }
 
     fn offline_library(&self) -> GatewayFuture<Vec<OfflineSeriesView>> {
-        Self::unready()
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move { qry_offline_library::offline_library(&offline).await })
     }
 
     fn download_tasks(&self) -> GatewayFuture<Vec<DownloadTaskView>> {
-        Self::unready()
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move { qry_download_queue::download_tasks(&offline).await })
     }
 
     fn enqueue_episode_downloads(
         &self,
-        _request: EnqueueEpisodeDownloadsRequest,
+        request: EnqueueEpisodeDownloadsRequest,
     ) -> GatewayFuture<EnqueueEpisodeDownloadsResult> {
-        Self::unready()
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move {
+            cmd_download_queue::enqueue_episode_downloads(&offline, request).await
+        })
     }
 
-    fn control_download(&self, _request: ControlDownloadRequest) -> GatewayFuture<()> {
-        Self::unready()
+    fn control_download(&self, request: ControlDownloadRequest) -> GatewayFuture<()> {
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move { cmd_download_queue::control_download(&offline, request).await })
     }
 
-    fn control_all_downloads(&self, _action: ControlAllDownloadsAction) -> GatewayFuture<()> {
-        Self::unready()
+    fn control_all_downloads(&self, action: ControlAllDownloadsAction) -> GatewayFuture<()> {
+        let offline = self.contexts.offline.clone();
+        self.dispatch(
+            async move { cmd_download_queue::control_all_downloads(&offline, action).await },
+        )
     }
 
-    fn delete_offline_episode(&self, _key: EpisodeKey) -> GatewayFuture<()> {
-        Self::unready()
+    fn delete_offline_episode(&self, key: EpisodeKey) -> GatewayFuture<()> {
+        let offline = self.contexts.offline.clone();
+        self.dispatch(
+            async move { cmd_offline_library::delete_offline_episode(&offline, key).await },
+        )
     }
 
-    fn delete_offline_series(&self, _series_id: SeriesId) -> GatewayFuture<()> {
-        Self::unready()
+    fn delete_offline_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move {
+            cmd_offline_library::delete_offline_series(&offline, series_id).await
+        })
     }
 
     fn download_policy(&self) -> GatewayFuture<DownloadPolicy> {
-        Self::unready()
+        let offline = self.contexts.offline.clone();
+        self.dispatch(async move { qry_download_queue::download_policy(&offline).await })
     }
 
-    fn update_download_policy(&self, _policy: DownloadPolicy) -> GatewayFuture<()> {
-        Self::unready()
+    fn update_download_policy(&self, policy: DownloadPolicy) -> GatewayFuture<()> {
+        let offline = self.contexts.offline.clone();
+        self.dispatch(
+            async move { cmd_download_queue::update_download_policy(&offline, policy).await },
+        )
     }
 }

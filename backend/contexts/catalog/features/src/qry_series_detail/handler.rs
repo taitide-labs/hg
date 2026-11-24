@@ -7,15 +7,12 @@ use hg_contracts::ids::SeriesId;
 
 use crate::CatalogDeps;
 
-use super::query::{
-    ensure_enabled, fetch_comment_replies, fetch_episode_comments, fetch_series_detail,
-};
+use super::query::{fetch_comment_replies, fetch_episode_comments, fetch_series_detail};
 
 pub async fn series_detail(
     deps: &CatalogDeps,
     series_id: SeriesId,
 ) -> Result<SeriesDetail, ContractError> {
-    ensure_enabled(deps.flags.detail_and_comments)?;
     fetch_series_detail(deps, series_id)
         .await
         .map_err(ContractError::from)
@@ -25,7 +22,6 @@ pub async fn list_episode_comments(
     deps: &CatalogDeps,
     request: ListEpisodeCommentsRequest,
 ) -> Result<PagedResult<EpisodeComment>, ContractError> {
-    ensure_enabled(deps.flags.detail_and_comments)?;
     fetch_episode_comments(deps, request)
         .await
         .map_err(ContractError::from)
@@ -35,7 +31,6 @@ pub async fn list_comment_replies(
     deps: &CatalogDeps,
     request: ListCommentRepliesRequest,
 ) -> Result<PagedResult<CommentReply>, ContractError> {
-    ensure_enabled(deps.flags.detail_and_comments)?;
     fetch_comment_replies(deps, request)
         .await
         .map_err(ContractError::from)

@@ -4,7 +4,6 @@ use aes::Aes128;
 use cbc::cipher::block_padding::Pkcs7;
 use cbc::cipher::{BlockModeEncrypt as _, KeyIvInit as _};
 use hg_backend_contracts::catalog::CatalogMetadataPort as _;
-use hg_catalog_features::flags::CatalogFeatureFlags;
 use hg_catalog_features::qry_series_detail::{self, CatalogMetadataAdapter};
 use hg_contracts::catalog::{ListCommentRepliesRequest, ListEpisodeCommentsRequest};
 use hg_contracts::ids::{CommentId, EpisodeKey, EpisodeNumber, PageRequest, SeriesId};
@@ -84,21 +83,6 @@ fn sample_replies_payload() -> Value {
 }
 
 #[tokio::test]
-async fn series_detail_disabled_by_default_returns_feature_flag_error() {
-    let harness = CatalogTestHarness::new(
-        CatalogFeatureFlags::default(),
-        FakeCatalogUpstream::default(),
-    )
-    .await;
-
-    let series_id = SeriesId::try_from(101).expect("series 101");
-    let err = qry_series_detail::series_detail(&harness.deps, series_id)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-}
-
-#[tokio::test]
 async fn series_detail_comments_and_metadata_port_decrypt_and_cache_covers() {
     let cover_plain = b"\x89PNG\r\n\x1a\ncatalog-cover-image";
     let key: [u8; 16] = *b"f5d965df75336270";
@@ -115,11 +99,7 @@ async fn series_detail_comments_and_metadata_port_decrypt_and_cache_covers() {
         )
         .with_cover("/covers/101.enc", encrypted_cover);
 
-    let flags = CatalogFeatureFlags {
-        detail_and_comments: true,
-        ..CatalogFeatureFlags::default()
-    };
-    let harness = CatalogTestHarness::new(flags, upstream).await;
+    let harness = CatalogTestHarness::new(upstream).await;
 
     let series_id = SeriesId::try_from(101).expect("series 101");
     let ep1 = EpisodeNumber::try_from(1).expect("ep 1");

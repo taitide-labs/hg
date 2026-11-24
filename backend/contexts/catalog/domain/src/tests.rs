@@ -6,7 +6,11 @@ use crate::scope::{EdgeScope, resolve_edge_scope};
 
 #[test]
 fn routes_public_dynamic_and_playback_scopes_correctly() {
-    assert_eq!(resolve_edge_scope("GET", "/api/home"), EdgeScope::Public);
+    assert_eq!(resolve_edge_scope("GET", "/api/home"), EdgeScope::Dynamic);
+    assert_eq!(
+        resolve_edge_scope("GET", "/api/home/recommends?page=1"),
+        EdgeScope::Public
+    );
     assert_eq!(
         resolve_edge_scope("GET", "/api/videos?sort=hot&page=1"),
         EdgeScope::Public
@@ -20,11 +24,23 @@ fn routes_public_dynamic_and_playback_scopes_correctly() {
         EdgeScope::Dynamic
     );
     assert_eq!(
-        resolve_edge_scope("GET", "/api/search/suggest?q=hello"),
+        resolve_edge_scope("GET", "/api/videos/14288"),
         EdgeScope::Dynamic
     );
     assert_eq!(
-        resolve_edge_scope("GET", "/api/videos/14288/episodes/1/comments"),
+        resolve_edge_scope("GET", "/api/search?q=hello"),
+        EdgeScope::Dynamic
+    );
+    assert_eq!(
+        resolve_edge_scope("GET", "/api/search/suggest?q=hello"),
+        EdgeScope::Public
+    );
+    assert_eq!(
+        resolve_edge_scope("GET", "/api/search/hot"),
+        EdgeScope::Public
+    );
+    assert_eq!(
+        resolve_edge_scope("GET", "/api/videos/14288/comments?ep=1"),
         EdgeScope::Dynamic
     );
     assert_eq!(

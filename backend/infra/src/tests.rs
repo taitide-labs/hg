@@ -193,6 +193,129 @@ async fn loopback_proxy_serves_offline_asset_and_halts_with_gone() {
     proxy.shutdown();
 }
 
+async fn spawn_fake_cdn_server() -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
+    use bytes::Bytes;
+    use http_body_util::Full;
+    use hyper::server::conn::http1;
+    use hyper::service::service_fn;
+    use hyper::{Request, Response, StatusCode};
+    use hyper_util::rt::TokioIo;
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind fake cdn");
+    let cdn_addr = listener.local_addr().expect("cdn local addr");
+
+    let handle = tokio::spawn(async move {
+        for _ in 0..2 {
+            let Ok((stream, _)) = listener.accept().await else {
+                break;
+            };
+            tokio::spawn(async move {
+                let io = TokioIo::new(stream);
+                let svc = service_fn(|req: Request<hyper::body::Incoming>| async move {
+                    let has_auth = req
+                        .headers()
+                        .get("x-cdn-auth")
+                        .and_then(|v| v.to_str().ok())
+                        == Some("token-123");
+                    let has_app =
+                        req.headers().get("x-cdn-app").and_then(|v| v.to_str().ok()) == Some("150");
+                    if !has_auth || !has_app {
+                        return Ok::<_, std::convert::Infallible>(
+                            Response::builder()
+                                .status(StatusCode::FORBIDDEN)
+                                .body(Full::new(Bytes::new()))
+                                .expect("403"),
+                        );
+                    }
+                    let resp = match req.uri().path() {
+                        "/v/index.m3u8" => Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "application/vnd.apple.mpegurl")
+                            .body(Full::new(Bytes::from(
+                                "#EXTM3U\n#EXTINF:5.0,\nseg0.ts\n#EXT-X-ENDLIST\n",
+                            )))
+                            .expect("manifest"),
+                        "/v/seg0.ts" => Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "video/mp2t")
+                            .body(Full::new(Bytes::from_static(b"TS-DATA")))
+                            .expect("seg0"),
+                        _ => Response::builder()
+                            .status(StatusCode::NOT_FOUND)
+                            .body(Full::new(Bytes::new()))
+                            .expect("404"),
+                    };
+                    Ok(resp)
+                });
+                drop(http1::Builder::new().serve_connection(io, svc).await);
+            });
+        }
+    });
+    (cdn_addr, handle)
+}
+
+#[tokio::test]
+async fn loopback_proxy_forwards_online_hls_with_cdn_headers_and_rewrites_uris() {
+    let (cdn_addr, cdn_task) = spawn_fake_cdn_server().await;
+    let root = tempdir().expect("tempdir should create");
+    let layout = Arc::new(
+        StorageLayout::new(&root.path().join("data"), &root.path().join("cache"))
+            .expect("storage layout"),
+    );
+    layout.ensure_dirs().await.expect("ensure dirs");
+    let proxy = LoopbackProxyHandle::start(layout)
+        .await
+        .expect("loopback proxy");
+    let key = EpisodeKey::new(
+        SeriesId::try_from(7).expect("series 7"),
+        EpisodeNumber::try_from(1).expect("ep 1"),
+    );
+    let proxied = proxy
+        .register_online_stream(
+            key,
+            &format!("http://{cdn_addr}/v/index.m3u8"),
+            &[
+                ("x-cdn-auth".to_owned(), "token-123".to_owned()),
+                ("x-cdn-app".to_owned(), "150".to_owned()),
+            ],
+        )
+        .expect("register online stream");
+
+    let client = reqwest::Client::new();
+    let manifest_body = client
+        .get(&proxied)
+        .send()
+        .await
+        .expect("get manifest")
+        .text()
+        .await
+        .expect("manifest text");
+    let seg_path = manifest_body
+        .lines()
+        .find(|line| line.starts_with("/online/"))
+        .expect("rewritten segment line");
+    let seg_url = format!("{}{seg_path}", proxy.base_url());
+    let seg_bytes = client
+        .get(&seg_url)
+        .send()
+        .await
+        .expect("get seg0")
+        .bytes()
+        .await
+        .expect("seg0 bytes");
+    assert_eq!(seg_bytes.as_ref(), b"TS-DATA");
+
+    proxy.halt_episode(key).await.expect("halt online");
+    let after_halt = client.get(&proxied).send().await.expect("after halt");
+    assert_eq!(after_halt.status(), reqwest::StatusCode::GONE);
+
+    proxy.shutdown();
+    drop(cdn_task);
+}
+
 #[test]
 fn fixed_clock_advances_deterministically() {
     let clock = FixedClock::new(1_700_000_000);

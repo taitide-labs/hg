@@ -13,6 +13,11 @@ hg-offline-features.workspace = true
 hg-viewing-features.workspace = true
 
 [dev-dependencies]
+hg-backend-contracts.workspace = true
+hg-contracts.workspace = true
+parking_lot.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
 tempfile.workspace = true
 tokio.workspace = true
 

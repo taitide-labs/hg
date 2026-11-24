@@ -4,8 +4,6 @@ use sqlx::FromRow;
 
 use crate::OfflineDeps;
 
-use super::command::ensure_enabled;
-
 #[derive(Debug, FromRow)]
 struct PendingOutboxRow {
     event_id: i64,
@@ -19,8 +17,6 @@ pub fn decode_outbox_event(payload_json: &str) -> Result<OfflineDomainEvent, Con
 }
 
 pub async fn dispatch_pending_outbox(deps: &OfflineDeps) -> Result<usize, ContractError> {
-    ensure_enabled(deps.flags.library_and_outbox)?;
-
     let pending = sqlx::query_as::<_, PendingOutboxRow>(
         "SELECT event_id, payload_json
          FROM offline_outbox_events
