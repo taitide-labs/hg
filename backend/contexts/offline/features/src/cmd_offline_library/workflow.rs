@@ -16,3 +16,11 @@ pub fn build_series_removed_event(series_id: SeriesId) -> OfflineDomainEvent {
         asset_rel_dir: format!("s{series_id}"),
     }
 }
+
+#[must_use]
+pub const fn outbox_event_type(event: &OfflineDomainEvent) -> &'static str {
+    match event {
+        OfflineDomainEvent::OfflineEpisodeRemoved { .. } => "offline_episode_removed",
+        OfflineDomainEvent::OfflineSeriesRemoved { .. } => "offline_series_removed",
+    }
+}
