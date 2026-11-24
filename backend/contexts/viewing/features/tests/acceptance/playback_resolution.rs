@@ -29,7 +29,6 @@ async fn playback_resolution_disabled_by_default_returns_feature_flag_error() {
 }
 
 #[tokio::test]
-#[ignore = "待实现在线与离线统一播放源调度切片后激活"]
 async fn playback_prefers_offline_without_network_and_halts_on_delete() {
     let s101 = SeriesId::try_from(101).expect("series 101");
     let offline_key = EpisodeKey::new(s101, EpisodeNumber::try_from(1).expect("ep 1"));
