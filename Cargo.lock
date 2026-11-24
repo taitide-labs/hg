@@ -1423,6 +1423,8 @@ dependencies = [
 name = "hg-native-player"
 version = "0.1.0"
 dependencies = [
+ "block2",
+ "libc",
  "nsh-core",
  "nsh-platform-macos",
  "nsh-platform-windows",

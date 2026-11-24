@@ -12,6 +12,8 @@ serde.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2.workspace = true
+libc.workspace = true
 nsh-platform-macos.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
