@@ -228,8 +228,12 @@ fn active_tab_content() -> impl IntoElement {
             PrimaryTab::Watchlist => {
                 let flags = flags::current();
                 pages::watchlist::page::watchlist_page(
-                    flags.watchlist_history,
-                    flags.watchlist_bookmarks,
+                    pages::watchlist::page::WatchlistFlags {
+                        history: flags.watchlist_history,
+                        remove_history: flags.watchlist_remove_history,
+                        bookmarks: flags.watchlist_bookmarks,
+                        unbookmark: flags.watchlist_unbookmark,
+                    },
                     nav::open_player,
                 )
                 .into_element()
@@ -237,18 +241,24 @@ fn active_tab_content() -> impl IntoElement {
             PrimaryTab::Offline => {
                 let flags = flags::current();
                 pages::offline::page::offline_page(
-                    flags.offline_library,
-                    flags.offline_queue,
+                    pages::offline::page::OfflineFlags {
+                        library: flags.offline_library,
+                        delete: flags.offline_delete,
+                        queue: flags.offline_queue,
+                        control_download: flags.offline_control_download,
+                    },
                     nav::open_player,
                 )
                 .into_element()
             }
             PrimaryTab::Settings => {
                 let flags = flags::current();
-                pages::settings::page::settings_page(
-                    flags.settings_preferences,
-                    flags.settings_storage,
-                )
+                pages::settings::page::settings_page(pages::settings::page::SettingsFlags {
+                    playback_pref: flags.settings_playback_pref,
+                    download_policy: flags.settings_download_policy,
+                    storage: flags.settings_storage,
+                    clear_cache: flags.settings_clear_cache,
+                })
                 .into_element()
             }
         }))
