@@ -43,7 +43,7 @@ fn appearance_card() -> impl IntoElement {
         .child(settings_card().child(setting_row(
             "外观模式",
             "切换应用全局浅色与深色主题表现",
-            segmented_tabs(options, active, handler::select_appearance),
+            segmented_tabs(options, move || active.get(), handler::select_appearance),
         )))
 }
 
@@ -87,8 +87,6 @@ fn playback_pref_card() -> impl IntoElement {
 }
 
 fn loaded_playback_card() -> impl IntoElement {
-    let profile_sig = handler::profile_signal();
-    let rate_sig = handler::rate_signal();
     let error_msg = computed(|| store::state().with(|s| s.error.clone()));
     let cache_limit_text = computed(|| {
         store::state().with(|s| {
@@ -113,7 +111,7 @@ fn loaded_playback_card() -> impl IntoElement {
             "优先选择高清 HEVC 或标准兼容流档位",
             segmented_tabs(
                 PROFILE_OPTIONS.to_vec(),
-                profile_sig,
+                handler::selected_profile,
                 handler::select_profile,
             ),
         ))
@@ -123,7 +121,7 @@ fn loaded_playback_card() -> impl IntoElement {
             "新开剧集起播时应用的默认播放倍速",
             segmented_tabs(
                 RATE_PRESETS.to_vec(),
-                rate_sig,
+                handler::selected_rate,
                 handler::select_default_rate,
             ),
         ))

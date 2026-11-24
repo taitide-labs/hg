@@ -5,7 +5,7 @@ use crate::ui::token;
 
 pub fn segmented_tabs<T>(
     items: Vec<(T, &'static str)>,
-    active: Signal<T>,
+    active: impl Fn() -> T + Copy + 'static,
     on_select: impl Fn(T) + Copy + 'static,
 ) -> impl IntoElement
 where
@@ -26,7 +26,7 @@ where
         });
 
     for (value, label) in items {
-        let selected = move || active.get() == value;
+        let selected = move || active() == value;
         row = row.child(
             tab()
                 .selected(selected)

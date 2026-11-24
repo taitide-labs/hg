@@ -87,7 +87,11 @@ pub fn mobile_detail_sheet(
         .border_color(token::border)
         .p_4()
         .gap_3()
-        .child(segmented_tabs(tabs, tab_sig, move |next| tab_sig.set(next)))
+        .child(segmented_tabs(
+            tabs,
+            move || tab_sig.get(),
+            move |next| tab_sig.set(next),
+        ))
         .child(scroll().flex_1().min_h_0().child(dynamic(move || {
             let snap = store::snapshot();
             let Some(detail) = snap.detail else {

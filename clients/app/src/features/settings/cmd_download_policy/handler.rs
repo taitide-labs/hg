@@ -11,23 +11,13 @@ struct PolicySaveGen(u64);
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct PolicyError(Option<String>);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SelectedConcurrency(u8);
-
-impl Default for SelectedConcurrency {
-    fn default() -> Self {
-        Self(2)
-    }
-}
-
 #[must_use]
-pub fn concurrency_signal() -> Signal<u8> {
-    let sig = global::<SelectedConcurrency>();
-    let ui = signal(sig.with_untracked(|c| c.0));
-    effect(move || {
-        ui.set(sig.get().0);
-    });
-    ui
+pub fn selected_concurrency() -> u8 {
+    store::state().with(|s| {
+        s.download_policy
+            .as_ref()
+            .map_or(2, |p| command::clamp_concurrency(p.max_concurrent_tasks))
+    })
 }
 
 #[must_use]
@@ -40,9 +30,6 @@ pub fn load_download_policy() {
     spawn(async move {
         match gw.download_policy().await {
             Ok(policy) => {
-                global::<SelectedConcurrency>().set(SelectedConcurrency(
-                    command::clamp_concurrency(policy.max_concurrent_tasks),
-                ));
                 global::<PolicyError>().set(PolicyError(None));
                 store::state().update(|s| {
                     s.download_policy = Some(policy);
@@ -68,7 +55,6 @@ pub fn select_max_concurrent(count: u8) {
         return;
     };
     let next = command::with_max_concurrent_tasks(&current, count);
-    global::<SelectedConcurrency>().set(SelectedConcurrency(next.max_concurrent_tasks));
     save_policy(current, next);
 }
 
@@ -84,9 +70,6 @@ fn save_policy(previous: DownloadPolicy, next: DownloadPolicy) {
         if let Err(err) = gw.update_download_policy(next).await
             && is_latest_generation(seq)
         {
-            global::<SelectedConcurrency>().set(SelectedConcurrency(command::clamp_concurrency(
-                previous.max_concurrent_tasks,
-            )));
             global::<PolicyError>().set(PolicyError(Some(err.to_string())));
             store::state().update(|s| {
                 s.download_policy = Some(previous);

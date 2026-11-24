@@ -148,9 +148,13 @@ fn ranking_tabs() -> impl IntoElement {
         (RankingTab::Potential, "潜力榜"),
         (RankingTab::Recommend, "推荐榜"),
     ];
-    segmented_tabs(tabs, active, |tab| {
-        query::switch_ranking(RankingKind::from(tab));
-    })
+    segmented_tabs(
+        tabs,
+        move || active.get(),
+        |tab| {
+            query::switch_ranking(RankingKind::from(tab));
+        },
+    )
 }
 
 fn hot_keywords_strip(keywords: Vec<HotKeyword>) -> impl IntoElement {

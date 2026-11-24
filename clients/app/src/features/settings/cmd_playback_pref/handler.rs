@@ -9,47 +9,26 @@ use crate::gateway;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct PrefSaveGen(u64);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SelectedProfile(StreamProfile);
-
-impl Default for SelectedProfile {
-    fn default() -> Self {
-        Self(StreamProfile::Hevc)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SelectedRate(u16);
-
-impl Default for SelectedRate {
-    fn default() -> Self {
-        Self(100)
-    }
-}
-
 #[must_use]
 pub fn appearance_signal() -> Signal<AppearanceOption> {
     global::<AppearanceOption>()
 }
 
 #[must_use]
-pub fn profile_signal() -> Signal<StreamProfile> {
-    let sig = global::<SelectedProfile>();
-    let ui = signal(sig.with_untracked(|p| p.0));
-    effect(move || {
-        ui.set(sig.get().0);
-    });
-    ui
+pub fn selected_profile() -> StreamProfile {
+    store::state().with(|s| {
+        s.playback_pref
+            .map_or(StreamProfile::Hevc, |p| p.preferred_profile)
+    })
 }
 
 #[must_use]
-pub fn rate_signal() -> Signal<u16> {
-    let sig = global::<SelectedRate>();
-    let ui = signal(sig.with_untracked(|r| r.0));
-    effect(move || {
-        ui.set(sig.get().0);
-    });
-    ui
+pub fn selected_rate() -> u16 {
+    store::state().with(|s| {
+        s.playback_pref.map_or(100, |p| {
+            command::normalize_rate_hundredths(p.default_rate_hundredths)
+        })
+    })
 }
 
 pub fn select_appearance(option: AppearanceOption) {
@@ -62,10 +41,6 @@ pub fn load_playback_preference() {
     spawn(async move {
         match gw.playback_preference().await {
             Ok(pref) => {
-                global::<SelectedProfile>().set(SelectedProfile(pref.preferred_profile));
-                global::<SelectedRate>().set(SelectedRate(command::normalize_rate_hundredths(
-                    pref.default_rate_hundredths,
-                )));
                 store::state().update(|s| {
                     s.playback_pref = Some(pref);
                     s.error = None;
@@ -83,7 +58,6 @@ pub fn select_profile(profile: StreamProfile) {
         return;
     };
     let next = command::with_preferred_profile(current, profile);
-    global::<SelectedProfile>().set(SelectedProfile(next.preferred_profile));
     save_preference(current, next);
 }
 
@@ -92,7 +66,6 @@ pub fn select_default_rate(rate_hundredths: u16) {
         return;
     };
     let next = command::with_default_rate(current, rate_hundredths);
-    global::<SelectedRate>().set(SelectedRate(next.default_rate_hundredths));
     save_preference(current, next);
 }
 
@@ -108,10 +81,6 @@ fn save_preference(previous: PlaybackPreference, next: PlaybackPreference) {
         if let Err(err) = gw.update_playback_preference(next).await
             && is_latest_generation(seq)
         {
-            global::<SelectedProfile>().set(SelectedProfile(previous.preferred_profile));
-            global::<SelectedRate>().set(SelectedRate(command::normalize_rate_hundredths(
-                previous.default_rate_hundredths,
-            )));
             store::state().update(|s| {
                 s.playback_pref = Some(previous);
                 s.error = Some(err.to_string());

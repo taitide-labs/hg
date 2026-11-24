@@ -1,5 +1,5 @@
 use hg_contracts::catalog::{EpisodeComment, SeriesDetail};
-use hg_contracts::ids::{CommentId, EpisodeNumber};
+use hg_contracts::ids::{CommentId, EpisodeNumber, SeriesId};
 use hg_contracts::viewing::{PlaybackMode, PlaybackSource};
 use nsh_core::prelude::*;
 
@@ -245,8 +245,27 @@ pub fn open_comment_replies(comment_id: CommentId) {
     state().update(|s| s.active_replies_comment = Some(comment_id));
 }
 
+pub fn close_comment_replies() {
+    state().update(|s| s.active_replies_comment = None);
+}
+
+#[must_use]
+pub fn active_replies_target() -> Option<(SeriesId, CommentId)> {
+    state().with(|s| {
+        s.detail
+            .as_ref()
+            .map(|d| d.summary.id)
+            .zip(s.active_replies_comment)
+    })
+}
+
 pub fn set_batch_download_open(open: bool) {
     state().update(|s| s.batch_download_open = open);
+}
+
+#[must_use]
+pub fn is_batch_download_ready() -> bool {
+    state().with(|s| s.batch_download_open && s.detail.is_some())
 }
 
 pub fn set_volume(volume_percent: u8) {
