@@ -3,7 +3,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_offline;
 
 #[test]
-#[ignore = "待 offline/cmd_control_download 实现后激活"]
 fn controlling_download_queue_updates_task_states() {
     let mut app = start_on_offline(FeatureFlags {
         offline_queue: true,
