@@ -5,7 +5,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_with_flags;
 
 #[test]
-#[ignore = "待 player/qry_comment_replies 实现后激活"]
 fn expanding_comment_replies_loads_nested_reply_drawer() {
     let mut app = start_with_flags(
         ColorScheme::Light,
