@@ -14,6 +14,18 @@ fn native(registry: &mut Registry) {
     registry.register::<App>();
 }
 
+#[cfg(target_os = "macos")]
+#[native_components(macos)]
+fn native_components_macos(components: &nsh_platform_macos::Components) {
+    hg_native_player::register_macos(components);
+}
+
+#[cfg(target_os = "windows")]
+#[native_components(windows)]
+fn native_components_windows(components: &nsh_platform_windows::Components) {
+    hg_native_player::register_windows(components);
+}
+
 #[component]
 pub fn App() -> impl IntoElement {
     app::init::initialize_default();

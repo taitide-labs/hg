@@ -2,10 +2,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
+use hg_native_player::VIDEO_PLAYER_COMPONENT_NAME;
 use nsh_core::JsonValue;
 use nsh_core::prelude::*;
-
-pub const VIDEO_PLAYER_COMPONENT_NAME: &str = "hg-video-player";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct VideoSurfaceState {

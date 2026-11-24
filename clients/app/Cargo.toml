@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 hg-contracts.workspace = true
 hg-gateway.workspace = true
+hg-native-player.workspace = true
 nsh-base.workspace = true
 nsh-core.workspace = true
 

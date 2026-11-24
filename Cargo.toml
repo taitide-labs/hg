@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "contracts",
   "clients/gateway",
+  "clients/native-player",
   "clients/app",
   "backend/contracts",
   "backend/infra",
@@ -25,6 +26,7 @@ repository = "https://github.com/taitide-labs/hg"
 aes = { version = "0.9", default-features = false }
 aes-gcm = { version = "0.11", default-features = false, features = ["aes", "alloc", "getrandom"] }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
+block2 = "0.6"
 bytes = { version = "1", default-features = false, features = ["std"] }
 cbc = { version = "0.2", default-features = false, features = ["alloc", "block-padding"] }
 hg-backend-contracts = { path = "backend/contracts" }
@@ -33,6 +35,7 @@ hg-catalog-features = { path = "backend/contexts/catalog/features" }
 hg-contracts = { path = "contracts" }
 hg-gateway = { path = "clients/gateway" }
 hg-infra = { path = "backend/infra" }
+hg-native-player = { path = "clients/native-player" }
 hg-offline-domain = { path = "backend/contexts/offline/domain" }
 hg-offline-features = { path = "backend/contexts/offline/features" }
 hg-runtime = { path = "backend/runtime" }
@@ -42,6 +45,7 @@ hkdf = { version = "0.13", default-features = false }
 http-body-util = { version = "0.1", default-features = false }
 hyper = { version = "1", default-features = false, features = ["server", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio", "http1"] }
+libc = "0.2"
 nsh-base = { version = "0.6.1", default-features = false }
 nsh-core = { version = "0.6.1", default-features = false }
 nsh-engine = { version = "0.6.1", default-features = false }
