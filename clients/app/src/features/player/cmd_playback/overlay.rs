@@ -44,7 +44,7 @@ fn video_picture_area(fullscreen: bool, on_back: impl Fn() + Copy + 'static) -> 
         .items_center()
         .justify_center()
         .child(aspect_frame_preview(fullscreen))
-        .child(top_overlay_strip(fullscreen, on_back))
+        .child(top_overlay_strip(on_back))
         .child(osd_hint_pill())
 }
 
@@ -78,8 +78,8 @@ fn aspect_frame_preview(fullscreen: bool) -> impl IntoElement {
         .justify_center()
 }
 
-fn top_overlay_strip(fullscreen: bool, on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
-    let show_back = !is_desktop() || fullscreen;
+fn top_overlay_strip(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
+    let show_back = !is_desktop();
     view()
         .absolute()
         .top_3()

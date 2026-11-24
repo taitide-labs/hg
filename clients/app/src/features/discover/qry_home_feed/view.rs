@@ -95,12 +95,13 @@ fn featured_shelf(
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
+    let preview: Vec<SeriesSummary> = items.into_iter().take(5).collect();
     view()
         .gap_3()
         .child(shelf_header("精选推荐", "全部", move || {
             on_open_browse(BrowseKind::Featured);
         }))
-        .child(series_grid(items, on_open_series))
+        .child(series_grid(preview, on_open_series))
 }
 
 fn ranking_shelf(
