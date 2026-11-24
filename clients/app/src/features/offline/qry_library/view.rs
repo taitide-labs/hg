@@ -1,16 +1,234 @@
 use hg_contracts::ids::{EpisodeNumber, SeriesId};
+use hg_contracts::offline::OfflineSeriesView;
 use nsh_core::prelude::*;
 
 use super::super::store;
+use super::query::{
+    self, episodes_preview_text, first_downloaded_episode, format_size_bytes, library_totals,
+    series_stats_text,
+};
+use crate::ui::icons::{IconKind, icon};
+use crate::ui::surface::{BadgeTone, badge, empty_state};
+use crate::ui::token;
 
 pub fn offline_library_section<R>(
-    _on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    _series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
+    series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
 {
-    let empty =
-        store::state().with(|s| s.library.is_empty() && !s.loading_library && s.error.is_none());
-    view().children(empty.then(view))
+    query::load_library();
+    view()
+        .w_full()
+        .gap_3()
+        .child(dynamic(move || library_body(on_open_series, series_action)))
+}
+
+fn library_body<R>(
+    on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
+    series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+) -> impl IntoElement
+where
+    R: IntoElement + 'static,
+{
+    let snap = store::state().get();
+    let (series_count, episode_count, total_bytes) = library_totals(&snap.library);
+    let summary = if series_count > 0 {
+        Some(format!(
+            "共 {series_count} 部 · {episode_count} 集 · {}",
+            format_size_bytes(total_bytes)
+        ))
+    } else {
+        None
+    };
+    let header = section_header_row(summary);
+
+    if snap.error.is_some() && snap.library.is_empty() {
+        return view()
+            .w_full()
+            .gap_3()
+            .child(header)
+            .child(empty_state(
+                IconKind::Download,
+                "离线片库加载失败",
+                "请稍后重试刷新本地已下载内容",
+                Some(("重新加载", Box::new(query::load_library))),
+            ))
+            .into_element();
+    }
+
+    if snap.loading_library && snap.library.is_empty() {
+        return view()
+            .w_full()
+            .gap_3()
+            .child(header)
+            .child(
+                view().py_6().items_center().child(
+                    text("正在加载离线片库...")
+                        .text_sm()
+                        .text_color(token::muted_fg),
+                ),
+            )
+            .into_element();
+    }
+
+    if snap.library.is_empty() {
+        return view()
+            .w_full()
+            .gap_3()
+            .child(header)
+            .child(empty_state(
+                IconKind::Download,
+                "暂无离线剧集",
+                "在播放页选择分集离线下载后，可在此断网观看",
+                None,
+            ))
+            .into_element();
+    }
+
+    let mut list = view().w_full().gap_2p5();
+    for (index, series) in snap.library.into_iter().enumerate() {
+        list = list.child(series_row(index, series, on_open_series, series_action));
+    }
+
+    view()
+        .w_full()
+        .gap_3()
+        .child(header)
+        .child(list)
+        .into_element()
+}
+
+fn section_header_row(summary: Option<String>) -> impl IntoElement {
+    view()
+        .w_full()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .child(
+            text("托管离线片库")
+                .role(AccessibilityRole::Header)
+                .text_base()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(token::fg),
+        )
+        .children(summary.map(|label| {
+            text(label)
+                .text_xs()
+                .tabular_nums()
+                .text_color(token::muted_fg)
+        }))
+}
+
+fn series_row<R>(
+    index: usize,
+    series: OfflineSeriesView,
+    on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
+    series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+) -> impl IntoElement
+where
+    R: IntoElement + 'static,
+{
+    let enter = token::stagger_enter(index);
+    let series_id = series.series_id;
+    let first_ep = first_downloaded_episode(&series);
+    let title = series.title.clone();
+    let a11y_title = series.title.clone();
+    let cover_key = series.cover_local_uri.clone();
+    let stats = series_stats_text(&series);
+    let episodes_preview = episodes_preview_text(&series.episodes);
+
+    let open_trigger = view()
+        .on_press(move || on_open_series(series_id, first_ep))
+        .role(AccessibilityRole::Button)
+        .focusable(true)
+        .label(a11y_title)
+        .flex_1()
+        .min_w_0()
+        .p_3()
+        .rounded(token::radius_card)
+        .flex_row()
+        .items_center()
+        .gap_3p5()
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(|s| s.bg(token::surface_subtle))
+        .active(|s| {
+            if reduce_motion() {
+                s.opacity(0.9)
+            } else {
+                s.scale(token::PRESS_SCALE)
+            }
+        })
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(poster_thumb(cover_key))
+        .child(series_meta(series.title, stats, episodes_preview));
+
+    view()
+        .bind_motion(&enter)
+        .w_full()
+        .rounded(token::radius_card)
+        .bg(token::card)
+        .border_1()
+        .border_color(token::border)
+        .flex_row()
+        .items_center()
+        .child(open_trigger)
+        .child(series_action(series_id, title))
+}
+
+fn poster_thumb(cover_key: String) -> impl IntoElement {
+    view()
+        .w(px(52.0))
+        .h(px(70.0))
+        .flex_shrink_0()
+        .rounded(token::radius)
+        .bg(move || token::poster_surface(&cover_key))
+        .items_center()
+        .justify_center()
+        .child(
+            view()
+                .size(px(26.0))
+                .rounded_full()
+                .bg(token::cinema_scrim)
+                .items_center()
+                .justify_center()
+                .child(icon(IconKind::Play, 12.0, token::cinema_fg)),
+        )
+}
+
+fn series_meta(title: String, stats: String, episodes_preview: String) -> impl IntoElement {
+    view()
+        .flex_1()
+        .min_w_0()
+        .gap_1p5()
+        .child(
+            text(title)
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(token::card_fg)
+                .truncate(),
+        )
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(badge("离线就绪", BadgeTone::Success))
+                .child(
+                    text(stats)
+                        .text_xs()
+                        .tabular_nums()
+                        .text_color(token::muted_fg)
+                        .truncate(),
+                ),
+        )
+        .child(
+            text(episodes_preview)
+                .text_xs()
+                .text_color(token::muted_fg)
+                .truncate(),
+        )
 }

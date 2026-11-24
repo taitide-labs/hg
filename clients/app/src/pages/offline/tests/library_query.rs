@@ -3,7 +3,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_offline;
 
 #[test]
-#[ignore = "待 offline/qry_library 实现后激活"]
 fn offline_library_displays_downloaded_series_and_opens_player() {
     let mut app = start_on_offline(FeatureFlags {
         offline_library: true,
