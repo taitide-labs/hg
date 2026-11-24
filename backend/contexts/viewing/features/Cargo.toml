@@ -11,10 +11,14 @@ hg-backend-contracts.workspace = true
 hg-contracts.workspace = true
 hg-infra.workspace = true
 hg-viewing-domain.workspace = true
+serde.workspace = true
 sqlx.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
+parking_lot.workspace = true
+reqwest.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true
