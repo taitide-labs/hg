@@ -1385,7 +1385,9 @@ name = "hg-gateway"
 version = "0.1.0"
 dependencies = [
  "hg-contracts",
+ "hg-runtime",
  "parking_lot 0.13.0",
+ "tokio",
 ]
 
 [[package]]

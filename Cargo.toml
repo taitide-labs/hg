@@ -35,6 +35,7 @@ hg-gateway = { path = "clients/gateway" }
 hg-infra = { path = "backend/infra" }
 hg-offline-domain = { path = "backend/contexts/offline/domain" }
 hg-offline-features = { path = "backend/contexts/offline/features" }
+hg-runtime = { path = "backend/runtime" }
 hg-viewing-domain = { path = "backend/contexts/viewing/domain" }
 hg-viewing-features = { path = "backend/contexts/viewing/features" }
 hkdf = { version = "0.13", default-features = false }

@@ -5,6 +5,7 @@ message: "严禁在 gateway local 适配器之外引用 backend/runtime"
 files:
   - "clients/**/*.rs"
 ignores:
+  - "clients/gateway/src/local.rs"
   - "clients/gateway/src/local/**/*.rs"
 rule:
   any:

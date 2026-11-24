@@ -8,7 +8,9 @@ publish = false
 
 [dependencies]
 hg-contracts.workspace = true
+hg-runtime.workspace = true
 parking_lot.workspace = true
+tokio.workspace = true
 
 [lints]
 workspace = true
