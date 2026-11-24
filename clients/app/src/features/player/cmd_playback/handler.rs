@@ -2,7 +2,6 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use hg_contracts::catalog::ListEpisodeCommentsRequest;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, PageRequest, SeriesId};
-use hg_contracts::offline::EnqueueEpisodeDownloadsRequest;
 use hg_contracts::viewing::{PlaybackMode, ReportWatchProgressRequest};
 use nsh_core::prelude::*;
 
@@ -90,31 +89,6 @@ pub fn toggle_bookmark() {
             } else {
                 "已取消追剧".to_owned()
             });
-        }
-    });
-}
-
-pub fn enqueue_current_episode_download() {
-    let snap = store::snapshot();
-    let (Some(detail), Some(ep_num)) = (snap.detail, snap.current_episode) else {
-        return;
-    };
-    let gw = gateway::current();
-    let req = EnqueueEpisodeDownloadsRequest {
-        series_id: detail.summary.id,
-        episodes: vec![ep_num],
-    };
-    spawn(async move {
-        match gw.enqueue_episode_downloads(req).await {
-            Ok(result) => {
-                let message = if result.queued.is_empty() {
-                    format!("第 {} 集已在离线片库中", ep_num.get())
-                } else {
-                    format!("第 {} 集已加入离线下载", ep_num.get())
-                };
-                store::set_hint(message);
-            }
-            Err(err) => store::set_hint(err.to_string()),
         }
     });
 }

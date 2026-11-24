@@ -1,7 +1,6 @@
 use hg_contracts::catalog::RankingKind;
 use nsh_core::prelude::*;
 
-use crate::app::flags;
 use crate::app::nav::{self, DiscoverSubPage, PrimaryTab};
 use crate::features::discover::store::BrowseKind;
 use crate::pages;
@@ -62,20 +61,15 @@ pub fn app_shell() -> impl IntoElement {
         }))
         .child(
             when(in_player, || {
-                dynamic(|| {
-                    let flags = flags::current();
-                    match nav::active_player() {
-                        Some(route) => pages::player::page::player_page(
-                            route.series_id,
-                            route.initial_episode,
-                            flags.player_comment_replies,
-                            flags.player_batch_download,
-                            nav::close_player,
-                            nav::set_chrome_fullscreen,
-                        )
-                        .into_element(),
-                        None => view().into_element(),
-                    }
+                dynamic(|| match nav::active_player() {
+                    Some(route) => pages::player::page::player_page(
+                        route.series_id,
+                        route.initial_episode,
+                        nav::close_player,
+                        nav::set_chrome_fullscreen,
+                    )
+                    .into_element(),
+                    None => view().into_element(),
                 })
             })
             .otherwise(main_chrome),
@@ -226,40 +220,11 @@ fn active_tab_content() -> impl IntoElement {
             )
             .into_element(),
             PrimaryTab::Watchlist => {
-                let flags = flags::current();
-                pages::watchlist::page::watchlist_page(
-                    pages::watchlist::page::WatchlistFlags {
-                        history: flags.watchlist_history,
-                        remove_history: flags.watchlist_remove_history,
-                        bookmarks: flags.watchlist_bookmarks,
-                        unbookmark: flags.watchlist_unbookmark,
-                    },
-                    nav::open_player,
-                )
-                .into_element()
+                pages::watchlist::page::watchlist_page(nav::open_player).into_element()
             }
             PrimaryTab::Offline => {
-                let flags = flags::current();
-                pages::offline::page::offline_page(
-                    pages::offline::page::OfflineFlags {
-                        library: flags.offline_library,
-                        delete: flags.offline_delete,
-                        queue: flags.offline_queue,
-                        control_download: flags.offline_control_download,
-                    },
-                    nav::open_player,
-                )
-                .into_element()
+                pages::offline::page::offline_page(nav::open_player).into_element()
             }
-            PrimaryTab::Settings => {
-                let flags = flags::current();
-                pages::settings::page::settings_page(pages::settings::page::SettingsFlags {
-                    playback_pref: flags.settings_playback_pref,
-                    download_policy: flags.settings_download_policy,
-                    storage: flags.settings_storage,
-                    clear_cache: flags.settings_clear_cache,
-                })
-                .into_element()
-            }
+            PrimaryTab::Settings => pages::settings::page::settings_page().into_element(),
         }))
 }

@@ -1,14 +1,8 @@
-use crate::app::flags::FeatureFlags;
-
 use super::start_on_settings;
 
 #[test]
 fn clearing_cache_zeroes_cache_without_touching_offline_library() {
-    let mut app = start_on_settings(FeatureFlags {
-        settings_storage: true,
-        settings_clear_cache: true,
-        ..FeatureFlags::default()
-    });
+    let mut app = start_on_settings();
 
     app.wait_for("清理缓存").unwrap();
     app.press("清理缓存").unwrap();

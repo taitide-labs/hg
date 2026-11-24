@@ -16,8 +16,6 @@ use crate::ui::token;
 pub fn player_view(
     series_id: SeriesId,
     initial_episode: Option<EpisodeNumber>,
-    replies_enabled: bool,
-    batch_download_enabled: bool,
     on_back: impl Fn() + Copy + 'static,
     on_fullscreen_change: impl Fn(bool) + Copy + 'static,
 ) -> impl IntoElement {
@@ -55,14 +53,9 @@ pub fn player_view(
                 .justify_center()
                 .child(text("加载中...").text_sm().text_color(token::muted_fg))
                 .into_element(),
-            PlayerSurfaceKey::Regular { fullscreen } => regular_layout(
-                fullscreen,
-                replies_enabled,
-                batch_download_enabled,
-                on_back,
-                toggle_fs,
-            )
-            .into_element(),
+            PlayerSurfaceKey::Regular { fullscreen } => {
+                regular_layout(fullscreen, on_back, toggle_fs).into_element()
+            }
             PlayerSurfaceKey::VerticalImmersive => {
                 vertical_immersive_layout(on_back).into_element()
             }
@@ -105,8 +98,6 @@ fn bind_potplayer_shortcuts(
 
 fn regular_layout(
     fullscreen: bool,
-    replies_enabled: bool,
-    batch_download_enabled: bool,
     on_back: impl Fn() + Copy + 'static,
     on_toggle_fullscreen: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
@@ -138,9 +129,9 @@ fn regular_layout(
                     .p_4()
                     .gap_3()
                     .child(video_surface_box(false, on_back, on_toggle_fullscreen))
-                    .child(desktop_action_row(batch_download_enabled)),
+                    .child(desktop_action_row()),
             )
-            .child(desktop_info_feed(replies_enabled))
+            .child(desktop_info_feed())
             .into_element()
     } else {
         view()
@@ -156,7 +147,7 @@ fn regular_layout(
                     .flex_shrink_0()
                     .child(video_surface_box(true, on_back, on_toggle_fullscreen)),
             )
-            .child(mobile_detail_sheet(replies_enabled, batch_download_enabled))
+            .child(mobile_detail_sheet())
             .into_element()
     }
 }
