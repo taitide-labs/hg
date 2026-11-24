@@ -224,13 +224,15 @@ fn ranking_list(
             entry.series.tags.join(" · "),
             entry.series.episode_count
         );
+        let description =
+            (!entry.series.description.is_empty()).then_some(entry.series.description);
         list = list.child(ranking_list_row(
             RankingCardProps {
                 rank: entry.rank,
                 title: entry.series.title,
                 cover_url: entry.series.cover_url,
                 meta,
-                description: Some(entry.series.description),
+                description,
             },
             move || on_open_series(id),
         ));

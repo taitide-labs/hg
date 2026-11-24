@@ -7,8 +7,8 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-hg-contracts = { path = "../../contracts" }
-parking_lot = "0.12"
+hg-contracts.workspace = true
+parking_lot.workspace = true
 
 [lints]
 workspace = true
