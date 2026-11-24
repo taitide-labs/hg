@@ -6,19 +6,26 @@ use nsh_core::prelude::*;
 use super::cmd_playback::command::AspectPreset;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum CompanionTab {
+pub enum MobileDetailTab {
     #[default]
-    Episodes,
     Info,
     Comments,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ActivePopover {
+    #[default]
+    None,
+    Speed,
+    Settings,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerSurfaceKey {
     Loading,
     Error,
-    Cinema { fullscreen: bool },
-    ShortDrama,
+    Regular { fullscreen: bool },
+    VerticalImmersive,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +38,13 @@ pub struct PlayerState {
     pub paused: bool,
     pub muted: bool,
     pub fullscreen: bool,
+    pub auto_advance: bool,
+    pub loop_single: bool,
+    pub bookmarked: bool,
+    pub info_expanded: bool,
+    pub episodes_expanded: bool,
+    pub episode_segment_index: usize,
+    pub popover: ActivePopover,
     pub volume_percent: u8,
     pub rate_hundredths: u16,
     pub position_secs: u32,
@@ -51,6 +65,13 @@ impl Default for PlayerState {
             paused: false,
             muted: false,
             fullscreen: false,
+            auto_advance: true,
+            loop_single: false,
+            bookmarked: false,
+            info_expanded: false,
+            episodes_expanded: false,
+            episode_segment_index: 0,
+            popover: ActivePopover::None,
             volume_percent: 80,
             rate_hundredths: 100,
             position_secs: 0,
@@ -80,38 +101,41 @@ pub fn surface_key() -> PlayerSurfaceKey {
             PlayerSurfaceKey::Loading
         } else {
             match s.mode {
-                PlaybackMode::Cinema => PlayerSurfaceKey::Cinema {
+                PlaybackMode::Cinema => PlayerSurfaceKey::Regular {
                     fullscreen: s.fullscreen,
                 },
-                PlaybackMode::ShortDrama => PlayerSurfaceKey::ShortDrama,
+                PlaybackMode::ShortDrama => PlayerSurfaceKey::VerticalImmersive,
             }
         }
     })
 }
 
 #[must_use]
-pub fn companion_tab_signal() -> Signal<CompanionTab> {
-    global::<CompanionTab>()
+pub fn mobile_tab_signal() -> Signal<MobileDetailTab> {
+    global::<MobileDetailTab>()
 }
 
 pub fn reset_for_open(default_mode: PlaybackMode) {
-    global::<CompanionTab>().set(CompanionTab::Episodes);
+    global::<MobileDetailTab>().set(MobileDetailTab::Info);
     state().set(PlayerState {
         mode: default_mode,
         ..PlayerState::default()
     });
 }
 
-pub fn set_detail(detail: SeriesDetail) {
+pub fn set_detail(detail: SeriesDetail, bookmarked: bool) {
     state().update(|s| {
         s.detail = Some(detail);
+        s.bookmarked = bookmarked;
         s.error = None;
     });
 }
 
 pub fn set_source(ep_num: EpisodeNumber, source: PlaybackSource) {
+    let segment_index = (ep_num.get().saturating_sub(1) / 50) as usize;
     state().update(|s| {
         s.current_episode = Some(ep_num);
+        s.episode_segment_index = segment_index;
         s.duration_secs = source.duration_secs;
         s.position_secs = 0;
         s.paused = false;
@@ -128,20 +152,21 @@ pub fn set_position(position_secs: u32) {
     state().update(|s| s.position_secs = position_secs);
 }
 
+pub fn set_bookmarked(bookmarked: bool) {
+    state().update(|s| s.bookmarked = bookmarked);
+}
+
 pub fn set_mode(mode: PlaybackMode) {
     state().update(|s| {
         s.mode = mode;
-        s.status_hint = Some(match mode {
-            PlaybackMode::Cinema => "已切换至电影模式".to_owned(),
-            PlaybackMode::ShortDrama => "已切换至短剧模式".to_owned(),
-        });
+        s.popover = ActivePopover::None;
     });
 }
 
 pub fn set_aspect(aspect: AspectPreset) {
     state().update(|s| {
         s.aspect = aspect;
-        s.status_hint = Some(format!("画面比例：{}", aspect.label()));
+        s.status_hint = Some(aspect.label().to_owned());
     });
 }
 
@@ -153,15 +178,49 @@ pub fn toggle_muted() {
     state().update(|s| s.muted = !s.muted);
 }
 
-pub fn toggle_fullscreen() {
+#[must_use]
+pub fn toggle_fullscreen() -> bool {
+    let mut next = false;
     state().update(|s| {
         s.fullscreen = !s.fullscreen;
-        s.status_hint = Some(if s.fullscreen {
-            "全屏模式（Enter 退出）".to_owned()
-        } else {
-            "窗口模式".to_owned()
-        });
+        s.popover = ActivePopover::None;
+        next = s.fullscreen;
     });
+    next
+}
+
+pub fn toggle_auto_advance() {
+    state().update(|s| s.auto_advance = !s.auto_advance);
+}
+
+pub fn toggle_loop_single() {
+    state().update(|s| s.loop_single = !s.loop_single);
+}
+
+pub fn toggle_info_expanded() {
+    state().update(|s| s.info_expanded = !s.info_expanded);
+}
+
+pub fn toggle_episodes_expanded() {
+    state().update(|s| s.episodes_expanded = !s.episodes_expanded);
+}
+
+pub fn set_episode_segment(index: usize) {
+    state().update(|s| s.episode_segment_index = index);
+}
+
+pub fn toggle_popover(target: ActivePopover) {
+    state().update(|s| {
+        s.popover = if s.popover == target {
+            ActivePopover::None
+        } else {
+            target
+        };
+    });
+}
+
+pub fn close_popover() {
+    state().update(|s| s.popover = ActivePopover::None);
 }
 
 pub fn set_volume(volume_percent: u8) {
@@ -174,7 +233,8 @@ pub fn set_volume(volume_percent: u8) {
 pub fn set_rate(rate_hundredths: u16) {
     state().update(|s| {
         s.rate_hundredths = rate_hundredths;
-        s.status_hint = Some(format!("倍速 {:.2}×", f32::from(rate_hundredths) / 100.0));
+        s.popover = ActivePopover::None;
+        s.status_hint = Some(format!("{:.2}×", f32::from(rate_hundredths) / 100.0));
     });
 }
 

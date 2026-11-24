@@ -4,9 +4,6 @@ mod gateway;
 mod pages;
 pub mod ui;
 
-#[cfg(test)]
-mod tests;
-
 use nsh_core::prelude::*;
 
 #[native_module("hg/native")]

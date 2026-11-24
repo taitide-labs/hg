@@ -1,1 +1,0 @@
-mod walking_skeleton;

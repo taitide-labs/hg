@@ -22,8 +22,7 @@ pub fn configure_hidden_title_bar() {
 }
 
 pub fn desktop_title_bar(
-    cinema: impl Fn() -> bool + Copy + 'static,
-    center: impl IntoElement,
+    leading: impl IntoElement,
     trailing: impl IntoElement,
 ) -> impl IntoElement {
     view()
@@ -37,28 +36,16 @@ pub fn desktop_title_bar(
         .window_drag(true)
         .pl(move || title_bar().left + px(14.0))
         .pr(move || title_bar().right + px(14.0))
-        .bg(move || {
-            if cinema() {
-                token::cinema_bg()
-            } else {
-                token::bg()
-            }
-        })
+        .bg(token::bg)
         .border_b_1()
-        .border_color(move || {
-            if cinema() {
-                token::cinema_border()
-            } else {
-                token::border()
-            }
-        })
+        .border_color(token::border)
         .child(
             view()
                 .flex_row()
                 .items_center()
                 .gap_2()
                 .window_drag(false)
-                .child(center),
+                .child(leading),
         )
         .child(
             view()

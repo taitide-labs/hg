@@ -1,48 +1,54 @@
+use hg_contracts::catalog::RankingKind;
 use nsh_core::prelude::*;
 
-use crate::app::nav::{self, PrimaryTab};
+use crate::app::nav::{self, DiscoverSubPage, PrimaryTab};
+use crate::features::discover::store::BrowseKind;
 use crate::pages;
 use crate::ui::button::{
-    ButtonVariant, ControlSize, app_icon_button, mobile_tab_button, sidebar_nav_button,
+    ButtonVariant, ControlSize, app_icon_button, app_icon_text_button, mobile_tab_button,
+    sidebar_nav_button,
 };
 use crate::ui::icons::IconKind;
 use crate::ui::platform::{desktop_title_bar, is_desktop};
 use crate::ui::surface::separator;
 use crate::ui::token;
 
+fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
+    match subpage {
+        DiscoverSubPage::Featured => BrowseKind::Featured,
+        DiscoverSubPage::Ranking => BrowseKind::Ranking(RankingKind::Hot),
+        DiscoverSubPage::Category { id, name, route } => BrowseKind::Category { id, name, route },
+        DiscoverSubPage::Search { query } => BrowseKind::Search { query },
+    }
+}
+
+fn browse_to_subpage(kind: BrowseKind) -> DiscoverSubPage {
+    match kind {
+        BrowseKind::Featured => DiscoverSubPage::Featured,
+        BrowseKind::Ranking(_) => DiscoverSubPage::Ranking,
+        BrowseKind::Category { id, name, route } => DiscoverSubPage::Category { id, name, route },
+        BrowseKind::Search { query } => DiscoverSubPage::Search { query },
+        BrowseKind::Tag { name, .. } => DiscoverSubPage::Search { query: name },
+    }
+}
+
 pub fn app_shell() -> impl IntoElement {
     let in_player = || nav::active_player().is_some();
+    let show_title_bar = || is_desktop() && !nav::is_chrome_fullscreen();
 
     view()
         .flex_1()
-        .bg(move || {
-            if in_player() {
-                token::cinema_bg()
-            } else {
-                token::bg()
-            }
-        })
-        .children(is_desktop().then(|| {
+        .bg(token::bg)
+        .child(when(show_title_bar, move || {
             desktop_title_bar(
-                in_player,
                 when(in_player, || {
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(app_icon_button(
-                            IconKind::ChevronLeft,
-                            "返回",
-                            ButtonVariant::CinemaGlass,
-                            ControlSize::Sm,
-                            nav::close_player,
-                        ))
-                        .child(
-                            text("正在观影")
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(token::cinema_fg),
-                        )
+                    app_icon_text_button(
+                        IconKind::ChevronLeft,
+                        "返回",
+                        ButtonVariant::Ghost,
+                        ControlSize::Sm,
+                        nav::close_player,
+                    )
                 })
                 .otherwise(|| {
                     text("HG")
@@ -56,10 +62,11 @@ pub fn app_shell() -> impl IntoElement {
         .child(
             when(in_player, || {
                 dynamic(|| match nav::active_player() {
-                    Some(route) => pages::player::player_page(
+                    Some(route) => pages::player::page::player_page(
                         route.series_id,
                         route.initial_episode,
                         nav::close_player,
+                        nav::set_chrome_fullscreen,
                     )
                     .into_element(),
                     None => view().into_element(),
@@ -73,6 +80,7 @@ fn main_chrome() -> impl IntoElement {
     if is_desktop() {
         view()
             .flex_1()
+            .min_h_0()
             .flex_row()
             .child(desktop_sidebar())
             .child(active_tab_content())
@@ -80,6 +88,7 @@ fn main_chrome() -> impl IntoElement {
     } else {
         view()
             .flex_1()
+            .min_h_0()
             .child(mobile_header())
             .child(active_tab_content())
             .child(mobile_bottom_bar())
@@ -90,6 +99,7 @@ fn main_chrome() -> impl IntoElement {
 fn desktop_sidebar() -> impl IntoElement {
     view()
         .w(px(208.0))
+        .flex_shrink_0()
         .h_full()
         .bg(token::sidebar)
         .border_r_1()
@@ -133,6 +143,7 @@ fn desktop_sidebar() -> impl IntoElement {
 fn mobile_header() -> impl IntoElement {
     view()
         .w_full()
+        .flex_shrink_0()
         .pt_safe_area_plus(px(8.0))
         .pb_2()
         .px_4()
@@ -165,6 +176,7 @@ fn mobile_header() -> impl IntoElement {
 fn mobile_bottom_bar() -> impl IntoElement {
     view()
         .w_full()
+        .flex_shrink_0()
         .px_3()
         .pt_1p5()
         .pb_safe_area_plus(px(6.0))
@@ -195,12 +207,20 @@ fn mobile_bottom_bar() -> impl IntoElement {
 }
 
 fn active_tab_content() -> impl IntoElement {
-    view().flex_1().child(dynamic(|| match nav::current_tab() {
-        PrimaryTab::Discover => {
-            pages::discover::discover_page(|id| nav::open_player(id, None)).into_element()
-        }
-        PrimaryTab::Watchlist => pages::placeholder::watchlist_placeholder().into_element(),
-        PrimaryTab::Offline => pages::placeholder::offline_placeholder().into_element(),
-        PrimaryTab::Settings => pages::placeholder::settings_placeholder().into_element(),
-    }))
+    view()
+        .flex_1()
+        .min_w_0()
+        .min_h_0()
+        .child(dynamic(|| match nav::current_tab() {
+            PrimaryTab::Discover => pages::discover::page::discover_page(
+                || nav::active_discover_subpage().map(subpage_to_browse),
+                |kind| nav::open_discover_subpage(browse_to_subpage(kind)),
+                nav::close_discover_subpage,
+                |id| nav::open_player(id, None),
+            )
+            .into_element(),
+            PrimaryTab::Watchlist => pages::placeholder::watchlist_placeholder().into_element(),
+            PrimaryTab::Offline => pages::placeholder::offline_placeholder().into_element(),
+            PrimaryTab::Settings => pages::placeholder::settings_placeholder().into_element(),
+        }))
 }

@@ -1,0 +1,85 @@
+use std::time::Duration;
+
+use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Root, Size};
+use nsh_testing::Headless;
+
+use crate::App;
+
+fn start_desktop(scheme: ColorScheme) -> Headless {
+    let environment = Environment {
+        os: Os::MacOs,
+        color_scheme: scheme,
+        ..Environment::default()
+    };
+    let mut app = Headless::start(EngineConfig {
+        viewport: Size::new(Points(1240.0), Points(800.0)),
+        environment,
+        ..EngineConfig::new(Root::of::<App>())
+    })
+    .unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
+    app
+}
+
+#[test]
+fn discover_home_shows_featured_ranking_and_categories_without_hero_banner() {
+    let app = start_desktop(ColorScheme::Light);
+    let screen = app.screen();
+
+    assert!(screen.shows("精选推荐"));
+    assert!(screen.shows("排行榜"));
+    assert!(screen.shows("热门短剧"));
+    assert!(screen.shows("漫剧与悬疑"));
+    assert!(!screen.shows("今日焦点"));
+}
+
+#[test]
+fn opening_featured_ranking_and_search_reuses_shared_browse_page() {
+    let mut app = start_desktop(ColorScheme::Light);
+
+    app.press("查看排行榜全部").unwrap();
+    app.wait_for("热播榜").unwrap();
+    app.press("潜力榜").unwrap();
+    app.wait_for("潜力榜").unwrap();
+
+    app.press("返回").unwrap();
+    app.wait_for("查看精选推荐全部").unwrap();
+
+    app.press("查看精选推荐全部").unwrap();
+    app.wait_for("热搜").unwrap();
+    app.press("悬疑").unwrap();
+    app.wait_for("标签 · 悬疑").unwrap();
+    app.wait_for("长安暗夜行").unwrap();
+    app.wait_for_gone("春风十里不及卿", Duration::from_secs(2))
+        .unwrap();
+}
+
+#[test]
+fn searching_from_home_enters_shared_list_page_with_tag_filters() {
+    let mut app = start_desktop(ColorScheme::Dark);
+
+    app.press("搜索").unwrap();
+    app.wait_for("搜索与标签筛选").unwrap();
+    app.press("千金归来").unwrap();
+    app.wait_for("搜索 “千金归来”").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.wait_for_gone("星穹机甲纪元", Duration::from_secs(2))
+        .unwrap();
+}
+
+#[test]
+fn sidebar_navigation_keeps_settings_separated_from_primary_tabs() {
+    let mut app = start_desktop(ColorScheme::Light);
+
+    app.press("追剧").unwrap();
+    app.wait_for("追剧与观看历史").unwrap();
+
+    app.press("离线").unwrap();
+    app.wait_for("离线片库与下载队列").unwrap();
+
+    app.press("设置").unwrap();
+    app.wait_for("偏好与缓存设置").unwrap();
+
+    app.press("发现").unwrap();
+    app.wait_for("精选推荐").unwrap();
+}

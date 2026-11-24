@@ -12,6 +12,7 @@ pub enum ButtonVariant {
     Outline,
     CinemaGlass,
     CinemaPrimary,
+    OverlayGhost,
     Danger,
 }
 
@@ -38,13 +39,21 @@ fn px_for(size: ControlSize) -> Points {
     }
 }
 
+fn icon_pt_for(size: ControlSize) -> f32 {
+    match size {
+        ControlSize::Sm => 14.0,
+        ControlSize::Md => 16.0,
+        ControlSize::Lg => 18.0,
+    }
+}
+
 fn text_color_for(variant: ButtonVariant) -> AdaptiveColor {
     match variant {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary | ButtonVariant::Danger => {
             token::primary_fg()
         }
         ButtonVariant::Secondary | ButtonVariant::Ghost | ButtonVariant::Outline => token::fg(),
-        ButtonVariant::CinemaGlass => token::cinema_fg(),
+        ButtonVariant::CinemaGlass | ButtonVariant::OverlayGhost => token::cinema_fg(),
     }
 }
 
@@ -54,7 +63,7 @@ fn bg_for(variant: ButtonVariant) -> Option<AdaptiveColor> {
         ButtonVariant::Secondary => Some(token::secondary()),
         ButtonVariant::CinemaGlass => Some(token::cinema_surface_elevated()),
         ButtonVariant::Danger => Some(token::destructive()),
-        ButtonVariant::Ghost | ButtonVariant::Outline => None,
+        ButtonVariant::Ghost | ButtonVariant::Outline | ButtonVariant::OverlayGhost => None,
     }
 }
 
@@ -63,24 +72,20 @@ fn hover_bg_for(variant: ButtonVariant) -> AdaptiveColor {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary => token::primary().opacity(0.9),
         ButtonVariant::Secondary | ButtonVariant::Ghost | ButtonVariant::Outline => token::accent(),
         ButtonVariant::CinemaGlass => token::cinema_border(),
+        ButtonVariant::OverlayGhost => token::cinema_surface_elevated(),
         ButtonVariant::Danger => token::destructive().opacity(0.9),
     }
 }
 
-pub fn app_button(
-    label: impl IntoReactive<SharedString>,
+fn wrap_variant_button(
     variant: ButtonVariant,
-    size: ControlSize,
     on_press: impl Fn() + 'static,
+    content: impl IntoElement,
+    size: ControlSize,
+    square_label: Option<&'static str>,
 ) -> impl IntoElement {
     let base = button()
         .on_press(on_press)
-        .h(height_for(size))
-        .px(px_for(size))
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .gap_2()
         .rounded(token::radius_control)
         .transition_colors()
         .duration(token::INSTANT_MS)
@@ -96,24 +101,74 @@ pub fn app_button(
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
         .disabled_style(|s| s.opacity(0.45));
 
+    let base = match square_label {
+        Some(a11y) => base
+            .accessibility_label(a11y)
+            .size(height_for(size))
+            .items_center()
+            .justify_center(),
+        None => base
+            .h(height_for(size))
+            .px(px_for(size))
+            .flex_row()
+            .items_center()
+            .justify_center()
+            .gap_1p5(),
+    };
+
     let base = match bg_for(variant) {
         Some(_) => base.bg(move || bg_for(variant).unwrap_or_else(token::secondary)),
         None => base,
     };
-    let base = if matches!(variant, ButtonVariant::Outline) {
-        base.border_1().border_color(token::border)
-    } else if matches!(variant, ButtonVariant::CinemaGlass) {
-        base.border_1().border_color(token::cinema_border)
-    } else {
-        base
+
+    let base = match variant {
+        ButtonVariant::Outline => base.border_1().border_color(token::border),
+        ButtonVariant::CinemaGlass => base.border_1().border_color(token::cinema_border),
+        ButtonVariant::Primary
+        | ButtonVariant::Secondary
+        | ButtonVariant::Ghost
+        | ButtonVariant::CinemaPrimary
+        | ButtonVariant::OverlayGhost
+        | ButtonVariant::Danger => base,
     };
 
-    base.child(
-        text(label)
-            .text_sm()
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(move || text_color_for(variant)),
-    )
+    base.child(content)
+}
+
+pub fn app_button(
+    label: impl IntoReactive<SharedString>,
+    variant: ButtonVariant,
+    size: ControlSize,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let content = text(label)
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(move || text_color_for(variant));
+    wrap_variant_button(variant, on_press, content, size, None)
+}
+
+pub fn app_icon_text_button(
+    kind: IconKind,
+    label: impl IntoReactive<SharedString>,
+    variant: ButtonVariant,
+    size: ControlSize,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let content = view()
+        .flex_row()
+        .items_center()
+        .gap_1p5()
+        .child(icon(kind, icon_pt_for(size), move || {
+            text_color_for(variant)
+        }))
+        .child(
+            text(label)
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(move || text_color_for(variant)),
+        );
+    wrap_variant_button(variant, on_press, content, size, None)
 }
 
 pub fn app_icon_button(
@@ -123,46 +178,36 @@ pub fn app_icon_button(
     size: ControlSize,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    let dim = height_for(size);
-    let icon_pt = match size {
-        ControlSize::Sm => 14.0,
-        ControlSize::Md => 16.0,
-        ControlSize::Lg => 18.0,
-    };
+    let content = icon(kind, icon_pt_for(size), move || text_color_for(variant));
+    wrap_variant_button(variant, on_press, content, size, Some(label))
+}
 
-    let base = button()
+pub fn text_link_button(
+    label: impl IntoReactive<SharedString>,
+    a11y_label: impl Into<SharedString>,
+    trailing_icon: Option<IconKind>,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    button()
         .on_press(on_press)
-        .accessibility_label(label)
-        .size(dim)
+        .accessibility_label(a11y_label.into())
+        .h(px(26.0))
+        .px_2()
+        .flex_row()
         .items_center()
-        .justify_center()
+        .gap_1()
         .rounded(token::radius_control)
         .transition_colors()
         .duration(token::INSTANT_MS)
-        .hover(move |s| s.bg(move || hover_bg_for(variant)))
-        .active(move |s| {
-            let s = s.opacity(0.85);
-            if reduce_motion() {
-                s
-            } else {
-                s.scale(token::ICON_PRESS_SCALE)
-            }
-        })
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring));
-
-    let base = match bg_for(variant) {
-        Some(_) => base.bg(move || bg_for(variant).unwrap_or_else(token::secondary)),
-        None => base,
-    };
-    let base = if matches!(variant, ButtonVariant::CinemaGlass) {
-        base.border_1().border_color(token::cinema_border)
-    } else if matches!(variant, ButtonVariant::Outline) {
-        base.border_1().border_color(token::border)
-    } else {
-        base
-    };
-
-    base.child(icon(kind, icon_pt, move || text_color_for(variant)))
+        .hover(|s| s.bg(token::accent))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(
+            text(label)
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(token::muted_fg),
+        )
+        .children(trailing_icon.map(|kind| icon(kind, 13.0, token::muted_fg)))
 }
 
 pub fn sidebar_nav_button(

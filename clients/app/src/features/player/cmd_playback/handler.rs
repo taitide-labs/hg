@@ -2,6 +2,7 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use hg_contracts::catalog::ListEpisodeCommentsRequest;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, PageRequest, SeriesId};
+use hg_contracts::offline::EnqueueEpisodeDownloadsRequest;
 use hg_contracts::viewing::{PlaybackMode, ReportWatchProgressRequest};
 use nsh_core::prelude::*;
 
@@ -20,9 +21,11 @@ pub fn open_series(
         .unwrap_or_else(|| EpisodeNumber::new(NonZeroU32::new(1).unwrap_or(NonZeroU32::MIN)));
 
     spawn(async move {
-        match gw.series_detail(series_id).await {
+        let detail_res = gw.series_detail(series_id).await;
+        let is_bookmarked = gw.is_bookmarked(series_id).await.unwrap_or(false);
+        match detail_res {
             Ok(detail) => {
-                store::set_detail(detail);
+                store::set_detail(detail, is_bookmarked);
                 load_episode_internal(series_id, target_ep).await;
             }
             Err(err) => store::set_error(err.to_string()),
@@ -56,17 +59,64 @@ pub fn seek_by(delta_secs: i32) {
     };
     let next_pos = clamp_seek(snap.position_secs, delta_secs, snap.duration_secs);
     store::set_position(next_pos);
-    report_progress_async(detail.summary.id, ep_num, next_pos, snap.duration_secs);
+    report_progress_async(
+        detail.summary.id,
+        ep_num,
+        next_pos,
+        snap.duration_secs,
+        snap.auto_advance,
+        snap.loop_single,
+    );
 }
 
-pub fn complete_current_and_advance() {
+pub fn toggle_bookmark() {
+    let snap = store::snapshot();
+    let Some(series_id) = snap.detail.map(|d| d.summary.id) else {
+        return;
+    };
+    let currently_bookmarked = snap.bookmarked;
+    let gw = gateway::current();
+    spawn(async move {
+        let res = if currently_bookmarked {
+            gw.unbookmark_series(series_id).await
+        } else {
+            gw.bookmark_series(series_id).await
+        };
+        if res.is_ok() {
+            let next = !currently_bookmarked;
+            store::set_bookmarked(next);
+            store::set_hint(if next {
+                "已加入追剧".to_owned()
+            } else {
+                "已取消追剧".to_owned()
+            });
+        }
+    });
+}
+
+pub fn enqueue_current_episode_download() {
     let snap = store::snapshot();
     let (Some(detail), Some(ep_num)) = (snap.detail, snap.current_episode) else {
         return;
     };
-    let near_end = snap.duration_secs.saturating_sub(1);
-    store::set_position(near_end);
-    report_progress_async(detail.summary.id, ep_num, near_end, snap.duration_secs);
+    let gw = gateway::current();
+    let req = EnqueueEpisodeDownloadsRequest {
+        series_id: detail.summary.id,
+        episodes: vec![ep_num],
+    };
+    spawn(async move {
+        match gw.enqueue_episode_downloads(req).await {
+            Ok(result) => {
+                let message = if result.queued.is_empty() {
+                    format!("第 {} 集已在离线片库中", ep_num.get())
+                } else {
+                    format!("第 {} 集已加入离线下载", ep_num.get())
+                };
+                store::set_hint(message);
+            }
+            Err(err) => store::set_hint(err.to_string()),
+        }
+    });
 }
 
 pub fn adjust_rate(faster: bool) {
@@ -91,8 +141,9 @@ pub fn adjust_volume_or_episode(up: bool) {
 
 pub fn launch_external_player_hint() {
     let snap = store::snapshot();
+    store::close_popover();
     if let Some(src) = snap.source {
-        store::set_hint(format!("已准备外部播放器地址：{}", src.playable_uri));
+        store::set_hint(format!("已准备外部播放地址：{}", src.playable_uri));
     }
 }
 
@@ -101,6 +152,8 @@ fn report_progress_async(
     ep_num: EpisodeNumber,
     position_secs: u32,
     duration_secs: u32,
+    auto_advance: bool,
+    loop_single: bool,
 ) {
     let gw = gateway::current();
     let req = ReportWatchProgressRequest {
@@ -110,9 +163,13 @@ fn report_progress_async(
     };
     spawn(async move {
         if let Ok(result) = gw.report_watch_progress(req).await
-            && let Some(next_ep) = result.next_episode
+            && result.progress.completed
         {
-            load_episode_internal(series_id, next_ep).await;
+            if loop_single {
+                store::set_position(0);
+            } else if auto_advance && let Some(next_ep) = result.next_episode {
+                load_episode_internal(series_id, next_ep).await;
+            }
         }
     });
 }

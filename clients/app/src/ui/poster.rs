@@ -129,3 +129,123 @@ fn poster_cover(
                 ),
         )
 }
+
+pub struct RankingCardProps {
+    pub rank: u32,
+    pub title: String,
+    pub cover_url: String,
+    pub meta: String,
+    pub description: Option<String>,
+}
+
+pub fn ranking_compact_card(
+    props: RankingCardProps,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let cover_key = props.cover_url;
+    let rank_label = format!("TOP {}", props.rank);
+    let tone = if props.rank <= 3 {
+        BadgeTone::Brand
+    } else {
+        BadgeTone::Neutral
+    };
+    let a11y = format!("{} {}", rank_label, props.title);
+
+    button()
+        .on_press(on_press)
+        .accessibility_label(a11y)
+        .w(px(230.0))
+        .p_3()
+        .rounded(token::radius_card)
+        .bg(token::card)
+        .border_1()
+        .border_color(token::border)
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(|s| s.bg(token::surface_subtle))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(
+            view()
+                .w(px(46.0))
+                .h(px(62.0))
+                .flex_shrink_0()
+                .rounded(token::radius)
+                .bg(move || token::poster_surface(&cover_key)),
+        )
+        .child(
+            view()
+                .flex_1()
+                .min_w_0()
+                .gap_1()
+                .child(badge(rank_label, tone))
+                .child(
+                    text(props.title)
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(token::card_fg)
+                        .truncate(),
+                )
+                .child(text(props.meta).text_xs().text_color(token::muted_fg)),
+        )
+}
+
+pub fn ranking_list_row(
+    props: RankingCardProps,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let cover_key = props.cover_url;
+    let rank_label = format!("#{}", props.rank);
+    let tone = if props.rank <= 3 {
+        BadgeTone::Brand
+    } else {
+        BadgeTone::Neutral
+    };
+    let a11y = format!("{} {}", rank_label, props.title);
+
+    button()
+        .on_press(on_press)
+        .accessibility_label(a11y)
+        .w_full()
+        .p_3()
+        .rounded(token::radius_card)
+        .bg(token::card)
+        .border_1()
+        .border_color(token::border)
+        .flex_row()
+        .items_center()
+        .gap_3p5()
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(|s| s.bg(token::surface_subtle))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(badge(rank_label, tone))
+        .child(
+            view()
+                .w(px(48.0))
+                .h(px(64.0))
+                .flex_shrink_0()
+                .rounded(token::radius)
+                .bg(move || token::poster_surface(&cover_key)),
+        )
+        .child(
+            view()
+                .flex_1()
+                .min_w_0()
+                .gap_1()
+                .child(
+                    text(props.title)
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(token::card_fg),
+                )
+                .child(text(props.meta).text_xs().text_color(token::muted_fg))
+                .children(
+                    props
+                        .description
+                        .map(|desc| text(desc).text_xs().text_color(token::muted_fg).truncate()),
+                ),
+        )
+}

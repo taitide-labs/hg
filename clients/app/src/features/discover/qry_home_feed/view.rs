@@ -1,50 +1,31 @@
-use hg_contracts::catalog::{HomeBanner, SeriesSummary};
+use hg_contracts::catalog::{CategoryRecommendation, RankingEntry, SeriesSummary};
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
-use super::super::store::{self, CategoryTab};
+use super::super::parts::series_grid;
+use super::super::store::{self, BrowseKind};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
-use crate::ui::poster::{SeriesCardProps, series_card};
-use crate::ui::surface::{BadgeTone, badge, empty_state, section_header};
-use crate::ui::tabs::segmented_tabs;
-use crate::ui::token;
+use crate::ui::input::search_input;
+use crate::ui::poster::{RankingCardProps, ranking_compact_card};
+use crate::ui::surface::{empty_state, shelf_header};
 
-pub fn home_feed_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl IntoElement {
+pub fn home_feed_view(
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
     query::load_home();
-    let active_cat = store::active_category_signal();
-    let categories = vec![
-        (CategoryTab::All, "全部"),
-        (CategoryTab::Drama, "短剧"),
-        (CategoryTab::Anime, "漫剧"),
-        (CategoryTab::Suspense, "悬疑"),
-        (CategoryTab::Costume, "古风"),
-    ];
+    let search_sig = store::search_input_signal();
 
     scroll().flex_1().child(
         view()
             .p_6()
             .gap_6()
             .pb_safe_area_plus(px(24.0))
-            .child(
-                view()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .gap_4()
-                    .child(section_header(
-                        "发现剧场",
-                        Some("免登录清透片库 · 支持离线与双模观影"),
-                    ))
-                    .child(segmented_tabs(
-                        categories,
-                        active_cat,
-                        query::select_category,
-                    )),
-            )
+            .child(search_bar_row(search_sig, on_open_browse))
             .child(dynamic(move || {
-                let snap = store::snapshot();
+                let snap = store::home_snapshot();
                 if snap.error.is_some() {
                     return empty_state(
                         IconKind::Discover,
@@ -55,112 +36,130 @@ pub fn home_feed_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> imp
                     .into_element();
                 }
 
-                let banner = if snap.active_category == CategoryTab::All {
-                    snap.feed.as_ref().and_then(|f| f.banners.first()).cloned()
-                } else {
-                    None
+                let Some(feed) = snap.feed else {
+                    return view().into_element();
                 };
 
-                view()
+                let mut body = view()
                     .gap_6()
-                    .children(banner.map(|b| spotlight_banner(b, on_open_series)))
-                    .child(section_header("精选推荐", Some("点击海报直接进入播放页")))
-                    .child(series_grid(snap.items, on_open_series))
-                    .into_element()
+                    .child(featured_shelf(
+                        feed.featured,
+                        on_open_browse,
+                        on_open_series,
+                    ))
+                    .child(ranking_shelf(snap.rankings, on_open_browse, on_open_series));
+
+                for rec in feed.category_recommendations {
+                    let route = snap
+                        .categories
+                        .iter()
+                        .find(|c| c.id == rec.category_id)
+                        .map_or_else(|| "duanju".to_owned(), |c| c.route.clone());
+                    body = body.child(category_shelf(rec, route, on_open_browse, on_open_series));
+                }
+                body.into_element()
             })),
     )
 }
 
-fn spotlight_banner(
-    banner: HomeBanner,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+fn search_bar_row(
+    search_sig: Signal<String>,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
 ) -> impl IntoElement {
-    let enter = token::fade_enter();
-    let series_id = banner.series_id;
-    let cover_key = banner.image_url;
-    let score = format!("评分 {:.1}", banner.score);
-
     view()
-        .bind_motion(&enter)
         .w_full()
-        .p_5()
-        .rounded(token::radius_card)
-        .bg(token::card)
-        .border_1()
-        .border_color(token::border)
         .flex_row()
         .items_center()
-        .gap_5()
-        .child(
-            view()
-                .w(px(148.0))
-                .h(px(110.0))
-                .rounded(token::radius)
-                .bg(move || token::poster_surface(&cover_key))
-                .p_2p5()
-                .justify_between()
-                .child(badge("今日焦点", BadgeTone::Brand))
-                .child(badge(score, BadgeTone::Cinema)),
-        )
-        .child(
-            view()
-                .flex_1()
-                .gap_2()
-                .child(
-                    text(banner.title)
-                        .text_xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(token::card_fg),
-                )
-                .child(
-                    text(banner.description)
-                        .text_sm()
-                        .text_color(token::muted_fg),
-                )
-                .child(view().pt_1().flex_row().gap_2().child(app_button(
-                    "立即观看",
-                    ButtonVariant::Primary,
-                    ControlSize::Md,
-                    move || on_open_series(series_id),
-                ))),
-        )
+        .gap_2()
+        .child(view().flex_1().max_w(px(520.0)).child(search_input(
+            search_sig,
+            "搜索剧名、标签...",
+            move |submitted| {
+                on_open_browse(BrowseKind::Search { query: submitted });
+            },
+        )))
+        .child(app_button(
+            "搜索",
+            ButtonVariant::Secondary,
+            ControlSize::Md,
+            move || {
+                on_open_browse(BrowseKind::Search {
+                    query: search_sig.get(),
+                });
+            },
+        ))
 }
 
-fn series_grid(
+fn featured_shelf(
     items: Vec<SeriesSummary>,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
-    if items.is_empty() {
-        return empty_state(
-            IconKind::Search,
-            "暂无匹配剧目",
-            "尝试切换其他分类查看全部精选内容",
-            None,
-        )
-        .into_element();
+    view()
+        .gap_3()
+        .child(shelf_header("精选推荐", "全部", move || {
+            on_open_browse(BrowseKind::Featured);
+        }))
+        .child(series_grid(items, on_open_series))
+}
+
+fn ranking_shelf(
+    entries: Vec<RankingEntry>,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    let mut list = view().flex_row().flex_wrap().gap_3();
+    for entry in entries.into_iter().take(4) {
+        list = list.child(ranking_preview_card(entry, on_open_series));
     }
 
-    let mut grid = view().flex_row().flex_wrap().gap_4();
-    for (index, item) in items.into_iter().enumerate() {
-        let id = item.id;
-        let status = if item.is_finished {
-            format!("全 {} 集", item.episode_count)
-        } else {
-            format!("更新至 {} 集", item.episode_count)
-        };
-        let subtitle = item.tags.join(" · ");
-        grid = grid.child(series_card(
-            SeriesCardProps {
-                title: item.title,
-                cover_url: item.cover_url,
-                score: item.score,
-                subtitle,
-                episode_label: status,
-                badge_text: item.badge,
-                index,
-            },
-            move || on_open_series(id),
-        ));
-    }
-    grid.into_element()
+    view()
+        .gap_3()
+        .child(shelf_header("排行榜", "全部", move || {
+            on_open_browse(BrowseKind::Ranking(hg_contracts::catalog::RankingKind::Hot));
+        }))
+        .child(list)
+}
+
+fn ranking_preview_card(
+    entry: RankingEntry,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    let id = entry.series.id;
+    let meta = format!(
+        "{:.1} 分 · {} 集",
+        entry.series.score, entry.series.episode_count
+    );
+    ranking_compact_card(
+        RankingCardProps {
+            rank: entry.rank,
+            title: entry.series.title,
+            cover_url: entry.series.cover_url,
+            meta,
+            description: None,
+        },
+        move || on_open_series(id),
+    )
+}
+
+fn category_shelf(
+    rec: CategoryRecommendation,
+    route: String,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    let cat_id = rec.category_id;
+    let cat_name = rec.category_name.clone();
+    let header_title = rec.category_name;
+
+    view()
+        .gap_3()
+        .child(shelf_header(header_title, "全部", move || {
+            on_open_browse(BrowseKind::Category {
+                id: cat_id,
+                name: cat_name.clone(),
+                route: route.clone(),
+            });
+        }))
+        .child(series_grid(rec.items, on_open_series))
 }
