@@ -65,7 +65,6 @@ async fn offline_library_disabled_by_default_returns_feature_flag_error() {
 }
 
 #[tokio::test]
-#[ignore = "待实现离线片库查询与 Outbox 删档停播切片后激活"]
 async fn delete_offline_assets_dispatches_outbox_halts_playback_and_removes_dirs() {
     let flags = OfflineFeatureFlags {
         library_and_outbox: true,

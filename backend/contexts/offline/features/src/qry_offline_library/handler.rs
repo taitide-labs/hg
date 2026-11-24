@@ -3,11 +3,9 @@ use hg_contracts::offline::OfflineSeriesView;
 
 use crate::OfflineDeps;
 
-use super::query::{FEATURE_NAME, ensure_enabled};
+use super::query::{ensure_enabled, fetch_offline_library};
 
 pub async fn offline_library(deps: &OfflineDeps) -> Result<Vec<OfflineSeriesView>, ContractError> {
     ensure_enabled(deps.flags.library_and_outbox)?;
-    Err(ContractError::Internal {
-        detail: format!("{FEATURE_NAME} 切片尚未实现"),
-    })
+    fetch_offline_library(deps.pool(), &deps.storage).await
 }
