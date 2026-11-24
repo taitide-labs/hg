@@ -1428,6 +1428,7 @@ dependencies = [
  "nsh-core",
  "nsh-platform-macos",
  "nsh-platform-windows",
+ "parking_lot 0.13.0",
  "serde",
  "serde_json",
 ]
