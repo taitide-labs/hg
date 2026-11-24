@@ -13,7 +13,6 @@ use hg_infra::db::LocalDatabase;
 use hg_infra::storage::StorageLayout;
 use hg_offline_features::OfflineDeps;
 use hg_offline_features::fetcher::OfflineSegmentFetcher;
-use hg_offline_features::flags::OfflineFeatureFlags;
 use parking_lot::Mutex;
 use tempfile::TempDir;
 
@@ -186,11 +185,7 @@ pub struct OfflineTestHarness {
 }
 
 impl OfflineTestHarness {
-    pub async fn new(
-        flags: OfflineFeatureFlags,
-        catalog: StubCatalogPorts,
-        fetcher: FakeSegmentFetcher,
-    ) -> Self {
+    pub async fn new(catalog: StubCatalogPorts, fetcher: FakeSegmentFetcher) -> Self {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let storage = Arc::new(
             StorageLayout::new(
@@ -214,7 +209,6 @@ impl OfflineTestHarness {
             catalog_tickets: catalog,
             playback_halt: Arc::clone(&halt) as _,
             segment_fetcher: fetcher,
-            flags,
         };
         Self {
             _temp_dir: temp_dir,

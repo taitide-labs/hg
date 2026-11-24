@@ -18,7 +18,6 @@ use serde_json::{Value, json};
 use tempfile::TempDir;
 
 use crate::CatalogDeps;
-use crate::flags::CatalogFeatureFlags;
 use crate::upstream::CatalogUpstream;
 
 use super::codec::{
@@ -26,8 +25,7 @@ use super::codec::{
     parse_paged_series, parse_ranking, parse_search_suggestions, parse_tag_groups,
 };
 use super::handler::{
-    categories, home_feed, hot_keywords, hot_tags, list_ranking, list_series, search_series,
-    search_suggestions, tag_groups,
+    categories, hot_keywords, hot_tags, list_ranking, list_series, search_suggestions, tag_groups,
 };
 use super::query::{
     CATALOG_LIST_CACHE_TTL_SECS, STATIC_META_CACHE_TTL_SECS, categories_route, home_feed_route,
@@ -86,7 +84,7 @@ struct TestEnv {
 }
 
 impl TestEnv {
-    async fn new(discovery_enabled: bool, upstream: StubUpstream) -> Self {
+    async fn new(upstream: StubUpstream) -> Self {
         let temp_dir = tempfile::tempdir().expect("tempdir should create");
         let storage = Arc::new(
             StorageLayout::new(
@@ -106,10 +104,6 @@ impl TestEnv {
             storage,
             clock: Arc::clone(&clock) as _,
             upstream: Arc::clone(&upstream) as _,
-            flags: CatalogFeatureFlags {
-                discovery: discovery_enabled,
-                ..CatalogFeatureFlags::default()
-            },
         };
         Self {
             _temp_dir: temp_dir,
@@ -482,7 +476,7 @@ fn cache_test_upstream() -> StubUpstream {
 
 #[tokio::test]
 async fn public_endpoints_use_ttl_cache_and_expire() {
-    let env = TestEnv::new(true, cache_test_upstream()).await;
+    let env = TestEnv::new(cache_test_upstream()).await;
 
     let cats1 = categories(&env.deps).await.expect("categories 1");
     env.clock.advance_secs(1799);
@@ -517,7 +511,7 @@ async fn public_endpoints_use_ttl_cache_and_expire() {
 
 #[tokio::test]
 async fn dynamic_endpoints_bypass_and_never_write_cache() {
-    let env = TestEnv::new(true, cache_test_upstream()).await;
+    let env = TestEnv::new(cache_test_upstream()).await;
     let random_req = ListSeriesRequest {
         filter: SeriesFilter::All { category_id: None },
         sort: SeriesSort::Random,
@@ -549,53 +543,4 @@ async fn dynamic_endpoints_bypass_and_never_write_cache() {
         .await
         .expect("count cache rows after dynamic");
     assert_eq!(count.0, 0);
-}
-
-#[tokio::test]
-async fn disabled_flag_blocks_all_discovery_handlers() {
-    let env = TestEnv::new(false, StubUpstream::default()).await;
-    assert!(home_feed(&env.deps).await.is_err());
-    assert!(categories(&env.deps).await.is_err());
-    assert!(tag_groups(&env.deps).await.is_err());
-    assert!(
-        list_series(
-            &env.deps,
-            ListSeriesRequest {
-                filter: SeriesFilter::All { category_id: None },
-                sort: SeriesSort::Hot,
-                page: page_req(1, 20),
-            },
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        list_ranking(
-            &env.deps,
-            ListRankingRequest {
-                kind: RankingKind::Hot,
-                page: page_req(1, 20),
-            },
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        search_series(
-            &env.deps,
-            SearchSeriesRequest {
-                keyword: "test".to_owned(),
-                page: page_req(1, 20),
-            },
-        )
-        .await
-        .is_err()
-    );
-    assert!(
-        search_suggestions(&env.deps, "test".to_owned())
-            .await
-            .is_err()
-    );
-    assert!(hot_keywords(&env.deps).await.is_err());
-    assert!(hot_tags(&env.deps).await.is_err());
 }

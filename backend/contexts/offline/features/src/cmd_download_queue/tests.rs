@@ -19,7 +19,6 @@ use hg_infra::storage::StorageLayout;
 
 use crate::OfflineDeps;
 use crate::fetcher::OfflineSegmentFetcher;
-use crate::flags::OfflineFeatureFlags;
 
 use super::handler::{
     control_all_downloads, control_download, enqueue_episode_downloads, execute_next_queued_task,
@@ -142,10 +141,6 @@ async fn build_deps(
         catalog_tickets: catalog,
         playback_halt: Arc::new(NoopHalt),
         segment_fetcher: Arc::new(fetcher),
-        flags: OfflineFeatureFlags {
-            download_queue: true,
-            library_and_outbox: false,
-        },
     };
     (temp, deps)
 }

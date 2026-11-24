@@ -5,11 +5,9 @@ use hg_infra::db::LocalDatabase;
 use hg_infra::storage::StorageLayout;
 use sqlx::SqlitePool;
 
-use crate::flags::CatalogFeatureFlags;
 use crate::upstream::CatalogUpstream;
 
 pub mod cmd_playback_and_cache;
-pub mod flags;
 pub mod qry_discovery;
 pub mod qry_series_detail;
 pub mod upstream;
@@ -22,7 +20,6 @@ pub struct CatalogDeps {
     pub storage: Arc<StorageLayout>,
     pub clock: Arc<dyn Clock>,
     pub upstream: Arc<dyn CatalogUpstream>,
-    pub flags: CatalogFeatureFlags,
 }
 
 impl CatalogDeps {

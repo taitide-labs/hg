@@ -17,7 +17,6 @@ use hg_infra::storage::StorageLayout;
 use parking_lot::Mutex;
 
 use crate::ViewingDeps;
-use crate::flags::ViewingFeatureFlags;
 
 use super::handler::{
     prepare_episode_playback, refresh_online_playback, stop_deleted_offline_episode,
@@ -262,10 +261,6 @@ async fn refreshes_online_playback_using_stored_preference_and_halts_series_sess
             assets: offline_map,
         }),
         loopback: loopback.clone(),
-        flags: ViewingFeatureFlags {
-            playback_resolution: true,
-            ..ViewingFeatureFlags::default()
-        },
     };
 
     let offline_src = prepare_episode_playback(&deps, ep1)

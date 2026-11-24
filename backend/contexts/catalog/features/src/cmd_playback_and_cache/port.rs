@@ -4,7 +4,6 @@ use hg_contracts::ids::EpisodeKey;
 
 use crate::CatalogDeps;
 
-use super::command::ensure_port_enabled;
 use super::handler;
 
 #[derive(Clone)]
@@ -24,9 +23,6 @@ impl CatalogPlaybackTicketPort for CatalogPlaybackTicketAdapter {
         &self,
         key: EpisodeKey,
     ) -> PortFuture<'_, Result<PlaybackTicket, PortError>> {
-        Box::pin(async move {
-            ensure_port_enabled(self.deps.flags.playback_and_cache)?;
-            handler::fetch_playback_ticket(&self.deps, key).await
-        })
+        Box::pin(async move { handler::fetch_playback_ticket(&self.deps, key).await })
     }
 }

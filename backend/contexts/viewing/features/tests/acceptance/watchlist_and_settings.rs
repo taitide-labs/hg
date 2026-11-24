@@ -1,29 +1,12 @@
 use hg_backend_contracts::offline::CommittedOfflineAsset;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId, StreamProfile};
 use hg_contracts::viewing::{PlaybackPreference, ReportWatchProgressRequest};
-use hg_viewing_features::flags::ViewingFeatureFlags;
 use hg_viewing_features::{
     cmd_record_watch_progress, cmd_watchlist_and_settings, qry_watch_history,
     qry_watchlist_and_settings,
 };
 
 use super::support::{StubOfflineAssets, StubViewingCatalog, ViewingTestHarness, sample_series};
-
-#[tokio::test]
-async fn watchlist_and_settings_disabled_by_default_returns_feature_flag_error() {
-    let harness = ViewingTestHarness::new(
-        ViewingFeatureFlags::default(),
-        StubViewingCatalog::default(),
-        StubOfflineAssets::default(),
-    )
-    .await;
-
-    let err = qry_watchlist_and_settings::bookmarks(&harness.deps)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-    harness.shutdown().await;
-}
 
 #[tokio::test]
 async fn watchlist_settings_and_cache_clear_preserve_offline_library() {
@@ -37,11 +20,7 @@ async fn watchlist_settings_and_cache_clear_preserve_offline_library() {
         duration_secs: 90,
         size_bytes: 4096,
     });
-    let flags = ViewingFeatureFlags {
-        watchlist_and_settings: true,
-        ..ViewingFeatureFlags::default()
-    };
-    let harness = ViewingTestHarness::new(flags, catalog, offline).await;
+    let harness = ViewingTestHarness::new(catalog, offline).await;
 
     cmd_watchlist_and_settings::bookmark_series(&harness.deps, s101)
         .await

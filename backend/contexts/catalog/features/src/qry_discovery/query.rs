@@ -16,16 +16,6 @@ pub struct UpstreamRoute {
     pub ttl_secs: Option<u64>,
 }
 
-pub fn ensure_enabled(enabled: bool) -> Result<(), ContractError> {
-    if enabled {
-        Ok(())
-    } else {
-        Err(ContractError::Internal {
-            detail: format!("{FEATURE_NAME} 特性开关未开启"),
-        })
-    }
-}
-
 #[must_use]
 pub fn home_feed_route() -> UpstreamRoute {
     UpstreamRoute {

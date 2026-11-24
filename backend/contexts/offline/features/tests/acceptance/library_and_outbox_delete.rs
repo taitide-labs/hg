@@ -1,6 +1,5 @@
 use hg_backend_contracts::offline::OfflineAssetQueryPort as _;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId, StreamProfile};
-use hg_offline_features::flags::OfflineFeatureFlags;
 use hg_offline_features::qry_offline_library::OfflineAssetQueryAdapter;
 use hg_offline_features::{cmd_offline_library, qry_offline_library};
 
@@ -50,32 +49,9 @@ async fn seed_committed_series(
 }
 
 #[tokio::test]
-async fn offline_library_disabled_by_default_returns_feature_flag_error() {
-    let harness = OfflineTestHarness::new(
-        OfflineFeatureFlags::default(),
-        StubCatalogPorts::default(),
-        FakeSegmentFetcher::default(),
-    )
-    .await;
-
-    let err = qry_offline_library::offline_library(&harness.deps)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-}
-
-#[tokio::test]
 async fn delete_offline_assets_dispatches_outbox_halts_playback_and_removes_dirs() {
-    let flags = OfflineFeatureFlags {
-        library_and_outbox: true,
-        ..OfflineFeatureFlags::default()
-    };
-    let harness = OfflineTestHarness::new(
-        flags,
-        StubCatalogPorts::default(),
-        FakeSegmentFetcher::default(),
-    )
-    .await;
+    let harness =
+        OfflineTestHarness::new(StubCatalogPorts::default(), FakeSegmentFetcher::default()).await;
 
     let series_id = SeriesId::try_from(101).expect("series 101");
     let (ep1, ep2) = seed_committed_series(&harness, series_id).await;

@@ -4,7 +4,6 @@ use hg_contracts::offline::{
     ControlDownloadAction, ControlDownloadRequest, DownloadFailureReason, DownloadPolicy,
     DownloadTaskState, EnqueueEpisodeDownloadsRequest,
 };
-use hg_offline_features::flags::OfflineFeatureFlags;
 use hg_offline_features::{cmd_download_queue, qry_download_queue};
 
 use super::support::{FakeSegmentFetcher, OfflineTestHarness, StubCatalogPorts, sample_ticket};
@@ -74,28 +73,9 @@ fn build_queue_harness_inputs() -> (
 }
 
 #[tokio::test]
-async fn download_queue_disabled_by_default_returns_feature_flag_error() {
-    let harness = OfflineTestHarness::new(
-        OfflineFeatureFlags::default(),
-        StubCatalogPorts::default(),
-        FakeSegmentFetcher::default(),
-    )
-    .await;
-
-    let err = qry_download_queue::download_tasks(&harness.deps)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-}
-
-#[tokio::test]
 async fn download_queue_enqueues_commits_atomically_and_rejects_preview_only() {
     let (catalog, fetcher, series_id, key1, key2) = build_queue_harness_inputs();
-    let flags = OfflineFeatureFlags {
-        download_queue: true,
-        ..OfflineFeatureFlags::default()
-    };
-    let harness = OfflineTestHarness::new(flags, catalog, fetcher).await;
+    let harness = OfflineTestHarness::new(catalog, fetcher).await;
 
     let updated_policy = DownloadPolicy {
         preferred_profile: StreamProfile::Hevc,

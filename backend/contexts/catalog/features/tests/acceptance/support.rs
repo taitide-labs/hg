@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use hg_backend_contracts::error::{PortError, PortFuture};
 use hg_catalog_features::CatalogDeps;
-use hg_catalog_features::flags::CatalogFeatureFlags;
 use hg_catalog_features::upstream::CatalogUpstream;
 use hg_infra::clock::FixedClock;
 use hg_infra::db::LocalDatabase;
@@ -102,7 +101,7 @@ pub struct CatalogTestHarness {
 }
 
 impl CatalogTestHarness {
-    pub async fn new(flags: CatalogFeatureFlags, upstream: FakeCatalogUpstream) -> Self {
+    pub async fn new(upstream: FakeCatalogUpstream) -> Self {
         let temp_dir = tempfile::tempdir().expect("tempdir should create");
         let storage = Arc::new(
             StorageLayout::new(
@@ -122,7 +121,6 @@ impl CatalogTestHarness {
             storage,
             clock: Arc::clone(&clock) as _,
             upstream: Arc::clone(&upstream) as _,
-            flags,
         };
         Self {
             _temp_dir: temp_dir,

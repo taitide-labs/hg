@@ -14,7 +14,6 @@ use tempfile::TempDir;
 
 use crate::OfflineDeps;
 use crate::fetcher::OfflineSegmentFetcher;
-use crate::flags::OfflineFeatureFlags;
 
 use super::handler::offline_library;
 use super::port::OfflineAssetQueryAdapter;
@@ -93,7 +92,7 @@ impl OfflineSegmentFetcher for NoopPorts {
     }
 }
 
-async fn make_deps(enabled: bool) -> (TempDir, OfflineDeps) {
+async fn make_deps() -> (TempDir, OfflineDeps) {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let storage = Arc::new(
         StorageLayout::new(
@@ -113,39 +112,13 @@ async fn make_deps(enabled: bool) -> (TempDir, OfflineDeps) {
         catalog_tickets: Arc::clone(&noop) as _,
         playback_halt: Arc::clone(&noop) as _,
         segment_fetcher: noop,
-        flags: OfflineFeatureFlags {
-            library_and_outbox: enabled,
-            ..OfflineFeatureFlags::default()
-        },
     };
     (temp_dir, deps)
 }
 
 #[tokio::test]
-async fn port_returns_feature_flag_error_when_disabled() {
-    let (_temp, deps) = make_deps(false).await;
-    let adapter = OfflineAssetQueryAdapter::new(deps);
-    let key = EpisodeKey::new(
-        SeriesId::try_from(1).expect("s1"),
-        EpisodeNumber::try_from(1).expect("e1"),
-    );
-
-    let find_err = adapter
-        .find_committed_episode(key)
-        .await
-        .expect_err("disabled flag should fail");
-    assert!(find_err.to_string().contains("特性开关未开启"));
-
-    let bytes_err = adapter
-        .total_offline_library_bytes()
-        .await
-        .expect_err("disabled flag should fail");
-    assert!(bytes_err.to_string().contains("特性开关未开启"));
-}
-
-#[tokio::test]
 async fn offline_library_aggregates_episodes_orders_series_and_skips_empty() {
-    let (_temp, deps) = make_deps(true).await;
+    let (_temp, deps) = make_deps().await;
 
     sqlx::query(
         "INSERT INTO offline_series (series_id, title, cover_local_path, total_episodes, updated_at_epoch_secs)

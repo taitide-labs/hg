@@ -3,7 +3,6 @@ use hg_contracts::catalog::{
     CommentReply, EpisodeComment, ListCommentRepliesRequest, ListEpisodeCommentsRequest,
     PagedResult, SeriesDetail,
 };
-use hg_contracts::error::ContractError;
 use hg_contracts::ids::SeriesId;
 use hg_infra::edge_crypto::EdgeChannelScope;
 
@@ -18,32 +17,10 @@ mod tests;
 pub const FEATURE_NAME: &str = "catalog.detail_and_comments";
 const SERIES_DETAIL_CACHE_TTL_SECS: u64 = 300;
 
-pub fn ensure_enabled(enabled: bool) -> Result<(), ContractError> {
-    if enabled {
-        Ok(())
-    } else {
-        Err(ContractError::Internal {
-            detail: format!("{FEATURE_NAME} 特性开关未开启"),
-        })
-    }
-}
-
-pub fn ensure_enabled_port(enabled: bool) -> Result<(), PortError> {
-    if enabled {
-        Ok(())
-    } else {
-        Err(PortError::InvalidState {
-            detail: format!("{FEATURE_NAME} 特性开关未开启"),
-        })
-    }
-}
-
 pub async fn fetch_series_detail(
     deps: &CatalogDeps,
     series_id: SeriesId,
 ) -> Result<SeriesDetail, PortError> {
-    ensure_enabled_port(deps.flags.detail_and_comments)?;
-
     let cache_key = format!("series_detail:{series_id}");
     let now =
         i64::try_from(deps.clock.now_epoch_secs()).map_err(|err| PortError::InvalidState {
@@ -68,8 +45,6 @@ pub async fn fetch_episode_comments(
     deps: &CatalogDeps,
     request: ListEpisodeCommentsRequest,
 ) -> Result<PagedResult<EpisodeComment>, PortError> {
-    ensure_enabled_port(deps.flags.detail_and_comments)?;
-
     let path = format!(
         "/api/videos/{}/comments?ep={}&page={}&size={}",
         request.series_id.get(),
@@ -88,8 +63,6 @@ pub async fn fetch_comment_replies(
     deps: &CatalogDeps,
     request: ListCommentRepliesRequest,
 ) -> Result<PagedResult<CommentReply>, PortError> {
-    ensure_enabled_port(deps.flags.detail_and_comments)?;
-
     let path = format!(
         "/api/videos/{}/comments/{}/replies?page={}&size={}",
         request.series_id.get(),
@@ -108,7 +81,6 @@ pub async fn fetch_decrypted_cover(
     deps: &CatalogDeps,
     cover_url: &str,
 ) -> Result<Vec<u8>, PortError> {
-    ensure_enabled_port(deps.flags.detail_and_comments)?;
     cover_cache::fetch_or_cache_cover(deps, cover_url).await
 }
 

@@ -2,31 +2,10 @@ use hg_backend_contracts::offline::CommittedOfflineAsset;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId, StreamProfile};
 use hg_contracts::viewing::{OnlineStreamKind, PlaybackOrigin};
 use hg_viewing_features::cmd_playback_session;
-use hg_viewing_features::flags::ViewingFeatureFlags;
 
 use super::support::{
     StubOfflineAssets, StubViewingCatalog, ViewingTestHarness, sample_online_ticket,
 };
-
-#[tokio::test]
-async fn playback_resolution_disabled_by_default_returns_feature_flag_error() {
-    let harness = ViewingTestHarness::new(
-        ViewingFeatureFlags::default(),
-        StubViewingCatalog::default(),
-        StubOfflineAssets::default(),
-    )
-    .await;
-
-    let key = EpisodeKey::new(
-        SeriesId::try_from(101).expect("series 101"),
-        EpisodeNumber::try_from(1).expect("ep 1"),
-    );
-    let err = cmd_playback_session::prepare_episode_playback(&harness.deps, key)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-    harness.shutdown().await;
-}
 
 #[tokio::test]
 async fn playback_prefers_offline_without_network_and_halts_on_delete() {
@@ -42,11 +21,7 @@ async fn playback_prefers_offline_without_network_and_halts_on_delete() {
         size_bytes: 2048,
     });
     let catalog = StubViewingCatalog::default().with_ticket(sample_online_ticket(online_key));
-    let flags = ViewingFeatureFlags {
-        playback_resolution: true,
-        ..ViewingFeatureFlags::default()
-    };
-    let harness = ViewingTestHarness::new(flags, catalog, offline_assets).await;
+    let harness = ViewingTestHarness::new(catalog, offline_assets).await;
 
     let ep_dir = harness.deps.storage.library_episode_dir(offline_key);
     tokio::fs::create_dir_all(&ep_dir).await.expect("ep dir");

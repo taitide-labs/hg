@@ -1,25 +1,10 @@
 use hg_backend_contracts::catalog::CatalogPlaybackTicketPort as _;
 use hg_catalog_features::cmd_playback_and_cache::{self, CatalogPlaybackTicketAdapter};
-use hg_catalog_features::flags::CatalogFeatureFlags;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId};
 use hg_infra::edge_crypto::EdgeChannelScope;
 use serde_json::json;
 
 use super::support::{CatalogTestHarness, FakeCatalogUpstream};
-
-#[tokio::test]
-async fn playback_and_cache_disabled_by_default_returns_feature_flag_error() {
-    let harness = CatalogTestHarness::new(
-        CatalogFeatureFlags::default(),
-        FakeCatalogUpstream::default(),
-    )
-    .await;
-
-    let err = cmd_playback_and_cache::clear_catalog_cache(&harness.deps)
-        .await
-        .expect_err("disabled feature flag should fail");
-    assert!(err.to_string().contains("特性开关未开启"));
-}
 
 #[tokio::test]
 async fn playback_ticket_parses_streams_and_clear_cache_preserves_offline_library() {
@@ -50,11 +35,7 @@ async fn playback_ticket_parses_streams_and_clear_cache_preserves_offline_librar
 
     let upstream = FakeCatalogUpstream::default()
         .with_json("/api/videos/101/episodes/1/playback", playback_payload);
-    let flags = CatalogFeatureFlags {
-        playback_and_cache: true,
-        ..CatalogFeatureFlags::default()
-    };
-    let harness = CatalogTestHarness::new(flags, upstream).await;
+    let harness = CatalogTestHarness::new(upstream).await;
 
     let key = EpisodeKey::new(
         SeriesId::try_from(101).expect("series 101"),

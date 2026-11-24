@@ -12,7 +12,6 @@ use parking_lot::Mutex;
 use serde_json::{Value, json};
 
 use crate::CatalogDeps;
-use crate::flags::CatalogFeatureFlags;
 use crate::upstream::CatalogUpstream;
 
 use super::handler::clear_catalog_cache;
@@ -183,10 +182,6 @@ async fn sends_empty_json_object_body_and_clears_cover_cache_table() {
         storage: Arc::clone(&storage),
         clock: Arc::new(FixedClock::new(1_700_000_000)),
         upstream: Arc::clone(&upstream) as _,
-        flags: CatalogFeatureFlags {
-            playback_and_cache: true,
-            ..CatalogFeatureFlags::default()
-        },
     };
 
     let port = CatalogPlaybackTicketAdapter::new(deps.clone());

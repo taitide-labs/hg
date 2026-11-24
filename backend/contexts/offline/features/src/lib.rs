@@ -8,12 +8,10 @@ use hg_infra::storage::StorageLayout;
 use sqlx::SqlitePool;
 
 use crate::fetcher::OfflineSegmentFetcher;
-use crate::flags::OfflineFeatureFlags;
 
 pub mod cmd_download_queue;
 pub mod cmd_offline_library;
 pub mod fetcher;
-pub mod flags;
 pub mod qry_download_queue;
 pub mod qry_offline_library;
 
@@ -28,7 +26,6 @@ pub struct OfflineDeps {
     pub catalog_tickets: Arc<dyn CatalogPlaybackTicketPort>,
     pub playback_halt: Arc<dyn PlaybackHaltPort>,
     pub segment_fetcher: Arc<dyn OfflineSegmentFetcher>,
-    pub flags: OfflineFeatureFlags,
 }
 
 impl OfflineDeps {

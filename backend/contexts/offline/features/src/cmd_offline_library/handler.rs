@@ -5,7 +5,6 @@ use sqlx::{Sqlite, Transaction};
 
 use crate::OfflineDeps;
 
-use super::command::ensure_enabled;
 use super::outbox::dispatch_pending_outbox;
 use super::workflow::{build_episode_removed_event, build_series_removed_event, outbox_event_type};
 
@@ -13,7 +12,6 @@ pub async fn delete_offline_episode(
     deps: &OfflineDeps,
     key: EpisodeKey,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.library_and_outbox)?;
     let series_id = to_sqlite_series_id(key.series_id)?;
     let ep_num = i64::from(key.ep_num.get());
     let now = to_sqlite_timestamp(deps.clock.now_epoch_secs())?;
@@ -64,7 +62,6 @@ pub async fn delete_offline_series(
     deps: &OfflineDeps,
     series_id: SeriesId,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.library_and_outbox)?;
     let series_id_i64 = to_sqlite_series_id(series_id)?;
     let now = to_sqlite_timestamp(deps.clock.now_epoch_secs())?;
 

@@ -17,7 +17,6 @@ use tempfile::TempDir;
 
 use crate::OfflineDeps;
 use crate::fetcher::OfflineSegmentFetcher;
-use crate::flags::OfflineFeatureFlags;
 
 use super::handler::{delete_offline_episode, delete_offline_series};
 use super::outbox::{decode_outbox_event, dispatch_pending_outbox};
@@ -147,7 +146,7 @@ impl PlaybackHaltPort for RecordingHaltPort {
     }
 }
 
-async fn make_deps(enabled: bool) -> (TempDir, Arc<RecordingHaltPort>, OfflineDeps) {
+async fn make_deps() -> (TempDir, Arc<RecordingHaltPort>, OfflineDeps) {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let storage = Arc::new(
         StorageLayout::new(
@@ -168,10 +167,6 @@ async fn make_deps(enabled: bool) -> (TempDir, Arc<RecordingHaltPort>, OfflineDe
         catalog_tickets: Arc::clone(&noop) as _,
         playback_halt: Arc::clone(&halt) as _,
         segment_fetcher: noop,
-        flags: OfflineFeatureFlags {
-            library_and_outbox: enabled,
-            ..OfflineFeatureFlags::default()
-        },
     };
     (temp_dir, halt, deps)
 }
@@ -247,37 +242,8 @@ fn workflow_builds_valid_outbox_events_and_labels() {
 }
 
 #[tokio::test]
-async fn delete_disabled_by_default_returns_feature_flag_error() {
-    let (_temp, _halt, deps) = make_deps(false).await;
-    let series_id = SeriesId::try_from(1).expect("s1");
-    let key = EpisodeKey::new(series_id, EpisodeNumber::try_from(1).expect("e1"));
-
-    assert!(
-        delete_offline_episode(&deps, key)
-            .await
-            .expect_err("disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-    assert!(
-        delete_offline_series(&deps, series_id)
-            .await
-            .expect_err("disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-    assert!(
-        dispatch_pending_outbox(&deps)
-            .await
-            .expect_err("disabled")
-            .to_string()
-            .contains("特性开关未开启")
-    );
-}
-
-#[tokio::test]
 async fn dispatch_halts_playback_before_removing_directory_and_cleans_empty_series() {
-    let (_temp, halt, deps) = make_deps(true).await;
+    let (_temp, halt, deps) = make_deps().await;
     let series_id = SeriesId::try_from(55).expect("s55");
     let (ep1, ep2) = seed_series_with_two_episodes(&deps, series_id).await;
 
@@ -303,7 +269,7 @@ async fn dispatch_halts_playback_before_removing_directory_and_cleans_empty_seri
 
 #[tokio::test]
 async fn delete_missing_assets_is_idempotent_without_spurious_halting() {
-    let (_temp, halt, deps) = make_deps(true).await;
+    let (_temp, halt, deps) = make_deps().await;
     let series_id = SeriesId::try_from(77).expect("s77");
     let key = EpisodeKey::new(series_id, EpisodeNumber::try_from(1).expect("e1"));
 
@@ -324,7 +290,7 @@ async fn delete_missing_assets_is_idempotent_without_spurious_halting() {
 
 #[tokio::test]
 async fn dispatch_keeps_event_pending_when_halt_fails_and_retries_cleanly() {
-    let (_temp, halt, deps) = make_deps(true).await;
+    let (_temp, halt, deps) = make_deps().await;
     let series_id = SeriesId::try_from(88).expect("s88");
     let (ep1, _ep2) = seed_series_with_two_episodes(&deps, series_id).await;
 

@@ -8,12 +8,9 @@ use hg_infra::loopback_proxy::LoopbackProxyHandle;
 use hg_infra::storage::StorageLayout;
 use sqlx::SqlitePool;
 
-use crate::flags::ViewingFeatureFlags;
-
 pub mod cmd_playback_session;
 pub mod cmd_record_watch_progress;
 pub mod cmd_watchlist_and_settings;
-pub mod flags;
 pub mod qry_watch_history;
 pub mod qry_watchlist_and_settings;
 
@@ -28,7 +25,6 @@ pub struct ViewingDeps {
     pub catalog_tickets: Arc<dyn CatalogPlaybackTicketPort>,
     pub offline_assets: Arc<dyn OfflineAssetQueryPort>,
     pub loopback: LoopbackProxyHandle,
-    pub flags: ViewingFeatureFlags,
 }
 
 impl ViewingDeps {

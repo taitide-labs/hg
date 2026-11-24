@@ -16,11 +16,10 @@ use hg_infra::storage::StorageLayout;
 use tempfile::TempDir;
 
 use crate::ViewingDeps;
-use crate::flags::ViewingFeatureFlags;
 
 use super::handler::{
     bookmark_series, clear_playback_cache, clear_watch_history, remove_watch_history,
-    unbookmark_series, update_playback_preference,
+    update_playback_preference,
 };
 use super::workflow::{check_playback_preference, plan_bookmark_series, profile_as_str};
 
@@ -103,7 +102,7 @@ impl OfflineAssetQueryPort for StubOffline {
     }
 }
 
-async fn make_deps(enabled: bool, catalog: StubCatalog) -> (TempDir, ViewingDeps) {
+async fn make_deps(catalog: StubCatalog) -> (TempDir, ViewingDeps) {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     let storage = Arc::new(
         StorageLayout::new(
@@ -126,10 +125,6 @@ async fn make_deps(enabled: bool, catalog: StubCatalog) -> (TempDir, ViewingDeps
         catalog_tickets: Arc::new(StubCatalog::default()),
         offline_assets: Arc::new(StubOffline),
         loopback,
-        flags: ViewingFeatureFlags {
-            watchlist_and_settings: enabled,
-            ..ViewingFeatureFlags::default()
-        },
     };
     (temp_dir, deps)
 }
@@ -168,34 +163,8 @@ fn workflow_plans_bookmark_and_maps_profile() {
 }
 
 #[tokio::test]
-async fn disabled_flag_rejects_all_commands() {
-    let (_temp, deps) = make_deps(false, StubCatalog::default()).await;
-    let s1 = SeriesId::try_from(1).expect("series 1");
-    let pref = PlaybackPreference {
-        preferred_profile: StreamProfile::Main,
-        playback_cache_limit_mb: 128,
-        default_rate_hundredths: 125,
-    };
-
-    for result in [
-        remove_watch_history(&deps, s1).await,
-        clear_watch_history(&deps).await,
-        bookmark_series(&deps, s1).await,
-        unbookmark_series(&deps, s1).await,
-        update_playback_preference(&deps, pref).await,
-        clear_playback_cache(&deps).await,
-    ] {
-        let err = result.expect_err("disabled flag should fail");
-        assert!(err.to_string().contains("特性开关未开启"));
-    }
-
-    deps.loopback.shutdown();
-    deps.db.close().await;
-}
-
-#[tokio::test]
 async fn bookmark_unknown_series_returns_not_found_without_persisting_row() {
-    let (_temp, deps) = make_deps(true, StubCatalog::default()).await;
+    let (_temp, deps) = make_deps(StubCatalog::default()).await;
     let missing = SeriesId::try_from(404).expect("series 404");
 
     let err = bookmark_series(&deps, missing)
@@ -224,7 +193,7 @@ async fn bookmark_upserts_and_clear_watch_history_deletes_all_rows() {
         is_finished: true,
         score: 9.4,
     });
-    let (_temp, deps) = make_deps(true, catalog).await;
+    let (_temp, deps) = make_deps(catalog).await;
 
     bookmark_series(&deps, s101).await.expect("first bookmark");
     bookmark_series(&deps, s101)
@@ -273,7 +242,7 @@ async fn bookmark_upserts_and_clear_watch_history_deletes_all_rows() {
 
 #[tokio::test]
 async fn update_playback_preference_rejects_invalid_and_persists_valid() {
-    let (_temp, deps) = make_deps(true, StubCatalog::default()).await;
+    let (_temp, deps) = make_deps(StubCatalog::default()).await;
 
     let bad_rate = PlaybackPreference {
         preferred_profile: StreamProfile::Main,
@@ -309,7 +278,7 @@ async fn update_playback_preference_rejects_invalid_and_persists_valid() {
 
 #[tokio::test]
 async fn clear_playback_cache_wipes_db_segments_and_files_preserving_offline() {
-    let (_temp, deps) = make_deps(true, StubCatalog::default()).await;
+    let (_temp, deps) = make_deps(StubCatalog::default()).await;
 
     sqlx::query(
         "INSERT INTO viewing_playback_cache_segments (

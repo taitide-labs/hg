@@ -7,15 +7,12 @@ use hg_viewing_domain::preference::default_playback_preference;
 
 use crate::ViewingDeps;
 
-use super::command::ensure_enabled;
 use super::workflow::{parse_preferred_profile, plan_offline_registration, plan_online_source};
 
 pub async fn prepare_episode_playback(
     deps: &ViewingDeps,
     key: EpisodeKey,
 ) -> Result<PlaybackSource, ContractError> {
-    ensure_enabled(deps.flags.playback_resolution)?;
-
     if let Some(offline_asset) = deps
         .offline_assets
         .find_committed_episode(key)
@@ -42,7 +39,6 @@ pub async fn refresh_online_playback(
     deps: &ViewingDeps,
     key: EpisodeKey,
 ) -> Result<PlaybackSource, ContractError> {
-    ensure_enabled(deps.flags.playback_resolution)?;
     resolve_online_playback_source(deps, key).await
 }
 
@@ -50,7 +46,6 @@ pub async fn stop_deleted_offline_episode(
     deps: &ViewingDeps,
     key: EpisodeKey,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.playback_resolution)?;
     deps.loopback
         .halt_episode(key)
         .await
@@ -61,7 +56,6 @@ pub async fn stop_deleted_offline_series(
     deps: &ViewingDeps,
     series_id: SeriesId,
 ) -> Result<(), ContractError> {
-    ensure_enabled(deps.flags.playback_resolution)?;
     deps.loopback
         .halt_series(series_id)
         .await
