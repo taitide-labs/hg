@@ -15,7 +15,7 @@ use crate::ui::surface::{BadgeTone, avatar_circle, badge, separator};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
-pub fn desktop_action_row(batch_download_enabled: bool) -> impl IntoElement {
+pub fn desktop_action_row() -> impl IntoElement {
     view()
         .w_full()
         .flex_shrink_0()
@@ -40,17 +40,11 @@ pub fn desktop_action_row(batch_download_enabled: bool) -> impl IntoElement {
             "离线下载",
             ButtonVariant::Secondary,
             ControlSize::Md,
-            move || {
-                if batch_download_enabled {
-                    store::set_batch_download_open(true);
-                } else {
-                    handler::enqueue_current_episode_download();
-                }
-            },
+            || store::set_batch_download_open(true),
         ))
 }
 
-pub fn desktop_info_feed(replies_enabled: bool) -> impl IntoElement {
+pub fn desktop_info_feed() -> impl IntoElement {
     view()
         .w(px(356.0))
         .flex_shrink_0()
@@ -60,19 +54,14 @@ pub fn desktop_info_feed(replies_enabled: bool) -> impl IntoElement {
         .border_l_1()
         .border_color(token::border)
         .child(
-            scroll().flex_1().min_h_0().child(
-                view()
-                    .p_4()
-                    .gap_4()
-                    .child(dynamic(move || feed_sections(replies_enabled))),
-            ),
+            scroll()
+                .flex_1()
+                .min_h_0()
+                .child(view().p_4().gap_4().child(dynamic(feed_sections))),
         )
 }
 
-pub fn mobile_detail_sheet(
-    replies_enabled: bool,
-    batch_download_enabled: bool,
-) -> impl IntoElement {
+pub fn mobile_detail_sheet() -> impl IntoElement {
     let tab_sig = store::mobile_tab_signal();
     let tabs = vec![
         (MobileDetailTab::Info, "简介"),
@@ -101,7 +90,7 @@ pub fn mobile_detail_sheet(
                 MobileDetailTab::Info => view()
                     .gap_4()
                     .child(synopsis_section(&detail, snap.info_expanded))
-                    .child(desktop_action_row(batch_download_enabled))
+                    .child(desktop_action_row())
                     .child(separator())
                     .child(episodes_section(
                         &detail,
@@ -110,14 +99,12 @@ pub fn mobile_detail_sheet(
                         snap.episode_segment_index,
                     ))
                     .into_element(),
-                MobileDetailTab::Comments => {
-                    comments_section(&snap.comments, replies_enabled).into_element()
-                }
+                MobileDetailTab::Comments => comments_section(&snap.comments).into_element(),
             }
         })))
 }
 
-fn feed_sections(replies_enabled: bool) -> impl IntoElement {
+fn feed_sections() -> impl IntoElement {
     let snap = store::snapshot();
     let Some(detail) = snap.detail else {
         return view().into_element();
@@ -134,7 +121,7 @@ fn feed_sections(replies_enabled: bool) -> impl IntoElement {
             snap.episode_segment_index,
         ))
         .child(separator())
-        .child(comments_section(&snap.comments, replies_enabled))
+        .child(comments_section(&snap.comments))
         .into_element()
 }
 
@@ -270,7 +257,7 @@ fn episodes_section(
         .child(grid)
 }
 
-fn comments_section(comments: &[EpisodeComment], replies_enabled: bool) -> impl IntoElement {
+fn comments_section(comments: &[EpisodeComment]) -> impl IntoElement {
     let header = format!("评论 ({})", comments.len());
     let mut list = view().gap_3().child(
         text(header)
@@ -284,12 +271,12 @@ fn comments_section(comments: &[EpisodeComment], replies_enabled: bool) -> impl 
     }
 
     for comment in comments {
-        list = list.child(comment_row(comment, replies_enabled));
+        list = list.child(comment_row(comment));
     }
     list
 }
 
-fn comment_row(comment: &EpisodeComment, replies_enabled: bool) -> impl IntoElement {
+fn comment_row(comment: &EpisodeComment) -> impl IntoElement {
     let meta = match comment.ip_region.as_deref() {
         Some(region) => format!(
             "{} · {region} · 赞 {}",
@@ -313,21 +300,12 @@ fn comment_row(comment: &EpisodeComment, replies_enabled: bool) -> impl IntoElem
     }
     if comment.reply_count > 0 {
         let count_label = format!("共 {} 条回复", comment.reply_count);
-        if replies_enabled {
-            replies_box = replies_box.child(text_link_button(
-                count_label.clone(),
-                count_label,
-                Some(IconKind::ChevronRight),
-                move || store::open_comment_replies(comment_id),
-            ));
-        } else {
-            replies_box = replies_box.child(
-                text(count_label)
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(token::primary),
-            );
-        }
+        replies_box = replies_box.child(text_link_button(
+            count_label.clone(),
+            count_label,
+            Some(IconKind::ChevronRight),
+            move || store::open_comment_replies(comment_id),
+        ));
     }
 
     view()

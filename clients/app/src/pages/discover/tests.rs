@@ -1,9 +1,11 @@
+use std::sync::Arc;
 use std::time::Duration;
 
-use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Root, Size};
+use hg_gateway::mock::MockGateway;
+use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Size};
 use nsh_testing::Headless;
 
-use crate::App;
+use crate::root_with_gateway;
 
 fn start_desktop(scheme: ColorScheme) -> Headless {
     let environment = Environment {
@@ -14,7 +16,7 @@ fn start_desktop(scheme: ColorScheme) -> Headless {
     let mut app = Headless::start(EngineConfig {
         viewport: Size::new(Points(1240.0), Points(800.0)),
         environment,
-        ..EngineConfig::new(Root::of::<App>())
+        ..EngineConfig::new(root_with_gateway(Arc::new(MockGateway::new())))
     })
     .unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
@@ -74,13 +76,16 @@ fn sidebar_navigation_keeps_settings_separated_from_primary_tabs() {
     let mut app = start_desktop(ColorScheme::Light);
 
     app.press("追剧").unwrap();
-    app.wait_for("追剧与观看历史").unwrap();
+    app.wait_for("最近观看").unwrap();
+    app.wait_for("我的追剧").unwrap();
 
     app.press("离线").unwrap();
-    app.wait_for("离线片库与下载队列").unwrap();
+    app.wait_for("已下载").unwrap();
+    app.wait_for("下载中").unwrap();
 
     app.press("设置").unwrap();
-    app.wait_for("偏好与缓存设置").unwrap();
+    app.wait_for("外观").unwrap();
+    app.wait_for("存储空间").unwrap();
 
     app.press("发现").unwrap();
     app.wait_for("精选推荐").unwrap();

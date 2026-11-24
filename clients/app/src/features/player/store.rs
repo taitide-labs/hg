@@ -38,7 +38,8 @@ pub struct PlayerState {
     pub paused: bool,
     pub muted: bool,
     pub fullscreen: bool,
-    pub controls_hovered: bool,
+    pub controls_visible: bool,
+    pub controls_activity_seq: u64,
     pub auto_advance: bool,
     pub loop_single: bool,
     pub bookmarked: bool,
@@ -52,6 +53,8 @@ pub struct PlayerState {
     pub rate_hundredths: u16,
     pub position_secs: u32,
     pub duration_secs: u32,
+    pub seek_seq: u64,
+    pub last_reported_secs: Option<u32>,
     pub comments: Vec<EpisodeComment>,
     pub status_hint: Option<String>,
     pub error: Option<String>,
@@ -68,7 +71,8 @@ impl Default for PlayerState {
             paused: false,
             muted: false,
             fullscreen: false,
-            controls_hovered: false,
+            controls_visible: false,
+            controls_activity_seq: 0,
             auto_advance: true,
             loop_single: false,
             bookmarked: false,
@@ -82,6 +86,8 @@ impl Default for PlayerState {
             rate_hundredths: 100,
             position_secs: 0,
             duration_secs: 0,
+            seek_seq: 0,
+            last_reported_secs: None,
             comments: Vec::new(),
             status_hint: None,
             error: None,
@@ -144,6 +150,8 @@ pub fn set_source(ep_num: EpisodeNumber, source: PlaybackSource) {
         s.episode_segment_index = segment_index;
         s.duration_secs = source.duration_secs;
         s.position_secs = 0;
+        s.seek_seq = 0;
+        s.last_reported_secs = None;
         s.paused = false;
         s.source = Some(source);
         s.error = None;
@@ -154,8 +162,24 @@ pub fn set_comments(comments: Vec<EpisodeComment>) {
     state().update(|s| s.comments = comments);
 }
 
-pub fn set_position(position_secs: u32) {
-    state().update(|s| s.position_secs = position_secs);
+pub fn seek_to(position_secs: u32) {
+    state().update(|s| {
+        s.position_secs = position_secs;
+        s.seek_seq = s.seek_seq.saturating_add(1);
+    });
+}
+
+pub fn update_playback_progress(position_secs: u32, duration_secs: u32) {
+    state().update(|s| {
+        s.position_secs = position_secs;
+        if duration_secs > 0 {
+            s.duration_secs = duration_secs;
+        }
+    });
+}
+
+pub fn mark_progress_reported(position_secs: u32) {
+    state().update(|s| s.last_reported_secs = Some(position_secs));
 }
 
 pub fn set_bookmarked(bookmarked: bool) {
@@ -186,13 +210,30 @@ pub fn toggle_muted() {
 
 #[must_use]
 pub fn should_show_controls() -> bool {
-    state().with(|s| s.controls_hovered || s.paused || s.popover != ActivePopover::None)
+    state().with(|s| s.controls_visible || s.paused || s.popover != ActivePopover::None)
 }
 
-pub fn set_controls_hovered(hovered: bool) {
-    let current = state().with_untracked(|s| s.controls_hovered);
-    if current != hovered {
-        state().update(|s| s.controls_hovered = hovered);
+#[must_use]
+pub fn should_keep_controls_visible() -> bool {
+    state().with(|s| s.paused || s.popover != ActivePopover::None)
+}
+
+#[must_use]
+pub fn controls_activity_seq() -> u64 {
+    state().with(|s| s.controls_activity_seq)
+}
+
+pub fn reveal_controls() {
+    state().update(|s| {
+        s.controls_visible = true;
+        s.controls_activity_seq = s.controls_activity_seq.saturating_add(1);
+    });
+}
+
+pub fn hide_controls() {
+    let visible = state().with_untracked(|s| s.controls_visible);
+    if visible {
+        state().update(|s| s.controls_visible = false);
     }
 }
 

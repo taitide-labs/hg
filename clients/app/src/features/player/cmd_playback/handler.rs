@@ -2,8 +2,7 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use hg_contracts::catalog::ListEpisodeCommentsRequest;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, PageRequest, SeriesId};
-use hg_contracts::offline::EnqueueEpisodeDownloadsRequest;
-use hg_contracts::viewing::{PlaybackMode, ReportWatchProgressRequest};
+use hg_contracts::viewing::{PlaybackMode, PlaybackOrigin, ReportWatchProgressRequest};
 use nsh_core::prelude::*;
 
 use super::super::store;
@@ -58,7 +57,8 @@ pub fn seek_by(delta_secs: i32) {
         return;
     };
     let next_pos = clamp_seek(snap.position_secs, delta_secs, snap.duration_secs);
-    store::set_position(next_pos);
+    store::seek_to(next_pos);
+    store::mark_progress_reported(next_pos);
     report_progress_async(
         detail.summary.id,
         ep_num,
@@ -67,6 +67,65 @@ pub fn seek_by(delta_secs: i32) {
         snap.auto_advance,
         snap.loop_single,
     );
+}
+
+pub fn on_playback_progress(position_secs: u32, duration_secs: u32) {
+    store::update_playback_progress(position_secs, duration_secs);
+    let snap = store::snapshot();
+    let (Some(detail), Some(ep_num)) = (snap.detail, snap.current_episode) else {
+        return;
+    };
+    let should_report = snap
+        .last_reported_secs
+        .is_none_or(|prev| position_secs.abs_diff(prev) >= 5);
+    if should_report {
+        store::mark_progress_reported(position_secs);
+        report_progress_async(
+            detail.summary.id,
+            ep_num,
+            position_secs,
+            snap.duration_secs.max(duration_secs),
+            snap.auto_advance,
+            snap.loop_single,
+        );
+    }
+}
+
+pub fn on_playback_ended() {
+    let snap = store::snapshot();
+    let (Some(detail), Some(ep_num)) = (snap.detail, snap.current_episode) else {
+        return;
+    };
+    let final_pos = snap.duration_secs.max(snap.position_secs);
+    store::update_playback_progress(final_pos, final_pos);
+    store::mark_progress_reported(final_pos);
+    report_progress_async(
+        detail.summary.id,
+        ep_num,
+        final_pos,
+        final_pos,
+        snap.auto_advance,
+        snap.loop_single,
+    );
+}
+
+pub fn on_playback_error(message: String) {
+    let snap = store::snapshot();
+    if let (Some(detail), Some(ep_num), Some(source)) =
+        (snap.detail, snap.current_episode, snap.source)
+        && matches!(source.origin, PlaybackOrigin::OnlineStream { .. })
+    {
+        let gw = gateway::current();
+        let key = EpisodeKey::new(detail.summary.id, ep_num);
+        spawn(async move {
+            match gw.refresh_online_playback(key).await {
+                Ok(refreshed) => store::set_source(ep_num, refreshed),
+                Err(_) => store::set_hint(message),
+            }
+        });
+        return;
+    }
+    store::set_hint(message);
 }
 
 pub fn toggle_bookmark() {
@@ -90,31 +149,6 @@ pub fn toggle_bookmark() {
             } else {
                 "已取消追剧".to_owned()
             });
-        }
-    });
-}
-
-pub fn enqueue_current_episode_download() {
-    let snap = store::snapshot();
-    let (Some(detail), Some(ep_num)) = (snap.detail, snap.current_episode) else {
-        return;
-    };
-    let gw = gateway::current();
-    let req = EnqueueEpisodeDownloadsRequest {
-        series_id: detail.summary.id,
-        episodes: vec![ep_num],
-    };
-    spawn(async move {
-        match gw.enqueue_episode_downloads(req).await {
-            Ok(result) => {
-                let message = if result.queued.is_empty() {
-                    format!("第 {} 集已在离线片库中", ep_num.get())
-                } else {
-                    format!("第 {} 集已加入离线下载", ep_num.get())
-                };
-                store::set_hint(message);
-            }
-            Err(err) => store::set_hint(err.to_string()),
         }
     });
 }
@@ -166,7 +200,7 @@ fn report_progress_async(
             && result.progress.completed
         {
             if loop_single {
-                store::set_position(0);
+                store::seek_to(0);
             } else if auto_advance && let Some(next_ep) = result.next_episode {
                 load_episode_internal(series_id, next_ep).await;
             }

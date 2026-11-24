@@ -6,3 +6,4 @@ pub mod poster;
 pub mod surface;
 pub mod tabs;
 pub mod token;
+pub mod video_surface;

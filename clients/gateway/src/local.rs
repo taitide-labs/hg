@@ -1,4 +1,5 @@
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use hg_contracts::catalog::{
@@ -34,6 +35,108 @@ use tokio::runtime::{Handle, Runtime};
 
 use crate::contract::{AppGateway, GatewayFuture};
 
+pub const DEFAULT_UPSTREAM_BASE_URL: &str = "https://huangguoai.com";
+
+#[derive(Debug, Clone)]
+pub struct LocalGatewayConfig {
+    pub db_path: PathBuf,
+    pub data_root: PathBuf,
+    pub cache_root: PathBuf,
+    pub upstream_base_url: String,
+}
+
+impl LocalGatewayConfig {
+    #[must_use]
+    pub fn from_env() -> Self {
+        let data_root = env_path("HG_DATA_DIR").unwrap_or_else(default_data_dir);
+        let cache_root = env_path("HG_CACHE_DIR").unwrap_or_else(default_cache_dir);
+        Self {
+            db_path: data_root.join("hg.sqlite"),
+            data_root,
+            cache_root,
+            upstream_base_url: resolve_upstream_base_url(),
+        }
+    }
+
+    #[must_use]
+    pub fn from_temp_fallback() -> Self {
+        let base = std::env::temp_dir().join("com.taitidelabs.hg");
+        let data_root = base.join("data");
+        let cache_root = base.join("cache");
+        Self {
+            db_path: data_root.join("hg.sqlite"),
+            data_root,
+            cache_root,
+            upstream_base_url: resolve_upstream_base_url(),
+        }
+    }
+}
+
+#[expect(
+    clippy::disallowed_methods,
+    reason = "客户端启动配置根读取可选上游地址覆盖变量"
+)]
+fn resolve_upstream_base_url() -> String {
+    std::env::var("HG_UPSTREAM_BASE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_UPSTREAM_BASE_URL.to_owned())
+}
+
+fn env_path(key: &str) -> Option<PathBuf> {
+    std::env::var_os(key)
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+fn default_data_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    if let Some(home) = env_path("HOME") {
+        return home
+            .join("Library")
+            .join("Application Support")
+            .join("com.taitidelabs.hg");
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(local_app_data) = env_path("LOCALAPPDATA") {
+        return local_app_data.join("com.taitidelabs.hg").join("data");
+    }
+
+    if let Some(xdg) = env_path("XDG_DATA_HOME") {
+        return xdg.join("com.taitidelabs.hg");
+    }
+    if let Some(home) = env_path("HOME") {
+        return home.join(".local").join("share").join("com.taitidelabs.hg");
+    }
+    std::env::temp_dir().join("com.taitidelabs.hg").join("data")
+}
+
+fn default_cache_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    if let Some(home) = env_path("HOME") {
+        return home
+            .join("Library")
+            .join("Caches")
+            .join("com.taitidelabs.hg");
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(local_app_data) = env_path("LOCALAPPDATA") {
+        return local_app_data.join("com.taitidelabs.hg").join("cache");
+    }
+
+    if let Some(xdg) = env_path("XDG_CACHE_HOME") {
+        return xdg.join("com.taitidelabs.hg");
+    }
+    if let Some(home) = env_path("HOME") {
+        return home.join(".cache").join("com.taitidelabs.hg");
+    }
+    std::env::temp_dir()
+        .join("com.taitidelabs.hg")
+        .join("cache")
+}
+
 pub struct LocalGateway {
     runtime: BackendRuntime,
     contexts: AssembledContexts,
@@ -50,6 +153,21 @@ impl std::fmt::Debug for LocalGateway {
 }
 
 impl LocalGateway {
+    pub fn open_default() -> Result<Self, ContractError> {
+        let config = LocalGatewayConfig::from_env();
+        Self::open_with_config(&config)
+            .or_else(|_| Self::open_with_config(&LocalGatewayConfig::from_temp_fallback()))
+    }
+
+    pub fn open_with_config(config: &LocalGatewayConfig) -> Result<Self, ContractError> {
+        let runtime_config = BackendRuntimeConfig {
+            db_path: config.db_path.clone(),
+            data_root: config.data_root.clone(),
+            cache_root: config.cache_root.clone(),
+        };
+        Self::open(&runtime_config, &config.upstream_base_url)
+    }
+
     pub fn open(
         config: &BackendRuntimeConfig,
         upstream_base_url: &str,

@@ -1,13 +1,8 @@
-use crate::app::flags::FeatureFlags;
-
 use super::start_on_watchlist;
 
 #[test]
 fn watch_history_shows_recent_items_and_resumes_episode() {
-    let mut app = start_on_watchlist(FeatureFlags {
-        watchlist_history: true,
-        ..FeatureFlags::default()
-    });
+    let mut app = start_on_watchlist();
 
     app.wait_for("最近观看").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();

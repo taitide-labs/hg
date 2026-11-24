@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use hg_contracts::viewing::PlaybackMode;
 use nsh_core::prelude::*;
 
@@ -11,12 +13,36 @@ use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::surface::{cinema_separator, progress_track, toggle_switch_row};
 use crate::ui::token;
+use crate::ui::video_surface::{VideoSurfaceState, bind_auto_hide_timer, video_surface};
+
+const CONTROLS_AUTO_HIDE_DELAY: Duration = Duration::from_secs(3);
+
+pub(super) fn current_video_surface_state() -> VideoSurfaceState {
+    let snap = store::snapshot();
+    VideoSurfaceState {
+        src: snap.source.map(|s| s.playable_uri),
+        paused: snap.paused,
+        rate: f64::from(snap.rate_hundredths) / 100.0,
+        volume: f64::from(snap.volume_percent) / 100.0,
+        muted: snap.muted,
+        seek_secs: snap.position_secs,
+        seek_seq: snap.seek_seq,
+        aspect: snap.aspect.protocol_key(),
+    }
+}
 
 pub fn video_surface_box(
     fullscreen: bool,
     on_back: impl Fn() + Copy + 'static,
     on_toggle_fullscreen: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
+    bind_auto_hide_timer(
+        store::controls_activity_seq,
+        store::should_keep_controls_visible,
+        CONTROLS_AUTO_HIDE_DELAY,
+        store::hide_controls,
+    );
+
     let frame = view()
         .label("视频画面")
         .w_full()
@@ -25,9 +51,9 @@ pub fn video_surface_box(
         .relative()
         .overflow_hidden()
         .bg(token::cinema_bg)
-        .on_mouse_enter(|_: &nsh_core::MouseEvent| store::set_controls_hovered(true))
-        .on_mouse_move(|_: &nsh_core::MouseEvent| store::set_controls_hovered(true))
-        .on_mouse_leave(|_: &nsh_core::MouseEvent| store::set_controls_hovered(false))
+        .on_mouse_enter(|_: &nsh_core::MouseEvent| store::reveal_controls())
+        .on_mouse_move(|_: &nsh_core::MouseEvent| store::reveal_controls())
+        .on_mouse_leave(|_: &nsh_core::MouseEvent| store::hide_controls())
         .child(video_picture_area(on_back))
         .child(bottom_right_popover())
         .child(when(store::should_show_controls, move || {
@@ -58,13 +84,20 @@ fn aspect_frame_preview() -> impl IntoElement {
         view()
             .h_full()
             .w_full()
+            .relative()
             .style_when(move || is_portrait.get(), |s| s.w(px(340.0)))
             .bg(move || {
                 let cover = store::snapshot()
                     .detail
                     .map_or_else(String::new, |d| d.summary.cover_url);
                 token::poster_surface(&cover)
-            }),
+            })
+            .child(video_surface(
+                current_video_surface_state,
+                handler::on_playback_progress,
+                handler::on_playback_ended,
+                handler::on_playback_error,
+            )),
     )
 }
 

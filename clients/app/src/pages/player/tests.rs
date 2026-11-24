@@ -1,20 +1,16 @@
 mod batch_download;
 mod comment_replies;
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Root, Size};
+use hg_gateway::mock::MockGateway;
+use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Size};
 use nsh_testing::Headless;
 
-use crate::App;
-use crate::app::flags::{self, FeatureFlags};
+use crate::root_with_gateway;
 
-fn start_and_open_first_series(scheme: ColorScheme) -> Headless {
-    start_with_flags(scheme, FeatureFlags::default())
-}
-
-pub(super) fn start_with_flags(scheme: ColorScheme, override_flags: FeatureFlags) -> Headless {
-    flags::set_for_test(override_flags);
+pub(super) fn start_and_open_first_series(scheme: ColorScheme) -> Headless {
     let environment = Environment {
         os: Os::MacOs,
         color_scheme: scheme,
@@ -23,7 +19,7 @@ pub(super) fn start_with_flags(scheme: ColorScheme, override_flags: FeatureFlags
     let mut app = Headless::start(EngineConfig {
         viewport: Size::new(Points(1240.0), Points(800.0)),
         environment,
-        ..EngineConfig::new(Root::of::<App>())
+        ..EngineConfig::new(root_with_gateway(Arc::new(MockGateway::new())))
     })
     .unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
@@ -133,10 +129,20 @@ fn bookmark_and_offline_download_actions_update_state() {
     app.wait_for("已追剧").unwrap();
 
     app.press("离线下载").unwrap();
-    app.wait_for("第 1 集已在离线片库中").unwrap();
+    app.wait_for("选择离线下载分集").unwrap();
+}
 
-    app.press("5").unwrap();
-    app.wait_for("选集 (5/68)").unwrap();
-    app.press("离线下载").unwrap();
-    app.wait_for("第 5 集已加入离线下载").unwrap();
+#[test]
+fn bottom_control_bar_auto_fades_after_three_seconds_of_inactivity() {
+    let mut app = start_and_open_first_series(ColorScheme::Dark);
+
+    assert!(!app.screen().shows("倍速"));
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+    app.wait_for_gone("倍速", Duration::from_secs(5)).unwrap();
+
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+    app.press("播放或暂停").unwrap();
+    assert!(app.screen().shows("倍速"));
 }

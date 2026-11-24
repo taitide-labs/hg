@@ -6,18 +6,17 @@ use super::super::store::{self, PlayerSurfaceKey};
 use super::command::{AspectPreset, format_time};
 use super::feed::{desktop_action_row, desktop_info_feed, mobile_detail_sheet};
 use super::handler;
-use super::overlay::video_surface_box;
+use super::overlay::{current_video_surface_state, video_surface_box};
 use crate::ui::button::{ButtonVariant, ControlSize, app_icon_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::surface::{empty_state, progress_track};
 use crate::ui::token;
+use crate::ui::video_surface::video_surface;
 
 pub fn player_view(
     series_id: SeriesId,
     initial_episode: Option<EpisodeNumber>,
-    replies_enabled: bool,
-    batch_download_enabled: bool,
     on_back: impl Fn() + Copy + 'static,
     on_fullscreen_change: impl Fn(bool) + Copy + 'static,
 ) -> impl IntoElement {
@@ -55,14 +54,9 @@ pub fn player_view(
                 .justify_center()
                 .child(text("加载中...").text_sm().text_color(token::muted_fg))
                 .into_element(),
-            PlayerSurfaceKey::Regular { fullscreen } => regular_layout(
-                fullscreen,
-                replies_enabled,
-                batch_download_enabled,
-                on_back,
-                toggle_fs,
-            )
-            .into_element(),
+            PlayerSurfaceKey::Regular { fullscreen } => {
+                regular_layout(fullscreen, on_back, toggle_fs).into_element()
+            }
             PlayerSurfaceKey::VerticalImmersive => {
                 vertical_immersive_layout(on_back).into_element()
             }
@@ -105,8 +99,6 @@ fn bind_potplayer_shortcuts(
 
 fn regular_layout(
     fullscreen: bool,
-    replies_enabled: bool,
-    batch_download_enabled: bool,
     on_back: impl Fn() + Copy + 'static,
     on_toggle_fullscreen: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
@@ -138,9 +130,9 @@ fn regular_layout(
                     .p_4()
                     .gap_3()
                     .child(video_surface_box(false, on_back, on_toggle_fullscreen))
-                    .child(desktop_action_row(batch_download_enabled)),
+                    .child(desktop_action_row()),
             )
-            .child(desktop_info_feed(replies_enabled))
+            .child(desktop_info_feed())
             .into_element()
     } else {
         view()
@@ -156,7 +148,7 @@ fn regular_layout(
                     .flex_shrink_0()
                     .child(video_surface_box(true, on_back, on_toggle_fullscreen)),
             )
-            .child(mobile_detail_sheet(replies_enabled, batch_download_enabled))
+            .child(mobile_detail_sheet())
             .into_element()
     }
 }
@@ -194,12 +186,21 @@ fn vertical_immersive_layout(on_back: impl Fn() + Copy + 'static) -> impl IntoEl
 
 fn vertical_video_canvas() -> impl IntoElement {
     let is_wide = is_desktop();
-    let canvas = view().bg(move || {
-        let cover = store::snapshot()
-            .detail
-            .map_or_else(String::new, |d| d.summary.cover_url);
-        token::poster_surface(&cover)
-    });
+    let canvas = view()
+        .relative()
+        .overflow_hidden()
+        .bg(move || {
+            let cover = store::snapshot()
+                .detail
+                .map_or_else(String::new, |d| d.summary.cover_url);
+            token::poster_surface(&cover)
+        })
+        .child(video_surface(
+            current_video_surface_state,
+            handler::on_playback_progress,
+            handler::on_playback_ended,
+            handler::on_playback_error,
+        ));
 
     if is_wide {
         canvas
