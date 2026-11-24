@@ -31,17 +31,31 @@ jobs:
         with:
           token: ${{ steps.app-token.outputs.token }}
 
-  build:
+  build-app:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - name: macos-arm64
+            runner: macos-latest
+            rust_target: aarch64-apple-darwin
+            nsh_target: macos
+            nsh_args: "--arch arm64"
+            ext: tar.gz
+          - name: windows-x86_64
+            runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            nsh_target: windows
+            nsh_args: ""
+            ext: zip
+          - name: android-arm64
             runner: ubuntu-24.04
-          - target: aarch64-unknown-linux-gnu
-            runner: ubuntu-24.04-arm
+            rust_target: aarch64-linux-android
+            nsh_target: android
+            nsh_args: "--abi arm64-v8a"
+            ext: apk
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -52,42 +66,59 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust_target }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
-          key: ${{ matrix.target }}
+          prefix-key: app-${{ matrix.name }}
           cache-targets: false
       - uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
           install: false
-      - name: Install cargo-nextest
+      - name: Install nsh
         shell: bash
-        run: mise install "github:nextest-rs/nextest"
-      - name: Run tests
-        shell: bash
-        env:
-          TARGET: ${{ matrix.target }}
-        run: mise x -- cargo nextest run --workspace --locked --no-tests=pass --target "$TARGET"
-      - name: Build and package binary
+        run: mise install "github:longbridge/nsh"
+      - name: Package client artifact
         shell: bash
         env:
-          TARGET: ${{ matrix.target }}
+          PKG_LABEL: ${{ matrix.name }}
+          NSH_TARGET: ${{ matrix.nsh_target }}
+          NSH_ARGS: ${{ matrix.nsh_args }}
+          EXT: ${{ matrix.ext }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
         run: |
-          meta=$(cargo metadata --no-deps --format-version 1)
-          bin_entry=$(echo "$meta" | jq -c '[.packages[] | . as $p | .targets[] | select(.kind | index("bin")) | {pkg: $p.name, bin: .name}][0]')
-          pkg_name=$(echo "$bin_entry" | jq -r '.pkg' | tr -d '\r')
-          bin_name=$(echo "$bin_entry" | jq -r '.bin' | tr -d '\r')
-          cargo build --release --locked --target "$TARGET" --bin "$bin_name"
-          mkdir -p dist
-          tar -C "target/${TARGET}/release" -czf "dist/${pkg_name}-${TARGET}.tar.gz" "$bin_name"
+          app_pkg=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.manifest_path | gsub("\\\\"; "/") | endswith("/clients/app/Cargo.toml")) | .name' | tr -d '\r')
+          test -n "$app_pkg"
+          mkdir -p out_tmp dist
+          # shellcheck disable=SC2086
+          mise x -- nsh package clients/app --target "$NSH_TARGET" --app-version "${TAG#v}" $NSH_ARGS -o out_tmp
+          if [ "$EXT" = "apk" ]; then
+            apk_file=$(find out_tmp -maxdepth 2 -type f -name '*.apk' | head -n 1)
+            test -n "$apk_file"
+            cp "$apk_file" "dist/${app_pkg}-${PKG_LABEL}.apk"
+          elif [ "$EXT" = "zip" ]; then
+            zip_file=$(find out_tmp -maxdepth 1 -type f -name '*.zip' | head -n 1)
+            if [ -n "$zip_file" ]; then
+              cp "$zip_file" "dist/${app_pkg}-${PKG_LABEL}.zip"
+            else
+              7z a "dist/${app_pkg}-${PKG_LABEL}.zip" ./out_tmp/*
+            fi
+          else
+            tar_file=$(find out_tmp -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)
+            if [ -n "$tar_file" ]; then
+              cp "$tar_file" "dist/${app_pkg}-${PKG_LABEL}.tar.gz"
+            else
+              tar -C out_tmp -czf "dist/${app_pkg}-${PKG_LABEL}.tar.gz" .
+            fi
+          fi
+          test -n "$(find dist -maxdepth 1 -type f)"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: dist-${{ matrix.target }}
+          name: dist-app-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
 
   upload-assets:
-    needs: [release-please, build]
+    needs: [release-please, build-app]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     permissions:
