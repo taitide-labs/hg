@@ -22,7 +22,6 @@ async fn playback_and_cache_disabled_by_default_returns_feature_flag_error() {
 }
 
 #[tokio::test]
-#[ignore = "待实现播放凭据解析与清目录缓存切片后激活"]
 async fn playback_ticket_parses_streams_and_clear_cache_preserves_offline_library() {
     let playback_payload = json!({
         "status": 1,
