@@ -131,3 +131,18 @@ fn bookmark_and_offline_download_actions_update_state() {
     app.press("离线下载").unwrap();
     app.wait_for("选择离线下载分集").unwrap();
 }
+
+#[test]
+fn bottom_control_bar_auto_fades_after_three_seconds_of_inactivity() {
+    let mut app = start_and_open_first_series(ColorScheme::Dark);
+
+    assert!(!app.screen().shows("倍速"));
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+    app.wait_for_gone("倍速", Duration::from_secs(5)).unwrap();
+
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+    app.press("播放或暂停").unwrap();
+    assert!(app.screen().shows("倍速"));
+}

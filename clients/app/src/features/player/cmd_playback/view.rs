@@ -6,12 +6,13 @@ use super::super::store::{self, PlayerSurfaceKey};
 use super::command::{AspectPreset, format_time};
 use super::feed::{desktop_action_row, desktop_info_feed, mobile_detail_sheet};
 use super::handler;
-use super::overlay::video_surface_box;
+use super::overlay::{current_video_surface_state, video_surface_box};
 use crate::ui::button::{ButtonVariant, ControlSize, app_icon_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::surface::{empty_state, progress_track};
 use crate::ui::token;
+use crate::ui::video_surface::video_surface;
 
 pub fn player_view(
     series_id: SeriesId,
@@ -185,12 +186,21 @@ fn vertical_immersive_layout(on_back: impl Fn() + Copy + 'static) -> impl IntoEl
 
 fn vertical_video_canvas() -> impl IntoElement {
     let is_wide = is_desktop();
-    let canvas = view().bg(move || {
-        let cover = store::snapshot()
-            .detail
-            .map_or_else(String::new, |d| d.summary.cover_url);
-        token::poster_surface(&cover)
-    });
+    let canvas = view()
+        .relative()
+        .overflow_hidden()
+        .bg(move || {
+            let cover = store::snapshot()
+                .detail
+                .map_or_else(String::new, |d| d.summary.cover_url);
+            token::poster_surface(&cover)
+        })
+        .child(video_surface(
+            current_video_surface_state,
+            handler::on_playback_progress,
+            handler::on_playback_ended,
+            handler::on_playback_error,
+        ));
 
     if is_wide {
         canvas

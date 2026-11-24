@@ -32,6 +32,16 @@ impl AspectPreset {
             Self::Portrait9x16 => "9:16",
         }
     }
+
+    #[must_use]
+    pub const fn protocol_key(self) -> &'static str {
+        match self {
+            Self::Original => "original",
+            Self::Fill => "fill",
+            Self::Cinema16x9 => "16:9",
+            Self::Portrait9x16 => "9:16",
+        }
+    }
 }
 
 #[must_use]
