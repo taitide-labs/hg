@@ -1448,10 +1448,15 @@ dependencies = [
 name = "hg-runtime"
 version = "0.1.0"
 dependencies = [
+ "hg-backend-contracts",
  "hg-catalog-features",
+ "hg-contracts",
  "hg-infra",
  "hg-offline-features",
  "hg-viewing-features",
+ "parking_lot 0.13.0",
+ "reqwest",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
