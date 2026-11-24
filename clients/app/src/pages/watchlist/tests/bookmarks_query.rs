@@ -3,7 +3,6 @@ use crate::app::flags::FeatureFlags;
 use super::start_on_watchlist;
 
 #[test]
-#[ignore = "待 watchlist/qry_bookmarks 实现后激活"]
 fn bookmarks_list_shows_saved_series_and_opens_player() {
     let mut app = start_on_watchlist(FeatureFlags {
         watchlist_bookmarks: true,
