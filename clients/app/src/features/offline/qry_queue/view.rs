@@ -6,7 +6,8 @@ use super::super::store;
 use super::query::{
     self, TaskStatusTone, progress_detail_text, progress_ratio, queue_summary_text, state_badge,
 };
-use crate::ui::icons::{IconKind, icon};
+use crate::ui::icons::IconKind;
+use crate::ui::poster;
 use crate::ui::surface::{BadgeTone, badge, empty_state, progress_track};
 use crate::ui::token;
 
@@ -209,21 +210,5 @@ where
 }
 
 fn poster_thumb(cover_key: String) -> impl IntoElement {
-    view()
-        .w(px(46.0))
-        .h(px(62.0))
-        .flex_shrink_0()
-        .rounded(token::radius)
-        .bg(move || token::poster_surface(&cover_key))
-        .items_center()
-        .justify_center()
-        .child(
-            view()
-                .size(px(24.0))
-                .rounded_full()
-                .bg(token::cinema_scrim)
-                .items_center()
-                .justify_center()
-                .child(icon(IconKind::Download, 11.0, token::cinema_fg)),
-        )
+    poster::poster_thumb(cover_key, 46.0, 62.0, IconKind::Download, 24.0, 11.0)
 }

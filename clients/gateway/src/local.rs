@@ -22,6 +22,7 @@ use hg_runtime::catalog::upstream::{CatalogUpstream, EdgeCatalogUpstream};
 use hg_runtime::catalog::{cmd_playback_and_cache, qry_discovery, qry_series_detail};
 use hg_runtime::infra::clock::{Clock, SystemClock};
 use hg_runtime::infra::edge_crypto::EdgeHttpClient;
+use hg_runtime::infra::loopback_proxy::LoopbackProxyHandle;
 use hg_runtime::offline::fetcher::{HttpSegmentFetcher, OfflineSegmentFetcher};
 use hg_runtime::offline::{
     cmd_download_queue, cmd_offline_library, qry_download_queue, qry_offline_library,
@@ -284,7 +285,12 @@ impl Drop for LocalGateway {
 impl AppGateway for LocalGateway {
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
         let catalog = self.contexts.catalog.clone();
-        self.dispatch(async move { qry_discovery::home_feed(&catalog).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut feed = qry_discovery::home_feed(&catalog).await?;
+            rewrite_home_feed_covers(&loopback, &mut feed);
+            Ok(feed)
+        })
     }
 
     fn categories(&self) -> GatewayFuture<Vec<Category>> {
@@ -299,7 +305,12 @@ impl AppGateway for LocalGateway {
 
     fn list_series(&self, request: ListSeriesRequest) -> GatewayFuture<PagedResult<SeriesSummary>> {
         let catalog = self.contexts.catalog.clone();
-        self.dispatch(async move { qry_discovery::list_series(&catalog, request).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut page = qry_discovery::list_series(&catalog, request).await?;
+            rewrite_series_summaries(&loopback, &mut page.items);
+            Ok(page)
+        })
     }
 
     fn list_ranking(
@@ -307,7 +318,14 @@ impl AppGateway for LocalGateway {
         request: ListRankingRequest,
     ) -> GatewayFuture<PagedResult<RankingEntry>> {
         let catalog = self.contexts.catalog.clone();
-        self.dispatch(async move { qry_discovery::list_ranking(&catalog, request).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut page = qry_discovery::list_ranking(&catalog, request).await?;
+            for entry in &mut page.items {
+                entry.series.cover_url = loopback.cover_proxy_url(&entry.series.cover_url);
+            }
+            Ok(page)
+        })
     }
 
     fn search_series(
@@ -315,7 +333,12 @@ impl AppGateway for LocalGateway {
         request: SearchSeriesRequest,
     ) -> GatewayFuture<PagedResult<SeriesSummary>> {
         let catalog = self.contexts.catalog.clone();
-        self.dispatch(async move { qry_discovery::search_series(&catalog, request).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut page = qry_discovery::search_series(&catalog, request).await?;
+            rewrite_series_summaries(&loopback, &mut page.items);
+            Ok(page)
+        })
     }
 
     fn search_suggestions(&self, keyword: String) -> GatewayFuture<SearchSuggestion> {
@@ -335,7 +358,12 @@ impl AppGateway for LocalGateway {
 
     fn series_detail(&self, series_id: SeriesId) -> GatewayFuture<SeriesDetail> {
         let catalog = self.contexts.catalog.clone();
-        self.dispatch(async move { qry_series_detail::series_detail(&catalog, series_id).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut detail = qry_series_detail::series_detail(&catalog, series_id).await?;
+            detail.summary.cover_url = loopback.cover_proxy_url(&detail.summary.cover_url);
+            Ok(detail)
+        })
     }
 
     fn list_episode_comments(
@@ -387,7 +415,14 @@ impl AppGateway for LocalGateway {
 
     fn watch_history(&self) -> GatewayFuture<Vec<WatchHistoryEntry>> {
         let viewing = self.contexts.viewing.clone();
-        self.dispatch(async move { qry_watch_history::execute(&viewing).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut entries = qry_watch_history::execute(&viewing).await?;
+            for entry in &mut entries {
+                entry.cover_url = loopback.cover_proxy_url(&entry.cover_url);
+            }
+            Ok(entries)
+        })
     }
 
     fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
@@ -406,7 +441,14 @@ impl AppGateway for LocalGateway {
 
     fn bookmarks(&self) -> GatewayFuture<Vec<SeriesBookmark>> {
         let viewing = self.contexts.viewing.clone();
-        self.dispatch(async move { qry_watchlist_and_settings::bookmarks(&viewing).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut entries = qry_watchlist_and_settings::bookmarks(&viewing).await?;
+            for entry in &mut entries {
+                entry.cover_url = loopback.cover_proxy_url(&entry.cover_url);
+            }
+            Ok(entries)
+        })
     }
 
     fn is_bookmarked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
@@ -458,12 +500,26 @@ impl AppGateway for LocalGateway {
 
     fn offline_library(&self) -> GatewayFuture<Vec<OfflineSeriesView>> {
         let offline = self.contexts.offline.clone();
-        self.dispatch(async move { qry_offline_library::offline_library(&offline).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut items = qry_offline_library::offline_library(&offline).await?;
+            for item in &mut items {
+                item.cover_local_uri = loopback.cover_proxy_url(&item.cover_local_uri);
+            }
+            Ok(items)
+        })
     }
 
     fn download_tasks(&self) -> GatewayFuture<Vec<DownloadTaskView>> {
         let offline = self.contexts.offline.clone();
-        self.dispatch(async move { qry_download_queue::download_tasks(&offline).await })
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let mut tasks = qry_download_queue::download_tasks(&offline).await?;
+            for task in &mut tasks {
+                task.cover_url = loopback.cover_proxy_url(&task.cover_url);
+            }
+            Ok(tasks)
+        })
     }
 
     fn enqueue_episode_downloads(
@@ -512,5 +568,21 @@ impl AppGateway for LocalGateway {
         self.dispatch(
             async move { cmd_download_queue::update_download_policy(&offline, policy).await },
         )
+    }
+}
+
+fn rewrite_series_summaries(loopback: &LoopbackProxyHandle, items: &mut [SeriesSummary]) {
+    for item in items {
+        item.cover_url = loopback.cover_proxy_url(&item.cover_url);
+    }
+}
+
+fn rewrite_home_feed_covers(loopback: &LoopbackProxyHandle, feed: &mut HomeFeed) {
+    for banner in &mut feed.banners {
+        banner.image_url = loopback.cover_proxy_url(&banner.image_url);
+    }
+    rewrite_series_summaries(loopback, &mut feed.featured);
+    for section in &mut feed.category_recommendations {
+        rewrite_series_summaries(loopback, &mut section.items);
     }
 }

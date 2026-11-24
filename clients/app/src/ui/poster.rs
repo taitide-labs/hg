@@ -66,21 +66,74 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
         )
 }
 
+fn is_loadable_image_uri(uri: &str) -> bool {
+    uri.starts_with("http://") || uri.starts_with("https://") || uri.starts_with("file://")
+}
+
+fn cover_image_layer(cover_url: &str) -> Option<impl IntoElement + use<>> {
+    if !is_loadable_image_uri(cover_url) {
+        return None;
+    }
+    Some(
+        image(cover_url.to_owned())
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ResizeMode::Cover)
+            .fade_duration(120.0),
+    )
+}
+
+pub fn poster_thumb(
+    cover_url: String,
+    width: f32,
+    height: f32,
+    icon_kind: IconKind,
+    badge_size: f32,
+    icon_size: f32,
+) -> impl IntoElement {
+    let image_layer = cover_image_layer(&cover_url);
+    let cover_for_bg = cover_url;
+    view()
+        .w(px(width))
+        .h(px(height))
+        .flex_shrink_0()
+        .relative()
+        .overflow_hidden()
+        .rounded(token::radius)
+        .bg(move || token::poster_surface(&cover_for_bg))
+        .items_center()
+        .justify_center()
+        .children(image_layer)
+        .child(
+            view()
+                .size(px(badge_size))
+                .rounded_full()
+                .bg(token::cinema_scrim)
+                .items_center()
+                .justify_center()
+                .child(icon(icon_kind, icon_size, token::cinema_fg)),
+        )
+}
+
 fn poster_cover(
     cover_key: String,
     badge_text: Option<String>,
     score_text: String,
     episode_label: String,
 ) -> impl IntoElement {
+    let image_layer = cover_image_layer(&cover_key);
     let cover_for_bg = cover_key;
     view()
         .w_full()
         .h(px(224.0))
+        .relative()
         .rounded(token::radius)
         .overflow_hidden()
         .bg(move || token::poster_surface(&cover_for_bg))
         .p_2p5()
         .justify_between()
+        .children(image_layer)
         .child(
             view()
                 .flex_row()
@@ -151,6 +204,7 @@ pub fn ranking_compact_card(
     };
     let a11y = format!("{} {}", rank_label, props.title);
 
+    let image_layer = cover_image_layer(&cover_key);
     button()
         .on_press(on_press)
         .accessibility_label(a11y)
@@ -172,8 +226,11 @@ pub fn ranking_compact_card(
                 .w(px(46.0))
                 .h(px(62.0))
                 .flex_shrink_0()
+                .relative()
+                .overflow_hidden()
                 .rounded(token::radius)
-                .bg(move || token::poster_surface(&cover_key)),
+                .bg(move || token::poster_surface(&cover_key))
+                .children(image_layer),
         )
         .child(
             view()
@@ -205,6 +262,7 @@ pub fn ranking_list_row(
     };
     let a11y = format!("{} {}", rank_label, props.title);
 
+    let image_layer = cover_image_layer(&cover_key);
     button()
         .on_press(on_press)
         .accessibility_label(a11y)
@@ -227,8 +285,11 @@ pub fn ranking_list_row(
                 .w(px(48.0))
                 .h(px(64.0))
                 .flex_shrink_0()
+                .relative()
+                .overflow_hidden()
                 .rounded(token::radius)
-                .bg(move || token::poster_surface(&cover_key)),
+                .bg(move || token::poster_surface(&cover_key))
+                .children(image_layer),
         )
         .child(
             view()
