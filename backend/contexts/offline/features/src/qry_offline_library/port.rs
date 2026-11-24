@@ -4,7 +4,7 @@ use hg_contracts::ids::EpisodeKey;
 
 use crate::OfflineDeps;
 
-use super::query::FEATURE_NAME;
+use super::query::{FEATURE_NAME, find_committed_episode, total_offline_library_bytes};
 
 #[derive(Clone)]
 pub struct OfflineAssetQueryAdapter {
@@ -17,15 +17,13 @@ impl OfflineAssetQueryAdapter {
         Self { deps }
     }
 
-    fn disabled_or_stub(&self) -> PortError {
+    fn ensure_port_enabled(&self) -> Result<(), PortError> {
         if self.deps.flags.library_and_outbox {
-            PortError::InvalidState {
-                detail: format!("{FEATURE_NAME} 切片尚未实现"),
-            }
+            Ok(())
         } else {
-            PortError::InvalidState {
+            Err(PortError::InvalidState {
                 detail: format!("{FEATURE_NAME} 特性开关未开启"),
-            }
+            })
         }
     }
 }
@@ -33,14 +31,18 @@ impl OfflineAssetQueryAdapter {
 impl OfflineAssetQueryPort for OfflineAssetQueryAdapter {
     fn find_committed_episode(
         &self,
-        _key: EpisodeKey,
+        key: EpisodeKey,
     ) -> PortFuture<'_, Result<Option<CommittedOfflineAsset>, PortError>> {
-        let err = self.disabled_or_stub();
-        Box::pin(async move { Err(err) })
+        Box::pin(async move {
+            self.ensure_port_enabled()?;
+            find_committed_episode(self.deps.pool(), &self.deps.storage, key).await
+        })
     }
 
     fn total_offline_library_bytes(&self) -> PortFuture<'_, Result<u64, PortError>> {
-        let err = self.disabled_or_stub();
-        Box::pin(async move { Err(err) })
+        Box::pin(async move {
+            self.ensure_port_enabled()?;
+            total_offline_library_bytes(self.deps.pool()).await
+        })
     }
 }
