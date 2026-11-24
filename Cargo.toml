@@ -14,6 +14,7 @@ members = [
   "backend/contexts/viewing/domain",
   "backend/contexts/viewing/features",
   "backend/runtime",
+  "e2e",
 ]
 
 [workspace.package]
