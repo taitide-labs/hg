@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["backend/runtime"]
+members = ["contracts", "clients/gateway", "clients/app", "backend/runtime"]
 
 [workspace.package]
 version = "0.1.0"
