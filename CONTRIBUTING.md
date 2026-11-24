@@ -8,7 +8,7 @@
 
 ```sh
 mise install
-hk install --mise
+mise run hooks
 ```
 
 激活后，以下 Git Hooks 会自动生效：

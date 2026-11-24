@@ -2,6 +2,8 @@ amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.
 import "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Builtins.pkl"
 
 profiles = List("docs", "code")
+terminal_progress = false
+display_skip_reasons = List()
 
 steps {
   ["autocorrect"] {
