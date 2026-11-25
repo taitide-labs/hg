@@ -42,6 +42,14 @@ fn close_player_and_refresh() {
     spawn(crate::features::discover::parts::sync_watched_series());
 }
 
+fn open_search_tag_from_player(shell_owner: Owner, tag_name: String) {
+    nav::select_tab(PrimaryTab::Search);
+    shell_owner.run(move || {
+        crate::features::discover::qry_search::query::activate_tag(tag_name);
+        spawn(crate::features::discover::parts::sync_watched_series());
+    });
+}
+
 fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
     match subpage {
         DiscoverSubPage::Featured => BrowseKind::Featured,
@@ -124,13 +132,14 @@ pub fn app_shell() -> impl IntoElement {
                 .style_when(in_player, |s| s.hidden())
                 .child(main_chrome(effective_collapsed)),
         )
-        .child(when(in_player, || {
-            dynamic(|| match nav::active_player() {
+        .child(when(in_player, move || {
+            dynamic(move || match nav::active_player() {
                 Some(route) => pages::player::page::player_page(
                     route.series_id,
                     route.initial_episode,
                     close_player_and_refresh,
                     nav::set_chrome_fullscreen,
+                    move |tag_name| open_search_tag_from_player(shell_owner, tag_name),
                 )
                 .into_element(),
                 None => view().into_element(),

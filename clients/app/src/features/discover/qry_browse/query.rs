@@ -181,9 +181,9 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
                 };
                 apply_series_result(seq, initial, gw.list_series(req).await);
             }
-            BrowseKind::Tag { slug, .. } => {
+            BrowseKind::Tag { name, .. } => {
                 let req = ListSeriesRequest {
-                    filter: SeriesFilter::TagSlug { slug },
+                    filter: SeriesFilter::TagSlug { slug: name },
                     sort,
                     page,
                 };

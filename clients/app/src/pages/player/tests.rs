@@ -61,6 +61,7 @@ fn mount_player_with_spies(
             initial_episode,
             move || back_sink.with(|s| s.push(())),
             move |full| fs_sink.with(|s| s.push(full)),
+            |_| {},
         )
     };
     let mut app = if manual_clock {
@@ -416,7 +417,13 @@ fn android_system_back_closes_drawer_before_emitting_back_intent() {
     let sid = series_1001();
     let mut app = mount_mobile_page(gw, ColorScheme::Light, move || {
         let back_sink = stored(back_for_page.clone());
-        player_page(sid, None, move || back_sink.with(|s| s.push(())), |_| {})
+        player_page(
+            sid,
+            None,
+            move || back_sink.with(|s| s.push(())),
+            |_| {},
+            |_| {},
+        )
     });
 
     app.wait_for("详情视图").unwrap();

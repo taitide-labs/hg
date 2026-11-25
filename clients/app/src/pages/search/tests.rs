@@ -260,3 +260,25 @@ fn search_large_viewport_shows_exhausted_footer() {
     app.wait_for("分页剧目 30").unwrap();
     app.wait_for("已全部加载").unwrap();
 }
+
+#[test]
+fn search_tags_filter_using_chinese_tag_name_not_pinyin_slug() {
+    let gw = Arc::new(MockGateway::new().with_tag_groups(vec![TagGroup {
+        id: 9,
+        code: "theme".to_owned(),
+        name: "题材".to_owned(),
+        tags: vec![TagItem {
+            id: 99,
+            name: "都市".to_owned(),
+            slug: "urban-unmapped-slug".to_owned(),
+            is_hot: true,
+        }],
+    }]));
+    let mut app = start_on_search(gw, ColorScheme::Light);
+
+    app.press("都市 >> nth=0").unwrap();
+    app.wait_for("最热").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.wait_for("春风十里不及卿").unwrap();
+    assert!(!app.screen().shows("全 80 集"));
+}

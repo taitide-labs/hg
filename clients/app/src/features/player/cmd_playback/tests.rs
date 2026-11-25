@@ -770,6 +770,7 @@ impl nsh_core::element::Component for PlayerViewTickHarness {
                 props.initial_ep,
                 || {},
                 |_| {},
+                |_| {},
             ))
             .child(
                 nsh_base::button()

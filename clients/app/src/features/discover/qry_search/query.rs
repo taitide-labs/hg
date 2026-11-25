@@ -118,13 +118,22 @@ pub fn submit_keyword(raw: &str) {
 
 pub fn toggle_tag(slug: String, name: String) {
     let is_already_active = store::search_state().with_untracked(
-        |s| matches!(&s.target, Some(SearchTarget::Tag { slug: current, .. }) if *current == slug),
+        |s| matches!(&s.target, Some(SearchTarget::Tag { name: current, .. }) if *current == name),
     );
     if is_already_active {
         clear_results();
         return;
     }
 
+    select_tag_internal(slug, name);
+}
+
+pub fn activate_tag(name: String) {
+    store::search_input_signal().set(String::new());
+    select_tag_internal(name.clone(), name);
+}
+
+fn select_tag_internal(slug: String, name: String) {
     let mut seq = 0;
     let mut sort = SeriesSort::Hot;
     store::search_state().update(|s| {
@@ -250,9 +259,9 @@ fn fetch_search_page(
                 gw.search_series(SearchSeriesRequest { keyword, page })
                     .await
             }
-            SearchTarget::Tag { slug, .. } => {
+            SearchTarget::Tag { name, .. } => {
                 gw.list_series(ListSeriesRequest {
-                    filter: SeriesFilter::TagSlug { slug },
+                    filter: SeriesFilter::TagSlug { slug: name },
                     sort,
                     page,
                 })

@@ -326,16 +326,16 @@ fn tag_filter_strip(
         );
         for tag in group.tags.iter().take(limit) {
             let slug = tag.slug.clone();
-            let slug_for_active = slug.clone();
+            let name_for_active = tag.name.clone();
             let name = tag.name.clone();
             row = row.child(tag_chip_button(
                 tag.name.clone(),
                 move || {
-                    let s = slug_for_active.clone();
+                    let n = name_for_active.clone();
                     store::search_state().with(|st| {
                         matches!(
                             &st.target,
-                            Some(SearchTarget::Tag { slug: current, .. }) if current == &s
+                            Some(SearchTarget::Tag { name: current, .. }) if current == &n
                         )
                     })
                 },

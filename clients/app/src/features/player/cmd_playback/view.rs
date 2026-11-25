@@ -19,6 +19,7 @@ pub fn player_view(
     initial_episode: Option<EpisodeNumber>,
     on_back: impl Fn() + Copy + 'static,
     on_fullscreen_change: impl Fn(bool) + Copy + 'static,
+    on_select_tag: impl Fn(String) + Copy + 'static,
 ) -> impl IntoElement {
     let default_mode = if is_desktop() {
         PlaybackMode::Cinema
@@ -64,7 +65,7 @@ pub fn player_view(
                 .child(text("加载中...").text_sm().text_color(token::muted_fg))
                 .into_element(),
             PlayerSurfaceKey::Regular { fullscreen } => {
-                regular_layout(fullscreen, on_back, toggle_fs).into_element()
+                regular_layout(fullscreen, on_back, toggle_fs, on_select_tag).into_element()
             }
             PlayerSurfaceKey::VerticalImmersive => {
                 vertical_immersive_layout(on_back).into_element()
@@ -110,6 +111,7 @@ fn regular_layout(
     fullscreen: bool,
     on_back: impl Fn() + Copy + 'static,
     on_toggle_fullscreen: impl Fn() + Copy + 'static,
+    on_select_tag: impl Fn(String) + Copy + 'static,
 ) -> impl IntoElement {
     let enter = token::fade_enter();
     if fullscreen {
@@ -141,7 +143,7 @@ fn regular_layout(
                     .child(video_surface_box(false, on_back, on_toggle_fullscreen))
                     .child(desktop_action_row()),
             )
-            .child(desktop_info_feed())
+            .child(desktop_info_feed(on_select_tag))
             .into_element()
     } else {
         view()
@@ -157,7 +159,7 @@ fn regular_layout(
                     .flex_shrink_0()
                     .child(video_surface_box(true, on_back, on_toggle_fullscreen)),
             )
-            .child(mobile_detail_sheet())
+            .child(mobile_detail_sheet(on_select_tag))
             .into_element()
     }
 }
