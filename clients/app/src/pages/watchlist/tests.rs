@@ -1,7 +1,5 @@
 mod bookmarks_query;
 mod bookmarks_remove;
-mod history_query;
-mod history_remove;
 
 use std::sync::Arc;
 

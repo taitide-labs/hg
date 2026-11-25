@@ -1,8 +1,8 @@
-use hg_contracts::catalog::{HotKeyword, RankingEntry, RankingKind, TagGroup};
+use hg_contracts::catalog::{HotKeyword, RankingEntry, RankingKind, SeriesSort, TagGroup};
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
-use super::super::parts::series_grid;
+use super::super::parts::{pagination_footer, series_grid};
 use super::super::store::{self, BrowseKind, RankingTab};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button, app_icon_text_button};
@@ -13,11 +13,14 @@ use crate::ui::surface::empty_state;
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
+const INFINITE_SCROLL_THRESHOLD_PX: f32 = 240.0;
+
 pub fn browse_view(
     initial_kind: BrowseKind,
     on_back: impl Fn() + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
+    let page_owner = Owner::current();
     let is_search_mode = matches!(
         initial_kind,
         BrowseKind::Search { .. } | BrowseKind::Tag { .. }
@@ -28,19 +31,43 @@ pub fn browse_view(
     query::load_browse(initial_kind);
     let search_sig = store::search_input_signal();
     let is_ranking = computed(|| matches!(store::browse_snapshot().kind, BrowseKind::Ranking(_)));
+    let is_sortable = computed(|| {
+        matches!(
+            store::browse_snapshot().kind,
+            BrowseKind::Featured | BrowseKind::Category { .. } | BrowseKind::Tag { .. }
+        )
+    });
 
-    scroll().flex_1().child(
-        view()
-            .p_6()
-            .gap_5()
-            .pb_safe_area_plus(px(24.0))
-            .child(browse_header(is_search_mode, search_sig, on_back))
-            .children(is_search_mode.then(|| dynamic(browse_filters_panel)))
-            .children((!is_search_mode).then(move || when(move || is_ranking.get(), ranking_tabs)))
-            .child(dynamic(move || {
-                browse_results_panel(on_back, on_open_series)
-            })),
-    )
+    scroll()
+        .flex_1()
+        .on_scroll(move |e: &ScrollEvent| {
+            if e.content_size.height > px(0.0)
+                && e.offset.y + e.size.height
+                    >= e.content_size.height - px(INFINITE_SCROLL_THRESHOLD_PX)
+            {
+                page_owner.run(query::load_next_browse_page);
+            }
+        })
+        .child(
+            view()
+                .w_full()
+                .p_6()
+                .gap_5()
+                .pb_safe_area_plus(px(24.0))
+                .child(browse_header(is_search_mode, search_sig, on_back))
+                .children(is_search_mode.then(|| dynamic(browse_filters_panel)))
+                .child(when(move || is_ranking.get(), ranking_tabs))
+                .child(when(move || is_sortable.get(), sort_tabs))
+                .child(dynamic(move || {
+                    browse_results_panel(on_back, on_open_series)
+                }))
+                .child(dynamic(move || {
+                    let snap = store::browse_snapshot();
+                    pagination_footer(snap.loading_more, snap.load_more_error, move || {
+                        page_owner.run(query::load_next_browse_page);
+                    })
+                })),
+        )
 }
 
 fn browse_filters_panel() -> impl IntoElement {
@@ -141,6 +168,15 @@ fn title_bar() -> impl IntoElement {
     .text_color(token::fg)
 }
 
+fn sort_tabs() -> impl IntoElement {
+    let tabs = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最新")];
+    segmented_tabs(
+        tabs,
+        move || store::browse_snapshot().sort,
+        query::switch_sort,
+    )
+}
+
 fn ranking_tabs() -> impl IntoElement {
     let active = store::ranking_tab_signal();
     let tabs = vec![
@@ -219,7 +255,7 @@ fn ranking_list(
             .into_element();
     }
 
-    let mut list = view().gap_2p5();
+    let mut list = view().w_full().gap_2p5();
     for entry in entries {
         let id = entry.series.id;
         let meta = format!(

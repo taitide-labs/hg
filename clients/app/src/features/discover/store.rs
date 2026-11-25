@@ -1,6 +1,8 @@
 use hg_contracts::catalog::{
-    Category, HomeFeed, HotKeyword, RankingEntry, RankingKind, SeriesSummary, TagGroup,
+    Category, HomeFeed, HotKeyword, RankingEntry, RankingKind, SeriesSort, SeriesSummary, TagGroup,
 };
+use hg_contracts::ids::PageInfo;
+use hg_contracts::viewing::SearchHistoryEntry;
 use nsh_core::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -50,6 +52,12 @@ pub enum BrowseKind {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchTarget {
+    Keyword(String),
+    Tag { slug: String, name: String },
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DiscoverHomeState {
     pub feed: Option<HomeFeed>,
@@ -65,13 +73,66 @@ pub struct BrowseMetaState {
     pub hot_keywords: Vec<HotKeyword>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DiscoverBrowseState {
     pub kind: BrowseKind,
+    pub sort: SeriesSort,
     pub items: Vec<SeriesSummary>,
     pub ranking_items: Vec<RankingEntry>,
+    pub pagination: Option<PageInfo>,
     pub loading: bool,
+    pub loading_more: bool,
     pub error: Option<String>,
+    pub load_more_error: Option<String>,
+    pub request_seq: u64,
+}
+
+impl Default for DiscoverBrowseState {
+    fn default() -> Self {
+        Self {
+            kind: BrowseKind::default(),
+            sort: SeriesSort::Hot,
+            items: Vec::new(),
+            ranking_items: Vec::new(),
+            pagination: None,
+            loading: false,
+            loading_more: false,
+            error: None,
+            load_more_error: None,
+            request_seq: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DiscoverSearchState {
+    pub target: Option<SearchTarget>,
+    pub sort: SeriesSort,
+    pub items: Vec<SeriesSummary>,
+    pub pagination: Option<PageInfo>,
+    pub history: Vec<SearchHistoryEntry>,
+    pub loading: bool,
+    pub loading_more: bool,
+    pub error: Option<String>,
+    pub load_more_error: Option<String>,
+    pub request_seq: u64,
+}
+
+impl Default for DiscoverSearchState {
+    fn default() -> Self {
+        Self {
+            target: None,
+            sort: SeriesSort::Hot,
+            items: Vec::new(),
+            pagination: None,
+            history: Vec::new(),
+            loading: false,
+            loading_more: false,
+            error: None,
+            load_more_error: None,
+            request_seq: 0,
+        }
+    }
 }
 
 fn home_state() -> Signal<DiscoverHomeState> {
@@ -82,8 +143,12 @@ fn browse_meta_state() -> Signal<BrowseMetaState> {
     global::<BrowseMetaState>()
 }
 
-fn browse_state() -> Signal<DiscoverBrowseState> {
+pub(crate) fn browse_state() -> Signal<DiscoverBrowseState> {
     global::<DiscoverBrowseState>()
+}
+
+pub(crate) fn search_state() -> Signal<DiscoverSearchState> {
+    global::<DiscoverSearchState>()
 }
 
 #[must_use]
@@ -99,6 +164,11 @@ pub fn browse_meta_snapshot() -> BrowseMetaState {
 #[must_use]
 pub fn browse_snapshot() -> DiscoverBrowseState {
     browse_state().get()
+}
+
+#[must_use]
+pub fn search_snapshot() -> DiscoverSearchState {
+    search_state().get()
 }
 
 #[must_use]
@@ -135,45 +205,9 @@ pub fn set_home_error(message: String) {
     });
 }
 
-pub fn set_browse_loading(kind: BrowseKind) {
-    if let BrowseKind::Ranking(rk) = &kind {
-        ranking_tab_signal().set(RankingTab::from(*rk));
-    }
-    browse_state().update(|s| {
-        s.kind = kind;
-        s.loading = true;
-        s.error = None;
-    });
-}
-
-pub fn set_browse_series(items: Vec<SeriesSummary>) {
-    browse_state().update(|s| {
-        s.items = items;
-        s.ranking_items.clear();
-        s.loading = false;
-        s.error = None;
-    });
-}
-
-pub fn set_browse_rankings(items: Vec<RankingEntry>) {
-    browse_state().update(|s| {
-        s.ranking_items = items;
-        s.items.clear();
-        s.loading = false;
-        s.error = None;
-    });
-}
-
 pub fn set_browse_meta(tag_groups: Vec<TagGroup>, hot_keywords: Vec<HotKeyword>) {
     browse_meta_state().update(|s| {
         s.tag_groups = tag_groups;
         s.hot_keywords = hot_keywords;
-    });
-}
-
-pub fn set_browse_error(message: String) {
-    browse_state().update(|s| {
-        s.loading = false;
-        s.error = Some(message);
     });
 }

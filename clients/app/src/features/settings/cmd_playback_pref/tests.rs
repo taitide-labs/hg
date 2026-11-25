@@ -2,7 +2,7 @@ use std::sync::{Arc, OnceLock};
 
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::StreamProfile;
-use hg_contracts::viewing::PlaybackPreference;
+use hg_contracts::viewing::{AppAppearance, PlaybackPreference};
 use hg_gateway::contract::AppGateway;
 use hg_gateway::mock::MockGateway;
 use nsh_core::prelude::*;
@@ -10,7 +10,8 @@ use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Root, Size}
 use nsh_testing::Headless;
 
 use super::command::{
-    AppearanceOption, normalize_rate_hundredths, with_default_rate, with_preferred_profile,
+    AppearanceOption, clamp_sidebar_width, normalize_rate_hundredths, with_appearance,
+    with_default_rate, with_preferred_profile, with_sidebar,
 };
 use super::view::playback_pref_section;
 use crate::gateway;
@@ -69,6 +70,16 @@ fn playback_preference_updates_profile_and_rate_preserving_cache_limit() {
 
     assert_eq!(normalize_rate_hundredths(999), 100);
     assert_eq!(normalize_rate_hundredths(125), 125);
+
+    let updated_appearance = with_appearance(updated_rate, AppAppearance::Dark);
+    assert_eq!(updated_appearance.appearance, AppAppearance::Dark);
+    assert_eq!(updated_appearance.default_rate_hundredths, 150);
+
+    let updated_sidebar = with_sidebar(updated_appearance, true, 400);
+    assert!(updated_sidebar.sidebar_collapsed);
+    assert_eq!(updated_sidebar.sidebar_width, 320);
+    assert_eq!(clamp_sidebar_width(80), 160);
+    assert_eq!(clamp_sidebar_width(240), 240);
 }
 
 #[test]
@@ -93,6 +104,7 @@ fn profile_and_default_rate_persist_through_gateway() {
     let saved = futures_blocking_pref(gw.as_ref());
     assert_eq!(saved.preferred_profile, StreamProfile::Main);
     assert_eq!(saved.default_rate_hundredths, 150);
+    assert_eq!(saved.appearance, AppAppearance::Dark);
 }
 
 #[test]

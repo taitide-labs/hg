@@ -1,6 +1,6 @@
 use hg_contracts::ids::EpisodeKey;
 use hg_contracts::offline::{
-    ControlAllDownloadsAction, ControlDownloadAction, ControlDownloadRequest, DownloadTaskState,
+    ControlAllDownloadsAction, ControlDownloadAction, ControlDownloadRequest,
 };
 use nsh_core::prelude::*;
 
@@ -17,16 +17,8 @@ pub fn control_all(action: ControlAllDownloadsAction) {
                     command::apply_bulk_control(&mut s.tasks, action);
                     s.error = None;
                 });
-                if let Ok(mut tasks) = gw.download_tasks().await {
-                    tasks.retain(|t| {
-                        !matches!(
-                            t.state,
-                            DownloadTaskState::Completed | DownloadTaskState::Cancelled
-                        )
-                    });
-                    store::state().update(|s| {
-                        s.tasks = tasks;
-                    });
+                if let Ok(tasks) = gw.download_tasks().await {
+                    store::set_queue_loaded(tasks);
                 }
             }
             Err(err) => {
@@ -50,16 +42,8 @@ pub fn control_task(key: EpisodeKey, action: ControlDownloadAction) {
                     command::apply_single_control(&mut s.tasks, key, action);
                     s.error = None;
                 });
-                if let Ok(mut tasks) = gw.download_tasks().await {
-                    tasks.retain(|t| {
-                        !matches!(
-                            t.state,
-                            DownloadTaskState::Completed | DownloadTaskState::Cancelled
-                        )
-                    });
-                    store::state().update(|s| {
-                        s.tasks = tasks;
-                    });
+                if let Ok(tasks) = gw.download_tasks().await {
+                    store::set_queue_loaded(tasks);
                 }
             }
             Err(err) => {

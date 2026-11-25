@@ -293,7 +293,14 @@ async fn load_episode_internal(series_id: SeriesId, ep_num: EpisodeNumber, seq: 
     }
     let gw = gateway::current();
     let key = EpisodeKey::new(series_id, ep_num);
-    match gw.prepare_episode_playback(key).await {
+    let Some(req_seq) = store::begin_comments_load_if_seq(seq) else {
+        return;
+    };
+    let playback_fut = gw.prepare_episode_playback(key);
+    let comments_fut = gw.list_episode_comments(comments_request(series_id, ep_num, 1));
+    let playback_res = playback_fut.await;
+    let comments_res = comments_fut.await;
+    match playback_res {
         Ok(source) => {
             if !store::set_source_if_seq(seq, ep_num, source) {
                 return;
@@ -304,9 +311,7 @@ async fn load_episode_internal(series_id: SeriesId, ep_num: EpisodeNumber, seq: 
             return;
         }
     }
-    let req_seq = store::begin_comments_load();
-    let req = comments_request(series_id, ep_num, 1);
-    match gw.list_episode_comments(req).await {
+    match comments_res {
         Ok(comments) => {
             store::apply_comments_loaded(seq, req_seq, comments.items, comments.pagination);
         }

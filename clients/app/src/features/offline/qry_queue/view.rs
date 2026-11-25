@@ -22,7 +22,6 @@ where
     query::load_queue();
     view()
         .w_full()
-        .gap_3()
         .child(dynamic(move || queue_body(header_action, task_action)))
 }
 
@@ -41,6 +40,7 @@ where
     if snap.error.is_some() && snap.tasks.is_empty() {
         return view()
             .w_full()
+            .pb_6()
             .gap_3()
             .child(header)
             .child(empty_state(
@@ -52,42 +52,18 @@ where
             .into_element();
     }
 
-    if snap.loading_queue && snap.tasks.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(
-                view().py_6().items_center().child(
-                    text("正在加载下载队列...")
-                        .text_sm()
-                        .text_color(token::muted_fg),
-                ),
-            )
-            .into_element();
-    }
-
     if snap.tasks.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(empty_state(
-                IconKind::Download,
-                "暂无进行中的下载任务",
-                "在播放页点击离线下载后，可在此查看分片进度",
-                None,
-            ))
-            .into_element();
+        return view().into_element();
     }
 
     let mut list = view().w_full().gap_2p5();
-    for (index, task) in snap.tasks.into_iter().enumerate() {
-        list = list.child(task_row(index, task, task_action));
+    for task in snap.tasks {
+        list = list.child(task_row(task, task_action));
     }
 
     view()
         .w_full()
+        .pb_6()
         .gap_3()
         .child(header)
         .child(list)
@@ -114,7 +90,7 @@ where
                 .items_baseline()
                 .gap_3()
                 .child(
-                    text("下载任务队列")
+                    text("下载中")
                         .role(AccessibilityRole::Header)
                         .text_base()
                         .font_weight(FontWeight::SEMIBOLD)
@@ -140,14 +116,12 @@ fn map_tone(tone: TaskStatusTone) -> BadgeTone {
 }
 
 fn task_row<R>(
-    index: usize,
     task: DownloadTaskView,
     task_action: impl Fn(EpisodeKey, DownloadTaskState) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
 {
-    let enter = token::stagger_enter(index);
     let key = task.key;
     let state = task.state;
     let (state_label, tone) = state_badge(state);
@@ -155,7 +129,6 @@ where
     let detail = progress_detail_text(state, task.profile);
 
     view()
-        .bind_motion(&enter)
         .w_full()
         .p_3()
         .rounded(token::radius_card)

@@ -1,10 +1,10 @@
 use std::time::Duration;
 
-use super::start_on_watchlist;
+use super::start_on_history;
 
 #[test]
 fn removing_and_clearing_watch_history_updates_list() {
-    let mut app = start_on_watchlist();
+    let mut app = start_on_history();
 
     app.wait_for("长安暗夜行").unwrap();
     app.press("移除 长安暗夜行 观看记录").unwrap();

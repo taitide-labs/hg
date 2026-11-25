@@ -1,38 +1,70 @@
 use hg_contracts::catalog::RankingKind;
 use nsh_core::prelude::*;
 
-use crate::app::nav::{self, DiscoverSubPage, PrimaryTab};
+use crate::app::nav::{self, DiscoverSubPage, PrimaryTab, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH};
 use crate::features::discover::store::BrowseKind;
+use crate::features::settings;
 use crate::pages;
 use crate::ui::button::{
-    ButtonVariant, ControlSize, app_icon_button, app_icon_text_button, mobile_tab_button,
-    sidebar_nav_button,
+    ButtonVariant, ControlSize, app_icon_button, app_icon_text_button,
+    sidebar_nav_button_collapsible,
 };
+use crate::ui::controls::{mobile_nav_drawer, sidebar_resize_handle, sidebar_toggle_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::{desktop_title_bar, is_desktop};
 use crate::ui::surface::separator;
 use crate::ui::token;
+
+const COLLAPSED_SIDEBAR_WIDTH: f32 = 60.0;
+
+const PRIMARY_NAV_ITEMS: &[(PrimaryTab, IconKind, &str)] = &[
+    (PrimaryTab::Discover, IconKind::Discover, "发现"),
+    (PrimaryTab::Search, IconKind::Search, "搜索"),
+    (PrimaryTab::Watchlist, IconKind::Bookmark, "追剧"),
+    (PrimaryTab::History, IconKind::Clock, "历史"),
+    (PrimaryTab::Offline, IconKind::Download, "离线"),
+];
+
+fn tab_title(tab: PrimaryTab) -> &'static str {
+    match tab {
+        PrimaryTab::Discover => "发现",
+        PrimaryTab::Search => "搜索",
+        PrimaryTab::Watchlist => "追剧",
+        PrimaryTab::History => "历史",
+        PrimaryTab::Offline => "离线",
+        PrimaryTab::Settings => "设置",
+    }
+}
 
 fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
     match subpage {
         DiscoverSubPage::Featured => BrowseKind::Featured,
         DiscoverSubPage::Ranking => BrowseKind::Ranking(RankingKind::Hot),
         DiscoverSubPage::Category { id, name, route } => BrowseKind::Category { id, name, route },
-        DiscoverSubPage::Search { query } => BrowseKind::Search { query },
     }
 }
 
-fn browse_to_subpage(kind: BrowseKind) -> DiscoverSubPage {
+fn open_browse_from_discover(kind: BrowseKind) {
     match kind {
-        BrowseKind::Featured => DiscoverSubPage::Featured,
-        BrowseKind::Ranking(_) => DiscoverSubPage::Ranking,
-        BrowseKind::Category { id, name, route } => DiscoverSubPage::Category { id, name, route },
-        BrowseKind::Search { query } => DiscoverSubPage::Search { query },
-        BrowseKind::Tag { name, .. } => DiscoverSubPage::Search { query: name },
+        BrowseKind::Featured => nav::open_discover_subpage(DiscoverSubPage::Featured),
+        BrowseKind::Ranking(_) => nav::open_discover_subpage(DiscoverSubPage::Ranking),
+        BrowseKind::Category { id, name, route } => {
+            nav::open_discover_subpage(DiscoverSubPage::Category { id, name, route });
+        }
+        BrowseKind::Search { .. } | BrowseKind::Tag { .. } => nav::select_tab(PrimaryTab::Search),
     }
+}
+
+fn toggle_and_persist_sidebar(owner: Owner) {
+    let next_collapsed = nav::toggle_sidebar_collapsed();
+    let width = nav::sidebar_width().round() as u16;
+    owner.run(|| {
+        settings::cmd_playback_pref::handler::persist_sidebar_state(next_collapsed, width);
+    });
 }
 
 pub fn app_shell() -> impl IntoElement {
+    let shell_owner = Owner::current();
     let in_player = || nav::active_player().is_some();
     let show_title_bar = || is_desktop() && !nav::is_chrome_fullscreen();
 
@@ -50,11 +82,20 @@ pub fn app_shell() -> impl IntoElement {
                         nav::close_player,
                     )
                 })
-                .otherwise(|| {
-                    text("HG")
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(token::fg)
+                .otherwise(move || {
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(sidebar_toggle_button(nav::sidebar_collapsed, move || {
+                            toggle_and_persist_sidebar(shell_owner);
+                        }))
+                        .child(
+                            text("HG")
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(token::fg),
+                        )
                 }),
                 view(),
             )
@@ -86,124 +127,162 @@ fn main_chrome() -> impl IntoElement {
             .child(active_tab_content())
             .into_element()
     } else {
+        let drawer_open = signal(false);
+        on_back_press(|| {
+            if nav::active_discover_subpage().is_some() {
+                nav::close_discover_subpage();
+                true
+            } else {
+                false
+            }
+        });
         view()
             .flex_1()
             .min_h_0()
-            .child(mobile_header())
+            .child(mobile_header(drawer_open))
             .child(active_tab_content())
-            .child(mobile_bottom_bar())
+            .child(mobile_nav_drawer(
+                move || drawer_open.get(),
+                move |next| drawer_open.set(next),
+                nav_menu_column(
+                    || false,
+                    move |tab| {
+                        nav::select_tab(tab);
+                        drawer_open.set(false);
+                    },
+                ),
+            ))
             .into_element()
     }
 }
 
-fn desktop_sidebar() -> impl IntoElement {
+fn nav_menu_column(
+    collapsed: impl Fn() -> bool + Copy + 'static,
+    on_select: impl Fn(PrimaryTab) + Copy + 'static,
+) -> impl IntoElement {
+    let mut upper = view().gap_1();
+    for &(tab, icon_kind, label) in PRIMARY_NAV_ITEMS {
+        upper = upper.child(sidebar_nav_button_collapsible(
+            icon_kind,
+            label,
+            move || nav::current_tab() == tab,
+            false,
+            collapsed,
+            move || on_select(tab),
+        ));
+    }
+
     view()
-        .w(px(208.0))
+        .flex_1()
+        .w_full()
+        .justify_between()
+        .child(upper)
+        .child(
+            view()
+                .gap_2()
+                .child(separator())
+                .child(sidebar_nav_button_collapsible(
+                    IconKind::Settings,
+                    "设置",
+                    || nav::current_tab() == PrimaryTab::Settings,
+                    true,
+                    collapsed,
+                    move || on_select(PrimaryTab::Settings),
+                )),
+        )
+}
+
+fn desktop_sidebar() -> impl IntoElement {
+    let drag_base = stored(None::<f32>);
+
+    view()
+        .w(move || {
+            if nav::sidebar_collapsed() {
+                px(COLLAPSED_SIDEBAR_WIDTH)
+            } else {
+                px(nav::sidebar_width())
+            }
+        })
         .flex_shrink_0()
         .h_full()
         .bg(token::sidebar)
         .border_r_1()
         .border_color(token::sidebar_border)
         .p_3()
-        .justify_between()
-        .child(
-            view()
-                .gap_1()
-                .child(sidebar_nav_button(
-                    IconKind::Discover,
-                    "发现",
-                    || nav::current_tab() == PrimaryTab::Discover,
-                    false,
-                    || nav::select_tab(PrimaryTab::Discover),
-                ))
-                .child(sidebar_nav_button(
-                    IconKind::Bookmark,
-                    "追剧",
-                    || nav::current_tab() == PrimaryTab::Watchlist,
-                    false,
-                    || nav::select_tab(PrimaryTab::Watchlist),
-                ))
-                .child(sidebar_nav_button(
-                    IconKind::Download,
-                    "离线",
-                    || nav::current_tab() == PrimaryTab::Offline,
-                    false,
-                    || nav::select_tab(PrimaryTab::Offline),
-                )),
-        )
-        .child(view().gap_2().child(separator()).child(sidebar_nav_button(
-            IconKind::Settings,
-            "设置",
-            || nav::current_tab() == PrimaryTab::Settings,
-            true,
-            || nav::select_tab(PrimaryTab::Settings),
-        )))
+        .style_when(nav::sidebar_collapsed, |s| s.px_2())
+        .child(nav_menu_column(nav::sidebar_collapsed, nav::select_tab))
+        .child(when(
+            move || !nav::sidebar_collapsed(),
+            move || {
+                sidebar_resize_handle(
+                    move |delta| {
+                        let base = match drag_base.get() {
+                            Some(b) => b,
+                            None => {
+                                let cur = nav::sidebar_width();
+                                drag_base.replace(Some(cur));
+                                cur
+                            }
+                        };
+                        nav::set_sidebar_width(base + delta);
+                    },
+                    move |delta| {
+                        let base = drag_base.replace(None).unwrap_or_else(nav::sidebar_width);
+                        let final_w = (base + delta).clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH);
+                        nav::set_sidebar_width(final_w);
+                        settings::cmd_playback_pref::handler::persist_sidebar_state(
+                            nav::sidebar_collapsed(),
+                            final_w.round() as u16,
+                        );
+                    },
+                )
+            },
+        ))
 }
 
-fn mobile_header() -> impl IntoElement {
+fn mobile_header(drawer_open: Signal<bool>) -> impl IntoElement {
     view()
         .w_full()
         .flex_shrink_0()
         .pt_safe_area_plus(px(8.0))
         .pb_2()
-        .px_4()
+        .px_3()
         .flex_row()
         .items_center()
         .justify_between()
         .bg(token::bg)
         .border_b_1()
         .border_color(token::border)
-        .child(
-            text(move || match nav::current_tab() {
-                PrimaryTab::Discover => "发现",
-                PrimaryTab::Watchlist => "追剧",
-                PrimaryTab::Offline => "离线",
-                PrimaryTab::Settings => "设置",
-            })
-            .text_lg()
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(token::fg),
-        )
         .child(app_icon_button(
-            IconKind::Settings,
-            "设置",
+            IconKind::Menu,
+            "打开导航菜单",
             ButtonVariant::Ghost,
             ControlSize::Md,
-            || nav::select_tab(PrimaryTab::Settings),
+            move || drawer_open.set(true),
         ))
-}
-
-fn mobile_bottom_bar() -> impl IntoElement {
-    view()
-        .w_full()
-        .flex_shrink_0()
-        .px_3()
-        .pt_1p5()
-        .pb_safe_area_plus(px(6.0))
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .bg(token::card)
-        .border_t_1()
-        .border_color(token::border)
-        .child(mobile_tab_button(
-            IconKind::Discover,
-            "发现",
-            || nav::current_tab() == PrimaryTab::Discover,
-            || nav::select_tab(PrimaryTab::Discover),
-        ))
-        .child(mobile_tab_button(
-            IconKind::Bookmark,
-            "追剧",
-            || nav::current_tab() == PrimaryTab::Watchlist,
-            || nav::select_tab(PrimaryTab::Watchlist),
-        ))
-        .child(mobile_tab_button(
-            IconKind::Download,
-            "离线",
-            || nav::current_tab() == PrimaryTab::Offline,
-            || nav::select_tab(PrimaryTab::Offline),
-        ))
+        .child(
+            view().flex_1().items_center().justify_center().child(
+                text(move || tab_title(nav::current_tab()))
+                    .text_lg()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(token::fg),
+            ),
+        )
+        .child(
+            when(
+                || nav::current_tab() != PrimaryTab::Search,
+                || {
+                    app_icon_button(
+                        IconKind::Search,
+                        "前往搜索",
+                        ButtonVariant::Ghost,
+                        ControlSize::Md,
+                        || nav::select_tab(PrimaryTab::Search),
+                    )
+                },
+            )
+            .otherwise(|| view().size(px(34.0))),
+        )
 }
 
 fn active_tab_content() -> impl IntoElement {
@@ -214,13 +293,19 @@ fn active_tab_content() -> impl IntoElement {
         .child(dynamic(|| match nav::current_tab() {
             PrimaryTab::Discover => pages::discover::page::discover_page(
                 || nav::active_discover_subpage().map(subpage_to_browse),
-                |kind| nav::open_discover_subpage(browse_to_subpage(kind)),
+                open_browse_from_discover,
                 nav::close_discover_subpage,
                 |id| nav::open_player(id, None),
             )
             .into_element(),
+            PrimaryTab::Search => {
+                pages::search::page::search_page(|id| nav::open_player(id, None)).into_element()
+            }
             PrimaryTab::Watchlist => {
                 pages::watchlist::page::watchlist_page(nav::open_player).into_element()
+            }
+            PrimaryTab::History => {
+                pages::history::page::history_page(nav::open_player).into_element()
             }
             PrimaryTab::Offline => {
                 pages::offline::page::offline_page(nav::open_player).into_element()

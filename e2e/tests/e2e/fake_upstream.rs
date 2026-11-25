@@ -644,22 +644,22 @@ fn dispatch_api_route(method: &str, path_with_query: &str, base_url: &str) -> (u
         ("GET", "/api/tags") => (200, tags_payload()),
         ("GET", "/api/search/hot") => (200, hot_keywords_payload()),
         ("GET", "/api/search/tags/hot") => (200, hot_tags_payload()),
-        ("GET", "/api/videos") => (200, paged_videos_payload(base_url, None)),
+        ("GET", "/api/videos") => (200, paged_videos_payload(base_url, query, None)),
         ("GET", "/api/search") => {
             let keyword = extract_query_param(query, "q")
                 .map(|raw| percent_decode(&raw))
                 .unwrap_or_default();
-            (200, paged_videos_payload(base_url, Some(&keyword)))
+            (200, paged_videos_payload(base_url, query, Some(&keyword)))
         }
         ("GET", "/api/videos/101") => (200, series_101_detail_payload(base_url)),
         ("GET", "/api/videos/102") => (200, series_102_detail_payload(base_url)),
-        ("GET", "/api/videos/101/comments") => (200, comments_101_payload()),
+        ("GET", "/api/videos/101/comments") => (200, comments_101_payload(query)),
         ("GET", "/api/videos/101/comments/5001/replies") => (200, replies_5001_payload()),
         ("GET", p) if p.starts_with("/api/ranks/") => (200, ranking_payload(base_url)),
         ("GET", p)
             if p.starts_with("/api/videos/category/") || p.starts_with("/api/videos/tag/") =>
         {
-            (200, paged_videos_payload(base_url, None))
+            (200, paged_videos_payload(base_url, query, None))
         }
         ("POST", p) if p.starts_with("/api/videos/") && p.ends_with("/playback") => {
             dispatch_playback_route(p, base_url)
@@ -796,9 +796,44 @@ fn hot_tags_payload() -> Value {
     })
 }
 
-fn paged_videos_payload(base_url: &str, keyword: Option<&str>) -> Value {
-    let all = [series_101_summary(base_url), series_102_summary(base_url)];
-    let items: Vec<Value> = match keyword {
+fn paged_videos_payload(base_url: &str, query: &str, keyword: Option<&str>) -> Value {
+    let page = extract_query_param(query, "page")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(1)
+        .max(1);
+    let size = extract_query_param(query, "size")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(24)
+        .max(1);
+    let sort = extract_query_param(query, "sort").unwrap_or_else(|| "hot".to_owned());
+
+    let mut all = if sort == "new" {
+        vec![series_102_summary(base_url), series_101_summary(base_url)]
+    } else {
+        vec![series_101_summary(base_url), series_102_summary(base_url)]
+    };
+
+    if keyword.is_none() {
+        for idx in 3..=26_u64 {
+            all.push(json!({
+                "id": 100 + idx,
+                "title": if idx <= 24 {
+                    format!("第1页剧目-{idx}")
+                } else {
+                    format!("第2页剧目-{idx}")
+                },
+                "cover": format!("{base_url}/covers/101.png"),
+                "hot": 50_000_u64.saturating_sub(idx * 100),
+                "score": 8.5,
+                "tags": ["悬疑"],
+                "desc": "用于验证滚动分页的扩展剧目。",
+                "episode_count": 10,
+                "is_finished": true
+            }));
+        }
+    }
+
+    let filtered: Vec<Value> = match keyword {
         Some(q) if !q.trim().is_empty() => all
             .into_iter()
             .filter(|item| {
@@ -806,18 +841,23 @@ fn paged_videos_payload(base_url: &str, keyword: Option<&str>) -> Value {
                 title.contains(q.trim())
             })
             .collect(),
-        _ => all.into_iter().collect(),
+        _ => all,
     };
-    let total = items.len();
+
+    let total = filtered.len();
+    let pages = total.div_ceil(size).max(1);
+    let start = page.saturating_sub(1).saturating_mul(size);
+    let page_items: Vec<Value> = filtered.into_iter().skip(start).take(size).collect();
+
     json!({
         "status": 1,
         "msg": "ok",
         "data": {
-            "items": items,
+            "items": page_items,
             "pagination": {
-                "page": 1,
-                "pages": 1,
-                "size": 24,
+                "page": page,
+                "pages": pages,
+                "size": size,
                 "total": total
             }
         }
@@ -875,12 +915,12 @@ fn series_102_detail_payload(base_url: &str) -> Value {
         "data": {
             "id": 102,
             "title": "星辰暗涌",
-            "description": "第二部用于验证搜索过滤的对比剧目。",
+            "description": "第二部用于验证搜索过滤与上游 total_episodes=0 兜底的对比剧目。",
             "cover": format!("{base_url}/covers/102.png"),
             "score": 8.9,
             "is_finished": false,
-            "episode_count": 2,
-            "total_episodes": 2,
+            "episode_count": 0,
+            "total_episodes": 0,
             "tags": ["都市"],
             "counts": { "hot": 88000, "like": 60, "collect": 30, "comment": 0 },
             "episodes": [
@@ -891,35 +931,85 @@ fn series_102_detail_payload(base_url: &str) -> Value {
     })
 }
 
-fn comments_101_payload() -> Value {
+fn comments_101_payload(query: &str) -> Value {
+    let page = extract_query_param(query, "page")
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1)
+        .max(1);
+
+    let items: Vec<Value> = if page == 1 {
+        let mut list = vec![json!({
+            "id": 5001,
+            "nickname": "林深见鹿",
+            "avatar_color": "#3b82f6",
+            "text": "第一集节奏很紧凑",
+            "time": "5分钟前",
+            "like_count": 12,
+            "is_pinned": true,
+            "ip_region": "浙江",
+            "reply_count": 2,
+            "preview_replies": [{
+                "id": 6001,
+                "nickname": "南风知意",
+                "avatar_color": "#10b981",
+                "text": "同感，伏笔很多",
+                "time": "2分钟前",
+                "like_count": 3
+            }]
+        })];
+        for idx in 2..=20_u64 {
+            list.push(json!({
+                "id": 5000 + idx,
+                "nickname": format!("首屏观众{idx}"),
+                "avatar_color": "#64748b",
+                "text": format!("第1页评论内容 {idx}"),
+                "time": "10分钟前",
+                "like_count": idx,
+                "is_pinned": false,
+                "reply_count": 0,
+                "preview_replies": []
+            }));
+        }
+        list
+    } else if page == 2 {
+        vec![
+            json!({
+                "id": 5021,
+                "nickname": "二页评论作者",
+                "avatar_color": "#ec4899",
+                "text": "第二页滚动加载出的评论",
+                "time": "1小时前",
+                "like_count": 5,
+                "is_pinned": false,
+                "reply_count": 0,
+                "preview_replies": []
+            }),
+            json!({
+                "id": 5022,
+                "nickname": "尾页观众",
+                "avatar_color": "#8b5cf6",
+                "text": "最后一条评论",
+                "time": "2小时前",
+                "like_count": 1,
+                "is_pinned": false,
+                "reply_count": 0,
+                "preview_replies": []
+            }),
+        ]
+    } else {
+        Vec::new()
+    };
+
     json!({
         "status": 1,
         "msg": "ok",
         "data": {
-            "items": [{
-                "id": 5001,
-                "nickname": "林深见鹿",
-                "avatar_color": "#3b82f6",
-                "text": "第一集节奏很紧凑",
-                "time": "5分钟前",
-                "like_count": 12,
-                "is_pinned": true,
-                "ip_region": "浙江",
-                "reply_count": 2,
-                "preview_replies": [{
-                    "id": 6001,
-                    "nickname": "南风知意",
-                    "avatar_color": "#10b981",
-                    "text": "同感，伏笔很多",
-                    "time": "2分钟前",
-                    "like_count": 3
-                }]
-            }],
+            "items": items,
             "pagination": {
-                "page": 1,
-                "pages": 1,
+                "page": page,
+                "pages": 2,
                 "size": 20,
-                "total": 1
+                "total": 22
             }
         }
     })

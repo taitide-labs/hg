@@ -3,8 +3,9 @@ use nsh_core::prelude::*;
 use super::super::store;
 use super::command::CONCURRENCY_PRESETS;
 use super::handler;
+use crate::ui::controls::{setting_row, toggle_switch};
 use crate::ui::icons::IconKind;
-use crate::ui::surface::{empty_state, section_header, separator, toggle_switch_row};
+use crate::ui::surface::{empty_state, section_header, separator};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
@@ -75,55 +76,21 @@ fn loaded_policy_card() -> impl IntoElement {
                     .text_color(token::destructive)
             },
         ))
-        .child(
-            view()
-                .w_full()
-                .gap_1()
-                .child(toggle_switch_row(
-                    "仅 Wi-Fi 下载",
-                    wifi_only,
-                    false,
-                    handler::toggle_wifi_only,
-                ))
-                .child(
-                    text("开启后仅在 Wi-Fi 网络下执行离线缓存与队列下载")
-                        .text_xs()
-                        .text_color(token::muted_fg)
-                        .px_2p5(),
-                ),
-        )
+        .child(setting_row(
+            "仅 Wi-Fi 下载",
+            "开启后仅在 Wi-Fi 网络下执行离线缓存与队列下载",
+            toggle_switch(wifi_only, "仅 Wi-Fi 下载", handler::toggle_wifi_only),
+        ))
         .child(separator())
-        .child(
-            view()
-                .w_full()
-                .flex_row()
-                .flex_wrap()
-                .items_center()
-                .justify_between()
-                .gap_4()
-                .child(
-                    view()
-                        .flex_1()
-                        .min_w(px(200.0))
-                        .gap_0p5()
-                        .child(
-                            text("最大并发下载任务数")
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(token::card_fg),
-                        )
-                        .child(
-                            text("控制同时进行的离线分集下载任务数量上限")
-                                .text_xs()
-                                .text_color(token::muted_fg),
-                        ),
-                )
-                .child(segmented_tabs(
-                    CONCURRENCY_PRESETS.to_vec(),
-                    handler::selected_concurrency,
-                    handler::select_max_concurrent,
-                )),
-        )
+        .child(setting_row(
+            "最大并发下载任务数",
+            "控制同时进行的离线分集下载任务数量上限",
+            segmented_tabs(
+                CONCURRENCY_PRESETS.to_vec(),
+                handler::selected_concurrency,
+                handler::select_max_concurrent,
+            ),
+        ))
 }
 
 fn settings_card() -> View {

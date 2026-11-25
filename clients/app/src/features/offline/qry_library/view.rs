@@ -59,7 +59,7 @@ where
             .into_element();
     }
 
-    if snap.loading_library && snap.library.is_empty() {
+    if !snap.has_loaded_library && snap.loading_library && snap.library.is_empty() {
         return view()
             .w_full()
             .gap_3()
@@ -75,22 +75,36 @@ where
     }
 
     if snap.library.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(empty_state(
+        let empty = if snap.tasks.is_empty() {
+            empty_state(
                 IconKind::Download,
                 "暂无离线剧集",
                 "在播放页选择分集离线下载后，可在此断网观看",
                 None,
-            ))
+            )
+            .into_element()
+        } else {
+            view()
+                .py_6()
+                .items_center()
+                .child(
+                    text("暂无已下载剧集，下载完成后将自动归档至此")
+                        .text_sm()
+                        .text_color(token::muted_fg),
+                )
+                .into_element()
+        };
+        return view()
+            .w_full()
+            .gap_3()
+            .child(header)
+            .child(empty)
             .into_element();
     }
 
     let mut list = view().w_full().gap_2p5();
-    for (index, series) in snap.library.into_iter().enumerate() {
-        list = list.child(series_row(index, series, on_open_series, series_action));
+    for series in snap.library {
+        list = list.child(series_row(series, on_open_series, series_action));
     }
 
     view()
@@ -109,11 +123,16 @@ fn section_header_row(summary: Option<String>) -> impl IntoElement {
         .justify_between()
         .gap_3()
         .child(
-            text("托管离线片库")
-                .role(AccessibilityRole::Header)
-                .text_base()
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(token::fg),
+            view()
+                .gap_0p5()
+                .child(
+                    text("已下载")
+                        .role(AccessibilityRole::Header)
+                        .text_base()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(token::fg),
+                )
+                .child(text("托管离线片库").text_xs().text_color(token::muted_fg)),
         )
         .children(summary.map(|label| {
             text(label)
@@ -124,7 +143,6 @@ fn section_header_row(summary: Option<String>) -> impl IntoElement {
 }
 
 fn series_row<R>(
-    index: usize,
     series: OfflineSeriesView,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
@@ -132,7 +150,6 @@ fn series_row<R>(
 where
     R: IntoElement + 'static,
 {
-    let enter = token::stagger_enter(index);
     let series_id = series.series_id;
     let first_ep = first_downloaded_episode(&series);
     let title = series.title.clone();
@@ -168,7 +185,6 @@ where
         .child(series_meta(series.title, stats, episodes_preview));
 
     view()
-        .bind_motion(&enter)
         .w_full()
         .rounded(token::radius_card)
         .bg(token::card)

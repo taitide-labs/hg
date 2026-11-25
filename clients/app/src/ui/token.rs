@@ -116,7 +116,7 @@ pub fn sidebar_border() -> AdaptiveColor {
 
 #[must_use]
 pub fn brand_soft() -> AdaptiveColor {
-    color_or("brand-soft", theme().secondary)
+    color_or("brand-soft", theme().primary.opacity(0.14))
 }
 
 #[must_use]

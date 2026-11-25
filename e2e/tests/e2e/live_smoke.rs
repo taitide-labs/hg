@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::num::{NonZeroU16, NonZeroU32};
 
-use hg_runtime::catalog::upstream::{CatalogUpstream as _, EdgeCatalogUpstream};
-use hg_runtime::infra::clock::SystemClock;
-use hg_runtime::infra::edge_crypto::{EdgeChannelScope, EdgeHttpClient};
-use serde_json::{Value, json};
+use hg_contracts::catalog::{ListSeriesRequest, SeriesFilter, SeriesSort};
+use hg_contracts::ids::{EpisodeKey, EpisodeNumber, PageRequest};
+use hg_gateway::contract::AppGateway as _;
+use hg_gateway::local::{LocalGateway, LocalGatewayConfig};
 
 #[expect(
     clippy::disallowed_methods,
@@ -16,96 +16,89 @@ fn resolve_live_base_url() -> String {
         .unwrap_or_else(|| hg_gateway::local::DEFAULT_UPSTREAM_BASE_URL.to_owned())
 }
 
-fn extract_first_series_id(home_json: &Value) -> Option<u64> {
-    let data = home_json.get("data")?;
-    for key in ["featured", "banners"] {
-        if let Some(id) = data
-            .get(key)
-            .and_then(Value::as_array)
-            .and_then(|arr| arr.first())
-            .and_then(|item| {
-                item.get("id")
-                    .or_else(|| item.get("video_id"))
-                    .or_else(|| item.get("series_id"))
-            })
-            .and_then(Value::as_u64)
-        {
-            return Some(id);
-        }
-    }
-    data.get("cate_rec")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|rec| rec.get("videos").or_else(|| rec.get("items")))
-        .filter_map(Value::as_array)
-        .flatten()
-        .find_map(|item| {
-            item.get("id")
-                .or_else(|| item.get("video_id"))
-                .or_else(|| item.get("series_id"))
-                .and_then(Value::as_u64)
-        })
+fn page_req(page: u32, size: u16) -> PageRequest {
+    PageRequest::new(
+        NonZeroU32::new(page).unwrap_or(NonZeroU32::MIN),
+        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
+    )
 }
 
-#[tokio::test]
+#[test]
 #[ignore = "live upstream smoke test"]
-async fn live_upstream_catalog_detail_and_playback_smoke() {
+fn live_upstream_catalog_detail_and_playback_smoke() {
     let base_url = resolve_live_base_url();
-    let clock = Arc::new(SystemClock);
-    let edge_client = EdgeHttpClient::new(&base_url, clock)
-        .unwrap_or_else(|err| panic!("初始化实网边缘客户端失败（base_url={base_url}）: {err}"));
-    let upstream = EdgeCatalogUpstream::new(edge_client);
+    let temp = tempfile::tempdir().expect("create live smoke tempdir");
+    let data_root = temp.path().join("data");
+    let config = LocalGatewayConfig {
+        db_path: data_root.join("hg.sqlite"),
+        data_root,
+        cache_root: temp.path().join("cache"),
+        upstream_base_url: base_url.clone(),
+    };
+    let gateway = LocalGateway::open_with_config(&config)
+        .unwrap_or_else(|err| panic!("初始化实网 LocalGateway 失败（base_url={base_url}）: {err}"));
+    let rt = tokio::runtime::Runtime::new().expect("create tokio runtime");
 
-    let home = upstream
-        .request_json(EdgeChannelScope::Dynamic, "GET", "/api/home", None)
-        .await
-        .unwrap_or_else(|err| {
-            panic!(
-                "实网冒烟请求 /api/home 失败（base_url={base_url}，若当前环境无外网连通性或上游限流属外部环境诊断）: {err}"
-            )
-        });
-
-    let series_id = extract_first_series_id(&home).unwrap_or_else(|| {
-        panic!("实网 /api/home 响应未包含可用剧目 ID: {home}");
-    });
-
-    let detail_path = format!("/api/videos/{series_id}");
-    let detail = upstream
-        .request_json(EdgeChannelScope::Dynamic, "GET", &detail_path, None)
-        .await
-        .unwrap_or_else(|err| {
-            panic!("实网冒烟请求 {detail_path} 失败（base_url={base_url}）: {err}")
-        });
+    let feed = rt
+        .block_on(gateway.home_feed())
+        .unwrap_or_else(|err| panic!("实网 home_feed 失败（base_url={base_url}）: {err}"));
     assert!(
-        detail.get("data").and_then(|d| d.get("title")).is_some(),
-        "实网剧目详情缺少 title 字段: {detail}"
+        !feed.featured.is_empty(),
+        "实网精选推荐不应为空（base_url={base_url}）"
     );
 
-    let playback_path = format!("/api/videos/{series_id}/episodes/1/playback");
-    let playback = upstream
-        .request_json(
-            EdgeChannelScope::Playback,
-            "POST",
-            &playback_path,
-            Some(&json!({})),
-        )
-        .await
-        .unwrap_or_else(|err| {
-            panic!("实网冒烟请求 POST {playback_path} 失败（base_url={base_url}）: {err}")
-        });
+    for summary in &feed.featured {
+        let detail = rt
+            .block_on(gateway.series_detail(summary.id))
+            .unwrap_or_else(|err| panic!("实网剧目详情 {} 失败: {err}", summary.id));
+        assert!(
+            !detail.episodes.is_empty(),
+            "实网剧目 {} 剧集列表不应为空",
+            summary.id
+        );
+        assert!(
+            detail.total_episodes as usize >= detail.episodes.len(),
+            "实网剧目 {} total_episodes={} 小于 episodes.len()={}",
+            summary.id,
+            detail.total_episodes,
+            detail.episodes.len()
+        );
+    }
 
-    let has_stream = playback
-        .get("data")
-        .and_then(|d| d.get("streams"))
-        .and_then(Value::as_object)
-        .is_some_and(|streams| {
-            ["hevc", "main", "preview"].into_iter().any(|k| {
-                streams
-                    .get(k)
-                    .and_then(Value::as_str)
-                    .is_some_and(|url| !url.trim().is_empty())
-            })
-        });
-    assert!(has_stream, "实网 playback 响应缺少有效流地址: {playback}");
+    for sort in [SeriesSort::Hot, SeriesSort::New] {
+        let page1 = rt
+            .block_on(gateway.list_series(ListSeriesRequest {
+                filter: SeriesFilter::All { category_id: None },
+                sort,
+                page: page_req(1, 24),
+            }))
+            .unwrap_or_else(|err| panic!("实网列表 {sort:?} 第1页失败: {err}"));
+        let page2 = rt
+            .block_on(gateway.list_series(ListSeriesRequest {
+                filter: SeriesFilter::All { category_id: None },
+                sort,
+                page: page_req(2, 24),
+            }))
+            .unwrap_or_else(|err| panic!("实网列表 {sort:?} 第2页失败: {err}"));
+        assert!(!page1.items.is_empty(), "实网列表 {sort:?} 第1页为空");
+        assert!(!page2.items.is_empty(), "实网列表 {sort:?} 第2页为空");
+        assert_ne!(
+            page1.items.first().map(|item| item.id),
+            page2.items.first().map(|item| item.id),
+            "实网列表 {sort:?} 第1页与第2页首项重复"
+        );
+    }
+
+    let first_id = feed.featured.first().expect("featured non-empty").id;
+    let playback = rt
+        .block_on(gateway.prepare_episode_playback(EpisodeKey::new(
+            first_id,
+            EpisodeNumber::new(NonZeroU32::MIN),
+        )))
+        .unwrap_or_else(|err| panic!("实网起播 {first_id} 第1集失败: {err}"));
+    assert!(
+        playback.playable_uri.starts_with("http://127.0.0.1:"),
+        "实网起播应走回环代理: {}",
+        playback.playable_uri
+    );
 }

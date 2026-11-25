@@ -321,7 +321,10 @@ pub fn set_source_if_seq(seq: u64, ep_num: EpisodeNumber, source: PlaybackSource
     applied
 }
 
-pub fn begin_comments_load() -> u64 {
+pub fn begin_comments_load_if_seq(episode_seq: u64) -> Option<u64> {
+    if current_episode_seq() != episode_seq {
+        return None;
+    }
     let mut req_seq = 0;
     comments_state().update(|c| {
         req_seq = c.request_seq.wrapping_add(1).max(1);
@@ -336,7 +339,7 @@ pub fn begin_comments_load() -> u64 {
             request_seq: req_seq,
         };
     });
-    req_seq
+    Some(req_seq)
 }
 
 pub fn begin_comments_load_more() -> Option<(u64, u32)> {

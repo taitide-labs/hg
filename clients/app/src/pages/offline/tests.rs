@@ -1,3 +1,4 @@
+mod empty_queue;
 mod library_delete;
 mod library_query;
 mod queue_control;

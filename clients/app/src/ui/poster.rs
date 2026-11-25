@@ -16,7 +16,6 @@ pub struct SeriesCardProps {
 }
 
 pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> impl IntoElement {
-    let enter = token::stagger_enter(props.index);
     let cover_key = props.cover_url;
     let score_text = format!("{:.1}", props.score);
     let badge_text = props.badge_text;
@@ -27,8 +26,8 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
     button()
         .on_press(on_press)
         .accessibility_label(title.clone())
-        .bind_motion(&enter)
-        .w(px(176.0))
+        .w_full()
+        .min_w_0()
         .gap_2()
         .p_2()
         .rounded(token::radius_card)
@@ -54,15 +53,23 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
         ))
         .child(
             view()
+                .w_full()
+                .min_w_0()
                 .px_0p5()
                 .gap_0p5()
                 .child(
                     text(title)
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(token::card_fg),
+                        .text_color(token::card_fg)
+                        .truncate(),
                 )
-                .child(text(subtitle).text_xs().text_color(token::muted_fg)),
+                .child(
+                    text(subtitle)
+                        .text_xs()
+                        .text_color(token::muted_fg)
+                        .truncate(),
+                ),
         )
 }
 
@@ -126,7 +133,7 @@ fn poster_cover(
     let cover_for_bg = cover_key;
     view()
         .w_full()
-        .h(px(224.0))
+        .aspect_ratio(160.0 / 224.0)
         .relative()
         .rounded(token::radius)
         .overflow_hidden()
@@ -208,7 +215,8 @@ pub fn ranking_compact_card(
     button()
         .on_press(on_press)
         .accessibility_label(a11y)
-        .w(px(230.0))
+        .w_full()
+        .min_w_0()
         .p_3()
         .rounded(token::radius_card)
         .bg(token::card)
