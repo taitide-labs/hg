@@ -484,3 +484,32 @@ fn watched_episodes_show_distinct_color_from_unwatched_and_current() {
         "episode 2 must switch to watched color after playback"
     );
 }
+
+#[test]
+fn background_lifecycle_keeps_playback_running() {
+    let (_gw, mut app, _back, _fullscreen) = mount_player_with_spies(
+        Arc::new(MockGateway::new()),
+        ColorScheme::Dark,
+        Some(episode_num(1)),
+        true,
+    );
+
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+
+    app.set_environment("setLifecycle(background)", |e| {
+        e.lifecycle = nsh_core::platform::Lifecycle::Background;
+    })
+    .unwrap();
+    app.fast_forward(Duration::from_secs(5)).unwrap();
+    assert!(
+        !app.screen().shows("倍速"),
+        "entering background lifecycle must not force-pause playback and lock controls visible"
+    );
+
+    emit_video_progress(&mut app, 20, 120);
+    app.fast_forward(Duration::from_millis(50)).unwrap();
+    app.press("视频画面").unwrap();
+    app.press("视频画面").unwrap();
+    app.wait_for("text:/00:20 \\/ 02:00/").unwrap();
+}

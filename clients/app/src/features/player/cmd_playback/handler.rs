@@ -304,10 +304,6 @@ pub fn cleanup_on_exit() {
     store::pause_and_cancel_loads();
 }
 
-pub fn pause_on_background() {
-    store::set_paused(true);
-}
-
 fn report_progress_async(
     series_id: SeriesId,
     ep_num: EpisodeNumber,

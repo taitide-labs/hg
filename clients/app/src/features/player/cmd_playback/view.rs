@@ -12,7 +12,7 @@ use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::surface::empty_state;
 use crate::ui::token;
-use crate::ui::video_surface::{bind_lifecycle_pause, scrub_slider, video_surface};
+use crate::ui::video_surface::{scrub_slider, video_surface};
 
 pub fn player_view(
     series_id: SeriesId,
@@ -27,7 +27,6 @@ pub fn player_view(
     };
     handler::open_series(series_id, initial_episode, default_mode);
     cleanup(handler::cleanup_on_exit);
-    bind_lifecycle_pause(handler::pause_on_background);
 
     let toggle_fs = move || {
         let next = store::toggle_fullscreen();

@@ -7,7 +7,6 @@ use hg_native_player::VIDEO_PLAYER_COMPONENT_NAME;
 use nsh_base::{SliderValue, slider};
 #[cfg(not(target_os = "android"))]
 use nsh_core::JsonValue;
-use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
 
 use crate::ui::token;
@@ -183,15 +182,6 @@ pub fn bind_auto_hide_timer(
         if seq > 0 && !keep {
             let handle = set_timeout(delay, on_hide);
             *pending.borrow_mut() = Some(handle);
-        }
-    });
-}
-
-pub fn bind_lifecycle_pause(on_pause: impl Fn() + Copy + 'static) {
-    let current = computed(lifecycle);
-    effect(move || {
-        if current.get() == Lifecycle::Background {
-            on_pause();
         }
     });
 }

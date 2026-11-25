@@ -536,13 +536,6 @@ pub fn set_aspect(aspect: AspectPreset) {
     });
 }
 
-pub fn set_paused(paused: bool) {
-    let currently_paused = controls_state().with_untracked(|c| c.paused);
-    if currently_paused != paused {
-        controls_state().update(|c| c.paused = paused);
-    }
-}
-
 pub fn toggle_paused() {
     controls_state().update(|c| c.paused = !c.paused);
 }
