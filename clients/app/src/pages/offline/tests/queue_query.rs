@@ -7,10 +7,8 @@ use hg_contracts::offline::DownloadTaskState;
 use hg_gateway::mock::MockGateway;
 use nsh_engine::ColorScheme;
 
-use super::start_on_offline;
-use crate::pages::tests::{
-    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, start_desktop_manual_clock,
-};
+use super::{start_on_offline, start_on_offline_manual_clock};
+use crate::pages::tests::{DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport};
 
 #[test]
 fn download_queue_sits_above_library_in_single_page_layout() {
@@ -29,10 +27,8 @@ fn download_queue_sits_above_library_in_single_page_layout() {
 
 #[test]
 fn downloading_tasks_auto_refresh_progress_and_completion_while_staying_on_offline_page() {
-    let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_manual_clock(Arc::clone(&gw), ColorScheme::Light);
-    app.wait_for("精选推荐").unwrap();
-    app.press("离线").unwrap();
+    let (gw, mut app) =
+        start_on_offline_manual_clock(Arc::new(MockGateway::new()), ColorScheme::Light);
     app.wait_for("text:/14\\/24/").unwrap();
 
     let key = EpisodeKey::new(

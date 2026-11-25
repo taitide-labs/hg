@@ -8,8 +8,8 @@ use super::{start_on_watchlist, start_on_watchlist_with};
 use crate::pages::tests::{DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport};
 
 #[test]
-fn bookmarks_list_layout_shows_saved_series_and_opens_player() {
-    let (_gw, mut app) = start_on_watchlist();
+fn bookmarks_list_layout_shows_saved_series_and_emits_open_intent() {
+    let (_gw, mut app, opened) = start_on_watchlist();
 
     app.wait_for("我的追剧").unwrap();
     assert!(!app.screen().shows("最近观看"));
@@ -20,13 +20,17 @@ fn bookmarks_list_layout_shows_saved_series_and_opens_player() {
     assert_above(&app, "云端之上：千金归来", "雾港七日");
 
     app.press("雾港七日 >> nth=0").unwrap();
-    app.wait_for("选集 (1/36)").unwrap();
+    let emitted = opened
+        .last()
+        .expect("pressing bookmark must emit open intent");
+    assert_eq!(emitted.0.get(), 1005);
+    assert_eq!(emitted.1, None);
 }
 
 #[test]
 fn empty_bookmarks_shows_empty_state() {
     let gw = Arc::new(MockGateway::new().with_empty_bookmarks());
-    let (_gw, mut app) = start_on_watchlist_with(gw, ColorScheme::Dark);
+    let (_gw, mut app, _opened) = start_on_watchlist_with(gw, ColorScheme::Dark);
 
     app.wait_for("暂无追剧收藏").unwrap();
 }
@@ -40,7 +44,7 @@ fn bookmarks_error_recovers_on_retry() {
             detail: "bookmarks down".to_owned(),
         }),
     );
-    let (_gw, mut app) = start_on_watchlist_with(Arc::clone(&gw), ColorScheme::Light);
+    let (_gw, mut app, _opened) = start_on_watchlist_with(Arc::clone(&gw), ColorScheme::Light);
     app.wait_for("追剧收藏加载失败").unwrap();
 
     gw.inject_method_error("bookmarks", None);

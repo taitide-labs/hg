@@ -1,8 +1,11 @@
+use std::sync::Arc;
 use std::time::Duration;
 
+use hg_gateway::mock::MockGateway;
+use nsh_engine::ColorScheme;
 use nsh_testing::DialogAnswer;
 
-use super::start_on_offline;
+use super::{start_on_offline, start_on_offline_with_spy};
 
 #[test]
 fn deleting_offline_series_requires_confirmation_and_removes_assets() {
@@ -31,7 +34,8 @@ fn deleting_offline_series_requires_confirmation_and_removes_assets() {
 
 #[test]
 fn offline_episodes_modal_displays_total_episodes_color_codes_downloaded_and_supports_actions() {
-    let (gw, mut app) = start_on_offline();
+    let (gw, mut app, opened) =
+        start_on_offline_with_spy(Arc::new(MockGateway::new()), ColorScheme::Light);
 
     app.wait_for("label:管理 云端之上：千金归来 离线分集")
         .unwrap();
@@ -79,5 +83,9 @@ fn offline_episodes_modal_displays_total_episodes_color_codes_downloaded_and_sup
 
     app.press("完成").unwrap();
     app.press("label:播放 云端之上：千金归来 第 1 集").unwrap();
-    app.wait_for("选集 (1/68)").unwrap();
+    let emitted = opened
+        .last()
+        .expect("pressing downloaded episode must emit open intent");
+    assert_eq!(emitted.0.get(), 1001);
+    assert_eq!(emitted.1.map(|ep| ep.get()), Some(1));
 }

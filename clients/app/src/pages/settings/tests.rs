@@ -9,7 +9,8 @@ use hg_gateway::mock::MockGateway;
 use nsh_engine::ColorScheme;
 use nsh_testing::Headless;
 
-use crate::pages::tests::start_desktop_on_home;
+use crate::pages::settings::page::settings_page;
+use crate::pages::tests::mount_desktop_page;
 
 pub(super) fn start_on_settings() -> (Arc<MockGateway>, Headless) {
     start_on_settings_with(Arc::new(MockGateway::new()), ColorScheme::Light)
@@ -19,7 +20,6 @@ pub(super) fn start_on_settings_with(
     gw: Arc<MockGateway>,
     scheme: ColorScheme,
 ) -> (Arc<MockGateway>, Headless) {
-    let mut app = start_desktop_on_home(Arc::clone(&gw), scheme);
-    app.press("设置").unwrap();
+    let app = mount_desktop_page(Arc::clone(&gw), scheme, settings_page);
     (gw, app)
 }

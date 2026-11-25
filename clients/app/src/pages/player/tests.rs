@@ -9,14 +9,25 @@ use hg_contracts::ids::{EpisodeNumber, SeriesId};
 use hg_contracts::viewing::PlaybackPreference;
 use hg_gateway::mock::MockGateway;
 use nsh_core::geometry::point;
+use nsh_core::prelude::stored;
 use nsh_engine::{ColorScheme, Points};
 use nsh_testing::Headless;
 
+use crate::pages::player::page::player_page;
 use crate::pages::tests::{
-    DESKTOP_VIEWPORT, assert_above, assert_left_of, assert_node_stable, assert_same_height,
-    assert_visible_in_viewport, emit_video_ended, emit_video_error, emit_video_progress,
-    node_bounds, start_desktop, start_desktop_manual_clock, start_mobile,
+    DESKTOP_VIEWPORT, EventSpy, assert_above, assert_left_of, assert_node_stable,
+    assert_same_height, assert_visible_in_viewport, emit_video_ended, emit_video_error,
+    emit_video_progress, mount_desktop_page, mount_desktop_page_manual_clock, mount_mobile_page,
+    node_bounds,
 };
+
+fn series_1001() -> SeriesId {
+    SeriesId::new(NonZeroU64::new(1001).unwrap())
+}
+
+fn episode_num(ep: u32) -> EpisodeNumber {
+    EpisodeNumber::new(NonZeroU32::new(ep).unwrap())
+}
 
 pub(super) fn start_and_open_first_series(scheme: ColorScheme) -> (Arc<MockGateway>, Headless) {
     start_with_gateway(Arc::new(MockGateway::new()), scheme)
@@ -26,13 +37,40 @@ pub(super) fn start_with_gateway(
     gw: Arc<MockGateway>,
     scheme: ColorScheme,
 ) -> (Arc<MockGateway>, Headless) {
-    let mut app = start_desktop(Arc::clone(&gw), scheme);
-    app.wait_for("云端之上：千金归来").unwrap();
-    app.press("云端之上：千金归来 >> nth=0").unwrap();
-    app.wait_for("选集 (3/68)").unwrap();
-    app.press("1").unwrap();
-    app.wait_for("选集 (1/68)").unwrap();
+    let (gw, app, _back, _fullscreen) =
+        mount_player_with_spies(gw, scheme, Some(episode_num(1)), false);
     (gw, app)
+}
+
+fn mount_player_with_spies(
+    gw: Arc<MockGateway>,
+    scheme: ColorScheme,
+    initial_episode: Option<EpisodeNumber>,
+    manual_clock: bool,
+) -> (Arc<MockGateway>, Headless, EventSpy<()>, EventSpy<bool>) {
+    let back_spy = EventSpy::default();
+    let fullscreen_spy = EventSpy::default();
+    let back_for_page = back_spy.clone();
+    let fs_for_page = fullscreen_spy.clone();
+    let sid = series_1001();
+    let build = move || {
+        let back_sink = stored(back_for_page.clone());
+        let fs_sink = stored(fs_for_page.clone());
+        player_page(
+            sid,
+            initial_episode,
+            move || back_sink.with(|s| s.push(())),
+            move |full| fs_sink.with(|s| s.push(full)),
+        )
+    };
+    let mut app = if manual_clock {
+        mount_desktop_page_manual_clock(Arc::clone(&gw), scheme, build)
+    } else {
+        mount_desktop_page(Arc::clone(&gw), scheme, build)
+    };
+    let expected_ep = initial_episode.map_or(3, EpisodeNumber::get);
+    app.wait_for(&format!("选集 ({expected_ep}/68)")).unwrap();
+    (gw, app, back_spy, fullscreen_spy)
 }
 
 #[test]
@@ -187,8 +225,13 @@ fn player_native_video_error_surfaces_feedback() {
 }
 
 #[test]
-fn true_fullscreen_and_vertical_view_hide_chrome_and_restore_cleanly() {
-    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Light);
+fn true_fullscreen_and_vertical_view_hide_feed_and_notify_shell() {
+    let (_gw, mut app, _back, fullscreen) = mount_player_with_spies(
+        Arc::new(MockGateway::new()),
+        ColorScheme::Light,
+        Some(episode_num(1)),
+        false,
+    );
 
     app.hover("视频画面").unwrap();
     app.wait_for("倍速").unwrap();
@@ -197,9 +240,11 @@ fn true_fullscreen_and_vertical_view_hide_chrome_and_restore_cleanly() {
         .unwrap();
     app.wait_for_gone("离线下载", Duration::from_secs(2))
         .unwrap();
+    assert_eq!(fullscreen.snapshot().last().copied(), Some(true));
 
     app.press_key("enter").unwrap();
     app.wait_for("选集 (1/68)").unwrap();
+    assert_eq!(fullscreen.snapshot().last().copied(), Some(false));
 
     app.hover("视频画面").unwrap();
     app.press("竖屏视图").unwrap();
@@ -244,11 +289,8 @@ fn bookmark_button_toggles_red_brand_style_and_gateway_state() {
 
 #[test]
 fn bottom_control_bar_auto_fades_via_manual_clock_even_during_ticks() {
-    let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_manual_clock(gw, ColorScheme::Dark);
-    app.wait_for("云端之上：千金归来").unwrap();
-    app.press("云端之上：千金归来 >> nth=0").unwrap();
-    app.wait_for("选集 (3/68)").unwrap();
+    let (_gw, mut app, _back, _fullscreen) =
+        mount_player_with_spies(Arc::new(MockGateway::new()), ColorScheme::Dark, None, true);
 
     assert!(!app.screen().shows("倍速"));
     app.hover("视频画面").unwrap();
@@ -327,11 +369,8 @@ fn player_control_bar_icons_and_rate_trigger_have_balanced_proportions() {
 
 #[test]
 fn double_clicking_video_canvas_toggles_play_and_pause() {
-    let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_manual_clock(gw, ColorScheme::Dark);
-    app.wait_for("云端之上：千金归来").unwrap();
-    app.press("云端之上：千金归来 >> nth=0").unwrap();
-    app.wait_for("选集 (3/68)").unwrap();
+    let (_gw, mut app, _back, _fullscreen) =
+        mount_player_with_spies(Arc::new(MockGateway::new()), ColorScheme::Dark, None, true);
 
     app.press("视频画面").unwrap();
     app.press("视频画面").unwrap();
@@ -353,8 +392,8 @@ fn double_clicking_video_canvas_toggles_play_and_pause() {
 
 #[test]
 fn infinite_scroll_comments_shows_total_count_and_reply_link_without_load_more() {
-    let series_id = SeriesId::new(NonZeroU64::new(1001).unwrap());
-    let ep1 = EpisodeNumber::new(NonZeroU32::MIN);
+    let series_id = series_1001();
+    let ep1 = episode_num(1);
     let gw = Arc::new(MockGateway::new().with_paged_comments(series_id, ep1, 25));
     let (_gw, mut app) = start_with_gateway(gw, ColorScheme::Light);
 
@@ -370,12 +409,16 @@ fn infinite_scroll_comments_shows_total_count_and_reply_link_without_load_more()
 }
 
 #[test]
-fn android_system_back_closes_drawer_before_exiting_player() {
+fn android_system_back_closes_drawer_before_emitting_back_intent() {
     let gw = Arc::new(MockGateway::new());
-    let mut app = start_mobile(gw, ColorScheme::Light);
+    let back_spy = EventSpy::default();
+    let back_for_page = back_spy.clone();
+    let sid = series_1001();
+    let mut app = mount_mobile_page(gw, ColorScheme::Light, move || {
+        let back_sink = stored(back_for_page.clone());
+        player_page(sid, None, move || back_sink.with(|s| s.push(())), |_| {})
+    });
 
-    app.wait_for("云端之上：千金归来").unwrap();
-    app.press("云端之上：千金归来 >> nth=0").unwrap();
     app.wait_for("详情视图").unwrap();
     app.press("详情视图").unwrap();
     app.wait_for("离线下载").unwrap();
@@ -386,7 +429,8 @@ fn android_system_back_closes_drawer_before_exiting_player() {
     app.wait_for_gone("选择离线下载分集", Duration::from_secs(2))
         .unwrap();
     assert!(app.screen().shows("离线下载"));
+    assert!(back_spy.snapshot().is_empty());
 
     app.back().unwrap();
-    app.wait_for("云端之上：千金归来").unwrap();
+    assert_eq!(back_spy.snapshot().len(), 1);
 }

@@ -95,6 +95,16 @@ pub fn video_surface(
     on_ended: impl Fn() + 'static,
     on_error: impl Fn(String) + 'static,
 ) -> impl IntoElement {
+    nsh_video_surface(state, on_progress, on_ended, on_error)
+}
+
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn nsh_video_surface(
+    state: impl Fn() -> VideoSurfaceState + Copy + 'static,
+    on_progress: impl Fn(u32, u32) + 'static,
+    on_ended: impl Fn() + 'static,
+    on_error: impl Fn(String) + 'static,
+) -> impl IntoElement {
     let src = computed(move || state().src);
     let paused = computed(move || state().paused);
     let muted = computed(move || state().muted);
@@ -112,9 +122,16 @@ pub fn video_surface(
         }
     });
 
+    let on_progress = Rc::new(on_progress);
+    let on_ended = Rc::new(on_ended);
+    let on_error = Rc::new(on_error);
+
     when(
         move || src.get().is_some(),
         move || {
+            let on_progress = Rc::clone(&on_progress);
+            let on_ended = Rc::clone(&on_ended);
+            let on_error = Rc::clone(&on_error);
             video(move || src.get().unwrap_or_default())
                 .element_ref(&video_ref)
                 .size_full()
@@ -224,3 +241,6 @@ fn dispatch_video_event(
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -6,7 +6,7 @@ use super::start_on_history;
 
 #[test]
 fn removing_and_clearing_watch_history_updates_ui_and_gateway() {
-    let (gw, mut app) = start_on_history();
+    let (gw, mut app, _opened) = start_on_history();
 
     app.wait_for("长安暗夜行").unwrap();
 
