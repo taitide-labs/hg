@@ -630,6 +630,7 @@ fn rewrite_home_feed_covers(loopback: &LoopbackProxyHandle, feed: &mut HomeFeed)
     for banner in &mut feed.banners {
         banner.image_url = loopback.cover_proxy_url(&banner.image_url);
     }
+    rewrite_series_summaries(loopback, &mut feed.latest);
     rewrite_series_summaries(loopback, &mut feed.featured);
     for section in &mut feed.category_recommendations {
         rewrite_series_summaries(loopback, &mut section.items);
