@@ -1,6 +1,8 @@
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{SeriesId, StreamProfile};
-use hg_contracts::viewing::{PlaybackPreference, SeriesBookmark};
+use hg_contracts::viewing::{
+    AppAppearance, PlaybackPreference, SearchHistoryEntry, SeriesBookmark,
+};
 use sqlx::{FromRow, SqlitePool};
 
 pub const FEATURE_NAME: &str = "viewing.watchlist_and_settings";
@@ -21,6 +23,15 @@ struct PlaybackPreferenceRow {
     preferred_profile: String,
     playback_cache_limit_mb: i64,
     default_rate_hundredths: i64,
+    appearance: String,
+    sidebar_collapsed: i64,
+    sidebar_width: i64,
+}
+
+#[derive(Debug, FromRow)]
+struct SearchHistoryRow {
+    keyword: String,
+    searched_at_epoch_secs: i64,
 }
 
 pub async fn fetch_bookmarks(pool: &SqlitePool) -> Result<Vec<SeriesBookmark>, ContractError> {
@@ -72,7 +83,10 @@ pub async fn fetch_playback_preference(
         "SELECT
             preferred_profile,
             playback_cache_limit_mb,
-            default_rate_hundredths
+            default_rate_hundredths,
+            appearance,
+            sidebar_collapsed,
+            sidebar_width
         FROM viewing_playback_preference
         WHERE id = 1",
     )
@@ -84,12 +98,27 @@ pub async fn fetch_playback_preference(
 
     match row {
         Some(row) => row.try_into(),
-        None => Ok(PlaybackPreference {
-            preferred_profile: StreamProfile::Hevc,
-            playback_cache_limit_mb: 512,
-            default_rate_hundredths: 100,
-        }),
+        None => Ok(PlaybackPreference::default()),
     }
+}
+
+pub async fn fetch_search_history(
+    pool: &SqlitePool,
+) -> Result<Vec<SearchHistoryEntry>, ContractError> {
+    let rows = sqlx::query_as::<_, SearchHistoryRow>(
+        "SELECT
+            keyword,
+            searched_at_epoch_secs
+        FROM viewing_search_history
+        ORDER BY searched_at_epoch_secs DESC, keyword ASC",
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(|err| ContractError::Internal {
+        detail: format!("查询搜索历史失败: {err}"),
+    })?;
+
+    rows.into_iter().map(TryInto::try_into).collect()
 }
 
 impl TryFrom<BookmarkRow> for SeriesBookmark {
@@ -146,11 +175,43 @@ impl TryFrom<PlaybackPreferenceRow> for PlaybackPreference {
             u16::try_from(row.default_rate_hundredths).map_err(|err| ContractError::Internal {
                 detail: format!("默认倍速字段非法: {err}"),
             })?;
+        let appearance = match row.appearance.as_str() {
+            "system" => AppAppearance::System,
+            "light" => AppAppearance::Light,
+            "dark" => AppAppearance::Dark,
+            other => {
+                return Err(ContractError::Internal {
+                    detail: format!("外观模式字段非法: {other}"),
+                });
+            }
+        };
+        let sidebar_width =
+            u16::try_from(row.sidebar_width).map_err(|err| ContractError::Internal {
+                detail: format!("侧边栏宽度字段非法: {err}"),
+            })?;
 
         Ok(Self {
             preferred_profile,
             playback_cache_limit_mb,
             default_rate_hundredths,
+            appearance,
+            sidebar_collapsed: row.sidebar_collapsed != 0,
+            sidebar_width,
+        })
+    }
+}
+
+impl TryFrom<SearchHistoryRow> for SearchHistoryEntry {
+    type Error = ContractError;
+
+    fn try_from(row: SearchHistoryRow) -> Result<Self, Self::Error> {
+        let searched_at_epoch_secs =
+            u64::try_from(row.searched_at_epoch_secs).map_err(|err| ContractError::Internal {
+                detail: format!("搜索历史时间戳字段非法: {err}"),
+            })?;
+        Ok(Self {
+            keyword: row.keyword,
+            searched_at_epoch_secs,
         })
     }
 }

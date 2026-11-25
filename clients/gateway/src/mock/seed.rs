@@ -10,7 +10,9 @@ use hg_contracts::offline::{
     DownloadPolicy, DownloadTaskState, DownloadTaskView, OfflineEpisodeView, OfflineSeriesView,
     PauseReason,
 };
-use hg_contracts::viewing::{PlaybackPreference, SeriesBookmark, WatchHistoryEntry};
+use hg_contracts::viewing::{
+    PlaybackPreference, SearchHistoryEntry, SeriesBookmark, WatchHistoryEntry,
+};
 
 pub(super) struct MockState {
     pub(super) categories: Vec<Category>,
@@ -21,6 +23,7 @@ pub(super) struct MockState {
     pub(super) comments: HashMap<EpisodeKey, Vec<EpisodeComment>>,
     pub(super) watch_history: Vec<WatchHistoryEntry>,
     pub(super) bookmarks: Vec<SeriesBookmark>,
+    pub(super) search_history: Vec<SearchHistoryEntry>,
     pub(super) offline_library: Vec<OfflineSeriesView>,
     pub(super) download_tasks: Vec<DownloadTaskView>,
     pub(super) playback_preference: PlaybackPreference,
@@ -480,13 +483,13 @@ pub(super) fn build_initial_state() -> MockState {
         comments: build_seed_comments(),
         watch_history: build_seed_watch_history(),
         bookmarks: build_seed_bookmarks(),
+        search_history: vec![SearchHistoryEntry {
+            keyword: "千金".to_owned(),
+            searched_at_epoch_secs: 1_763_969_000,
+        }],
         offline_library: build_seed_offline_library(),
         download_tasks: build_seed_download_tasks(),
-        playback_preference: PlaybackPreference {
-            preferred_profile: StreamProfile::Hevc,
-            playback_cache_limit_mb: 512,
-            default_rate_hundredths: 100,
-        },
+        playback_preference: PlaybackPreference::default(),
         download_policy: DownloadPolicy {
             preferred_profile: StreamProfile::Hevc,
             wifi_only: true,

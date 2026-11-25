@@ -10,8 +10,10 @@ pub enum ButtonVariant {
     Secondary,
     Ghost,
     Outline,
+    BrandSoft,
     CinemaGlass,
     CinemaPrimary,
+    CinemaBrand,
     OverlayGhost,
     Danger,
 }
@@ -52,6 +54,8 @@ fn text_color_for(variant: ButtonVariant) -> AdaptiveColor {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary | ButtonVariant::Danger => {
             token::primary_fg()
         }
+        ButtonVariant::BrandSoft => token::brand_soft_fg(),
+        ButtonVariant::CinemaBrand => token::cinema_brand_fg(),
         ButtonVariant::Secondary | ButtonVariant::Ghost | ButtonVariant::Outline => token::fg(),
         ButtonVariant::CinemaGlass | ButtonVariant::OverlayGhost => token::cinema_fg(),
     }
@@ -60,6 +64,8 @@ fn text_color_for(variant: ButtonVariant) -> AdaptiveColor {
 fn bg_for(variant: ButtonVariant) -> Option<AdaptiveColor> {
     match variant {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary => Some(token::primary()),
+        ButtonVariant::BrandSoft => Some(token::brand_soft()),
+        ButtonVariant::CinemaBrand => Some(token::cinema_brand_bg()),
         ButtonVariant::Secondary => Some(token::secondary()),
         ButtonVariant::CinemaGlass => Some(token::cinema_surface_elevated()),
         ButtonVariant::Danger => Some(token::destructive()),
@@ -70,6 +76,8 @@ fn bg_for(variant: ButtonVariant) -> Option<AdaptiveColor> {
 fn hover_bg_for(variant: ButtonVariant) -> AdaptiveColor {
     match variant {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary => token::primary().opacity(0.9),
+        ButtonVariant::BrandSoft => token::brand_soft().opacity(0.85),
+        ButtonVariant::CinemaBrand => token::cinema_brand_bg().opacity(0.85),
         ButtonVariant::Secondary | ButtonVariant::Ghost | ButtonVariant::Outline => token::accent(),
         ButtonVariant::CinemaGlass => token::cinema_border(),
         ButtonVariant::OverlayGhost => token::cinema_surface_elevated(),
@@ -123,10 +131,13 @@ fn wrap_variant_button(
 
     let base = match variant {
         ButtonVariant::Outline => base.border_1().border_color(token::border),
-        ButtonVariant::CinemaGlass => base.border_1().border_color(token::cinema_border),
+        ButtonVariant::CinemaGlass | ButtonVariant::CinemaBrand => {
+            base.border_1().border_color(token::cinema_border)
+        }
         ButtonVariant::Primary
         | ButtonVariant::Secondary
         | ButtonVariant::Ghost
+        | ButtonVariant::BrandSoft
         | ButtonVariant::CinemaPrimary
         | ButtonVariant::OverlayGhost
         | ButtonVariant::Danger => base,
@@ -217,15 +228,28 @@ pub fn sidebar_nav_button(
     quiet: bool,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    sidebar_nav_button_collapsible(kind, label, selected, quiet, || false, on_press)
+}
+
+pub fn sidebar_nav_button_collapsible(
+    kind: IconKind,
+    label: &'static str,
+    selected: impl Fn() -> bool + Copy + 'static,
+    quiet: bool,
+    collapsed: impl Fn() -> bool + Copy + 'static,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
     button()
         .on_press(on_press)
         .selected(selected)
         .accessibility_label(label)
         .h(px(36.0))
         .px_3()
+        .style_when(collapsed, |s| s.px_0().justify_center())
         .flex_row()
         .items_center()
         .gap_3()
+        .style_when(collapsed, |s| s.gap_0())
         .rounded(token::radius_control)
         .transition_colors()
         .duration(token::BASE_MS)
@@ -248,18 +272,21 @@ pub fn sidebar_nav_button(
                 token::sidebar_fg()
             }
         }))
-        .child(
-            text(label)
-                .text_sm()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(move || {
-                    if selected() {
-                        token::sidebar_fg()
-                    } else {
-                        token::muted_fg()
-                    }
-                }),
-        )
+        .child(when(
+            move || !collapsed(),
+            move || {
+                text(label)
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(move || {
+                        if selected() {
+                            token::sidebar_fg()
+                        } else {
+                            token::muted_fg()
+                        }
+                    })
+            },
+        ))
 }
 
 pub fn mobile_tab_button(

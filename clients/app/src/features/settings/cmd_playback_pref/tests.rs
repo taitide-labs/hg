@@ -55,11 +55,7 @@ fn appearance_option_maps_to_nsh_appearance() {
 
 #[test]
 fn playback_preference_updates_profile_and_rate_preserving_cache_limit() {
-    let base = PlaybackPreference {
-        preferred_profile: StreamProfile::Hevc,
-        playback_cache_limit_mb: 512,
-        default_rate_hundredths: 100,
-    };
+    let base = PlaybackPreference::default();
 
     let updated_profile = with_preferred_profile(base, StreamProfile::Main);
     assert_eq!(updated_profile.preferred_profile, StreamProfile::Main);

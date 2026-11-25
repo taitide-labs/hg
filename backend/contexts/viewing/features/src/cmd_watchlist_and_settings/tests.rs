@@ -154,7 +154,7 @@ fn workflow_plans_bookmark_and_maps_profile() {
     let invalid = PlaybackPreference {
         preferred_profile: StreamProfile::Main,
         playback_cache_limit_mb: 16,
-        default_rate_hundredths: 100,
+        ..PlaybackPreference::default()
     };
     assert!(matches!(
         check_playback_preference(&invalid),
@@ -248,6 +248,7 @@ async fn update_playback_preference_rejects_invalid_and_persists_valid() {
         preferred_profile: StreamProfile::Main,
         playback_cache_limit_mb: 256,
         default_rate_hundredths: 400,
+        ..PlaybackPreference::default()
     };
     let err = update_playback_preference(&deps, bad_rate)
         .await
@@ -258,19 +259,70 @@ async fn update_playback_preference_rejects_invalid_and_persists_valid() {
         preferred_profile: StreamProfile::Main,
         playback_cache_limit_mb: 1024,
         default_rate_hundredths: 200,
+        appearance: hg_contracts::viewing::AppAppearance::Dark,
+        sidebar_collapsed: true,
+        sidebar_width: 248,
     };
     update_playback_preference(&deps, valid)
         .await
         .expect("valid preference should persist");
 
-    let row: (String, i64, i64) = sqlx::query_as(
-        "SELECT preferred_profile, playback_cache_limit_mb, default_rate_hundredths
+    let row: (String, i64, i64, String, i64, i64) = sqlx::query_as(
+        "SELECT preferred_profile, playback_cache_limit_mb, default_rate_hundredths,
+                appearance, sidebar_collapsed, sidebar_width
          FROM viewing_playback_preference WHERE id = 1",
     )
     .fetch_one(deps.pool())
     .await
     .expect("read saved preference");
-    assert_eq!(row, ("main".to_owned(), 1024, 200));
+    assert_eq!(
+        row,
+        ("main".to_owned(), 1024, 200, "dark".to_owned(), 1, 248)
+    );
+
+    deps.loopback.shutdown();
+    deps.db.close().await;
+}
+
+#[tokio::test]
+async fn search_history_records_deduplicates_prunes_and_clears() {
+    let (_temp, deps) = make_deps(StubCatalog::default()).await;
+
+    super::handler::record_search_history(&deps, "   ".to_owned())
+        .await
+        .expect("blank keyword ignored");
+    for idx in 1..=22 {
+        super::handler::record_search_history(&deps, format!(" 关键词{idx} "))
+            .await
+            .expect("record keyword");
+    }
+    super::handler::record_search_history(&deps, "关键词5".to_owned())
+        .await
+        .expect("deduplicate keyword");
+
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM viewing_search_history")
+        .fetch_one(deps.pool())
+        .await
+        .expect("count search history");
+    assert_eq!(count.0, 20);
+
+    super::handler::remove_search_history(&deps, "关键词5".to_owned())
+        .await
+        .expect("remove keyword");
+    let after_remove: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM viewing_search_history")
+        .fetch_one(deps.pool())
+        .await
+        .expect("count after remove");
+    assert_eq!(after_remove.0, 19);
+
+    super::handler::clear_search_history(&deps)
+        .await
+        .expect("clear search history");
+    let after_clear: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM viewing_search_history")
+        .fetch_one(deps.pool())
+        .await
+        .expect("count after clear");
+    assert_eq!(after_clear.0, 0);
 
     deps.loopback.shutdown();
     deps.db.close().await;

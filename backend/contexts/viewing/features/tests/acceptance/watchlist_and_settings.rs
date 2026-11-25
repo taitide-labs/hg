@@ -70,6 +70,9 @@ async fn watchlist_settings_and_cache_clear_preserve_offline_library() {
         preferred_profile: StreamProfile::Main,
         playback_cache_limit_mb: 256,
         default_rate_hundredths: 150,
+        appearance: hg_contracts::viewing::AppAppearance::Dark,
+        sidebar_collapsed: true,
+        sidebar_width: 240,
     };
     cmd_watchlist_and_settings::update_playback_preference(&harness.deps, pref)
         .await

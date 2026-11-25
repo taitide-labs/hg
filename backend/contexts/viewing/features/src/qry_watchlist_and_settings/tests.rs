@@ -5,7 +5,7 @@ use hg_backend_contracts::catalog::{
 };
 use hg_backend_contracts::error::{PortError, PortFuture};
 use hg_backend_contracts::offline::{CommittedOfflineAsset, OfflineAssetQueryPort};
-use hg_contracts::ids::{EpisodeKey, SeriesId, StreamProfile};
+use hg_contracts::ids::{EpisodeKey, SeriesId};
 use hg_contracts::viewing::PlaybackPreference;
 use hg_infra::clock::FixedClock;
 use hg_infra::db::LocalDatabase;
@@ -153,11 +153,7 @@ async fn bookmarks_orders_recent_first_and_maps_fields() {
 #[tokio::test]
 async fn playback_preference_reads_seed_default_and_handles_missing_row() {
     let (_temp, deps) = make_deps(0).await;
-    let expected_default = PlaybackPreference {
-        preferred_profile: StreamProfile::Hevc,
-        playback_cache_limit_mb: 512,
-        default_rate_hundredths: 100,
-    };
+    let expected_default = PlaybackPreference::default();
 
     assert_eq!(
         playback_preference(&deps)

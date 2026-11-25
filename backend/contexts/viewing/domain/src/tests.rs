@@ -112,11 +112,16 @@ fn validates_playback_preference_and_plans_lru_eviction() {
     assert!(validate_playback_preference(&default_playback_preference()).is_ok());
 
     let bad = PlaybackPreference {
-        preferred_profile: StreamProfile::Hevc,
         playback_cache_limit_mb: 32,
-        default_rate_hundredths: 100,
+        ..PlaybackPreference::default()
     };
     assert!(validate_playback_preference(&bad).is_err());
+
+    let bad_sidebar = PlaybackPreference {
+        sidebar_width: 80,
+        ..PlaybackPreference::default()
+    };
+    assert!(validate_playback_preference(&bad_sidebar).is_err());
 
     let segments = vec![
         CachedSegmentMeta {

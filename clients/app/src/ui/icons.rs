@@ -8,9 +8,12 @@ use nsh_core::prelude::*;
 pub enum IconKind {
     Discover,
     Bookmark,
+    BookmarkFilled,
     Download,
     Settings,
     Search,
+    Menu,
+    PanelLeft,
     Play,
     Pause,
     Volume,
@@ -83,6 +86,28 @@ fn draw_bookmark(p: Painter) -> Painter {
             (5.5, 3.5),
         ],
     )
+}
+
+fn draw_bookmark_filled(p: Painter) -> Painter {
+    p.begin_path()
+        .move_to(5.5, 3.5)
+        .line_to(14.5, 3.5)
+        .line_to(14.5, 16.5)
+        .line_to(10.0, 13.5)
+        .line_to(5.5, 16.5)
+        .close_path()
+        .fill()
+}
+
+fn draw_menu(p: Painter) -> Painter {
+    let p = polyline(p, &[(3.5, 5.5), (16.5, 5.5)]);
+    let p = polyline(p, &[(3.5, 10.0), (16.5, 10.0)]);
+    polyline(p, &[(3.5, 14.5), (16.5, 14.5)])
+}
+
+fn draw_panel_left(p: Painter) -> Painter {
+    let p = rounded_box(p, 3.0, 3.5, 14.0, 13.0, 2.2);
+    polyline(p, &[(8.0, 3.5), (8.0, 16.5)])
 }
 
 fn draw_download(p: Painter) -> Painter {
@@ -192,12 +217,15 @@ fn draw_glyph(kind: IconKind, p: Painter) -> Painter {
     match kind {
         IconKind::Discover => draw_discover(p),
         IconKind::Bookmark => draw_bookmark(p),
+        IconKind::BookmarkFilled => draw_bookmark_filled(p),
         IconKind::Download => draw_download(p),
         IconKind::Settings => draw_settings(p),
         IconKind::Search => polyline(
             ring_circle(p, 9.0, 9.0, 5.2, false),
             &[(13.0, 13.0), (16.8, 16.8)],
         ),
+        IconKind::Menu => draw_menu(p),
+        IconKind::PanelLeft => draw_panel_left(p),
         IconKind::Play => p
             .begin_path()
             .move_to(6.5, 4.5)

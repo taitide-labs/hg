@@ -1,11 +1,15 @@
 use hg_contracts::ids::StreamProfile;
-use hg_contracts::viewing::PlaybackPreference;
+use hg_contracts::viewing::{AppAppearance, PlaybackPreference};
 
 use crate::error::ViewingError;
 
 pub const MIN_PLAYBACK_CACHE_LIMIT_MB: u32 = 64;
 pub const MIN_DEFAULT_RATE_HUNDREDTHS: u16 = 50;
 pub const MAX_DEFAULT_RATE_HUNDREDTHS: u16 = 300;
+pub const MIN_SIDEBAR_WIDTH: u16 = 160;
+pub const MAX_SIDEBAR_WIDTH: u16 = 360;
+pub const DEFAULT_SIDEBAR_WIDTH: u16 = 208;
+pub const MAX_SEARCH_HISTORY_ENTRIES: usize = 20;
 
 #[must_use]
 pub const fn default_playback_preference() -> PlaybackPreference {
@@ -13,6 +17,9 @@ pub const fn default_playback_preference() -> PlaybackPreference {
         preferred_profile: StreamProfile::Hevc,
         playback_cache_limit_mb: 512,
         default_rate_hundredths: 100,
+        appearance: AppAppearance::System,
+        sidebar_collapsed: false,
+        sidebar_width: DEFAULT_SIDEBAR_WIDTH,
     }
 }
 
@@ -29,6 +36,11 @@ pub fn validate_playback_preference(pref: &PlaybackPreference) -> Result<(), Vie
             message: format!(
                 "默认倍速必须在 {MIN_DEFAULT_RATE_HUNDREDTHS}..={MAX_DEFAULT_RATE_HUNDREDTHS} 之间"
             ),
+        });
+    }
+    if !(MIN_SIDEBAR_WIDTH..=MAX_SIDEBAR_WIDTH).contains(&pref.sidebar_width) {
+        return Err(ViewingError::InvalidPreference {
+            message: format!("侧边栏宽度必须在 {MIN_SIDEBAR_WIDTH}..={MAX_SIDEBAR_WIDTH} 之间"),
         });
     }
     Ok(())

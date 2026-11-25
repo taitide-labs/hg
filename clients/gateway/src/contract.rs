@@ -15,7 +15,7 @@ use hg_contracts::offline::{
 };
 use hg_contracts::viewing::{
     PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SeriesBookmark, StorageOverview, WatchHistoryEntry,
+    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry,
 };
 
 pub type GatewayFuture<T> =
@@ -61,6 +61,10 @@ pub trait AppGateway: Send + Sync {
     fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference>;
     fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()>;
+    fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>>;
+    fn record_search_history(&self, keyword: String) -> GatewayFuture<()>;
+    fn remove_search_history(&self, keyword: String) -> GatewayFuture<()>;
+    fn clear_search_history(&self) -> GatewayFuture<()>;
     fn clear_playback_cache(&self) -> GatewayFuture<()>;
     fn storage_overview(&self) -> GatewayFuture<StorageOverview>;
 
