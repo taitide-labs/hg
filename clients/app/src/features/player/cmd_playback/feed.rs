@@ -3,9 +3,7 @@ use hg_contracts::ids::EpisodeNumber;
 use nsh_core::prelude::*;
 
 use super::super::store::{self, EpisodeCommentsState, MobileDetailTab};
-use super::command::{
-    episode_segment_ranges, folded_episode_window, nickname_initial, truncate_synopsis,
-};
+use super::command::{episode_segment_ranges, folded_episode_window, nickname_initial};
 use super::handler;
 use crate::ui::button::{
     ButtonVariant, ControlSize, app_button, app_icon_text_button, text_link_button,
@@ -129,13 +127,10 @@ fn should_load_more_on_scroll(e: &ScrollEvent) -> bool {
 }
 
 fn synopsis_block() -> impl IntoElement {
-    let synopsis_sig = computed(|| {
-        let s = store::snapshot();
-        (s.detail, s.info_expanded)
-    });
-    dynamic(move || match synopsis_sig.get() {
-        (Some(detail), expanded) => synopsis_section(&detail, expanded).into_element(),
-        (None, _) => view().into_element(),
+    let detail_sig = computed(|| store::snapshot().detail);
+    dynamic(move || match detail_sig.get() {
+        Some(detail) => synopsis_section(&detail).into_element(),
+        None => view().into_element(),
     })
 }
 
@@ -162,19 +157,13 @@ fn comments_block() -> impl IntoElement {
     dynamic(move || comments_section(&comments_sig.get()).into_element())
 }
 
-fn synopsis_section(detail: &SeriesDetail, expanded: bool) -> impl IntoElement {
+fn synopsis_section(detail: &SeriesDetail) -> impl IntoElement {
     let status = if detail.summary.is_finished {
         format!("全 {} 集 · 已完结", detail.total_episodes)
     } else {
         format!("更新至 {} 集", detail.total_episodes)
     };
     let meta = format!("{:.1} 分 · {status}", detail.summary.score);
-    let (snippet, truncated) = truncate_synopsis(&detail.summary.description, 24);
-    let body_text = if expanded {
-        detail.summary.description.clone()
-    } else {
-        snippet
-    };
 
     let mut tag_row = view().flex_row().flex_wrap().gap_1p5();
     for tag in &detail.summary.tags {
@@ -190,21 +179,12 @@ fn synopsis_section(detail: &SeriesDetail, expanded: bool) -> impl IntoElement {
                 .text_color(token::fg),
         )
         .child(text(meta).text_xs().text_color(token::muted_fg))
-        .child(text(body_text).text_sm().text_color(token::muted_fg))
-        .children(expanded.then_some(tag_row))
-        .children(truncated.then(|| {
-            let (label, a11y, chevron) = if expanded {
-                ("收起", "收起简介", IconKind::ChevronUp)
-            } else {
-                ("展开", "展开简介", IconKind::ChevronDown)
-            };
-            view().flex_row().justify_end().child(text_link_button(
-                label,
-                a11y,
-                Some(chevron),
-                store::toggle_info_expanded,
-            ))
-        }))
+        .child(
+            text(detail.summary.description.clone())
+                .text_sm()
+                .text_color(token::muted_fg),
+        )
+        .children((!detail.summary.tags.is_empty()).then_some(tag_row))
 }
 
 fn episodes_section(

@@ -15,6 +15,7 @@ struct OfflineSeriesRow {
     series_id: i64,
     title: String,
     cover_local_path: String,
+    total_episodes: i64,
 }
 
 #[derive(Debug, FromRow)]
@@ -41,7 +42,7 @@ pub async fn fetch_offline_library(
     storage: &StorageLayout,
 ) -> Result<Vec<OfflineSeriesView>, ContractError> {
     let series_rows = sqlx::query_as::<_, OfflineSeriesRow>(
-        "SELECT series_id, title, cover_local_path
+        "SELECT series_id, title, cover_local_path, total_episodes
          FROM offline_series
          ORDER BY updated_at_epoch_secs DESC, series_id ASC",
     )
@@ -91,11 +92,17 @@ pub async fn fetch_offline_library(
         let total_size_bytes = episodes
             .iter()
             .fold(0_u64, |acc, ep| acc.saturating_add(ep.size_bytes));
+        let max_ep = episodes.iter().map(|ep| ep.ep_num.get()).max().unwrap_or(0);
+        let total_episodes = u32::try_from(row.total_episodes)
+            .ok()
+            .filter(|count| *count >= max_ep)
+            .unwrap_or(max_ep);
         let cover_local_uri = resolve_cover_uri(storage, &row.cover_local_path)?;
         result.push(OfflineSeriesView {
             series_id,
             title: row.title,
             cover_local_uri,
+            total_episodes,
             total_size_bytes,
             episodes,
         });

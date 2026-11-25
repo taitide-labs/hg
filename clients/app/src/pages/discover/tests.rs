@@ -268,3 +268,83 @@ fn mobile_uses_slide_out_drawer_quick_search_and_android_back_without_bottom_bar
     app.back().unwrap();
     app.wait_for("查看精选推荐全部").unwrap();
 }
+
+#[test]
+fn discover_home_fullscreen_grows_visible_series_and_narrow_auto_collapses_sidebar() {
+    let gw = Arc::new(
+        MockGateway::new()
+            .with_paged_catalog(20)
+            .with_capped_home_feed(5),
+    );
+    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Light);
+    app.wait(Duration::from_millis(80)).unwrap();
+
+    let all_titles: Vec<String> = (1..=20)
+        .map(|i| format!("分页剧目 {i:02}"))
+        .chain([
+            "云端之上：千金归来".to_owned(),
+            "长安暗夜行".to_owned(),
+            "重返 1998：科技大亨".to_owned(),
+            "雾港七日".to_owned(),
+            "春风十里不及卿".to_owned(),
+        ])
+        .collect();
+    let count_visible_featured = |headless: &nsh_testing::Headless| -> usize {
+        let rank_top = node_bounds(headless, "排行榜").origin.y.0;
+        let nodes = headless.screen().layout_nodes();
+        all_titles
+            .iter()
+            .filter(|title| {
+                headless
+                    .screen()
+                    .id(&format!("{title} >> nth=0"))
+                    .ok()
+                    .and_then(|id| nodes.iter().find(|n| n.id == id))
+                    .is_some_and(|n| n.bounds.origin.y.0 < rank_top)
+            })
+            .count()
+    };
+
+    let base_featured = count_visible_featured(&app);
+    assert!(
+        base_featured >= 4,
+        "desktop base width should show a full row (got {base_featured})"
+    );
+    assert!(app.screen().shows("TOP 4"));
+    assert!(!app.screen().shows("TOP 6"));
+
+    app.set_viewport(Size::new(Points(1920.0), Points(1080.0)))
+        .unwrap();
+    app.wait(Duration::from_millis(80)).unwrap();
+
+    let wide_featured = count_visible_featured(&app);
+    assert!(
+        wide_featured > base_featured && wide_featured >= 8,
+        "fullscreen must dynamically reveal more featured series even when /api/home caps at 5 (base={base_featured}, wide={wide_featured})"
+    );
+    assert!(
+        app.screen().shows("TOP 6"),
+        "fullscreen ranking shelf must dynamically reveal more than 4 cards"
+    );
+
+    app.set_viewport(Size::new(Points(540.0), Points(800.0)))
+        .unwrap();
+    app.wait(Duration::from_millis(80)).unwrap();
+    let content_x_narrow = node_bounds(&app, "精选推荐").origin.x.0;
+    assert!(
+        content_x_narrow < 100.0,
+        "narrow desktop window must auto-collapse sidebar into icon rail (content_x={content_x_narrow})"
+    );
+    assert!(
+        !gw.snapshot_preference().sidebar_collapsed,
+        "responsive auto-collapse must not overwrite saved user sidebar preference"
+    );
+
+    app.set_viewport(DESKTOP_VIEWPORT).unwrap();
+    app.wait(Duration::from_millis(80)).unwrap();
+    let content_x_restored = node_bounds(&app, "精选推荐").origin.x.0;
+    assert!(
+        content_x_restored > 180.0,
+        "widening back to desktop viewport must restore expanded sidebar (content_x={content_x_restored})"
+    );
+}

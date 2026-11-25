@@ -12,7 +12,7 @@ use crate::ui::token;
 pub fn history_section<H, R>(
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     header_action: impl Fn() -> H + Copy + 'static,
-    row_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    row_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     H: IntoElement + 'static,
@@ -29,7 +29,7 @@ fn history_body<H, R>(
     section_owner: Owner,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     header_action: impl Fn() -> H + Copy + 'static,
-    row_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    row_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     H: IntoElement + 'static,
@@ -124,7 +124,7 @@ fn history_row<R>(
     index: usize,
     entry: WatchHistoryEntry,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    row_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    row_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
@@ -182,7 +182,7 @@ where
         .flex_row()
         .items_center()
         .child(open_trigger)
-        .child(row_action(series_id, title))
+        .child(row_action(series_id, &title))
 }
 
 fn poster_thumb(cover_key: String) -> impl IntoElement {

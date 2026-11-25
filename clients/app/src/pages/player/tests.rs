@@ -13,9 +13,9 @@ use nsh_engine::{ColorScheme, Points};
 use nsh_testing::Headless;
 
 use crate::pages::tests::{
-    DESKTOP_VIEWPORT, assert_above, assert_left_of, assert_node_stable, assert_visible_in_viewport,
-    emit_video_ended, emit_video_error, emit_video_progress, start_desktop,
-    start_desktop_manual_clock, start_mobile,
+    DESKTOP_VIEWPORT, assert_above, assert_left_of, assert_node_stable, assert_same_height,
+    assert_visible_in_viewport, emit_video_ended, emit_video_error, emit_video_progress,
+    node_bounds, start_desktop, start_desktop_manual_clock, start_mobile,
 };
 
 pub(super) fn start_and_open_first_series(scheme: ColorScheme) -> (Arc<MockGateway>, Headless) {
@@ -64,20 +64,19 @@ fn desktop_player_layout_shows_clean_single_column_feed_without_clutter() {
 }
 
 #[test]
-fn synopsis_and_episodes_fold_and_remain_stable_across_progress_ticks() {
+fn synopsis_is_always_fully_expanded_and_episodes_fold_remains_stable() {
     let (_gw, mut app) = start_and_open_first_series(ColorScheme::Light);
 
-    assert!(!app.screen().shows("揭开当年真相"));
-    app.press("展开简介").unwrap();
     app.wait_for("text:/揭开当年真相/").unwrap();
-    assert_node_stable(&mut app, "收起简介", |headless| {
+    assert!(app.screen().shows("都市"));
+    assert!(app.screen().id("label:展开简介").is_err());
+    assert!(app.screen().id("label:收起简介").is_err());
+
+    assert_node_stable(&mut app, "选集 (1/68)", |headless| {
         for sec in 1..=5 {
             emit_video_progress(headless, sec, 120);
         }
     });
-    app.press("收起简介").unwrap();
-    app.wait_for_gone("text:/揭开当年真相/", Duration::from_secs(2))
-        .unwrap();
 
     assert!(!app.screen().shows("51-68"));
     app.press("展开选集").unwrap();
@@ -281,9 +280,75 @@ fn scrub_slider_drags_and_seeks_in_overlay() {
 
     app.hover("视频画面").unwrap();
     app.wait_for("播放进度").unwrap();
+    emit_video_progress(&mut app, 10, 120);
+    app.wait_for("text:/00:10 \\/ 02:00/").unwrap();
+
     app.drag("播放进度", point(Points(120.0), Points(0.0)))
         .unwrap();
-    assert!(!app.screen().shows("00:00 /"));
+    assert!(!app.screen().shows("00:10 / 02:00"));
+
+    emit_video_progress(&mut app, 10, 120);
+    emit_video_progress(&mut app, 11, 120);
+    assert!(
+        !app.screen().shows("00:10 / 02:00") && !app.screen().shows("00:11 / 02:00"),
+        "stale pre-seek progress ticks during active playback must not flash scrubber back"
+    );
+}
+
+#[test]
+fn player_control_bar_icons_and_rate_trigger_have_balanced_proportions() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Dark);
+
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+
+    let time_style = app.screen().span_style("text:/00:00 \\/ /").unwrap();
+    let rate_style = app.screen().span_style("倍速").unwrap();
+    assert_eq!(
+        rate_style.font_size, time_style.font_size,
+        "rate trigger font size ({:?}) must match time readout font size ({:?})",
+        rate_style.font_size, time_style.font_size
+    );
+
+    let time_bounds = node_bounds(&app, "text:/00:00 \\/ /");
+    let rate_text_bounds = node_bounds(&app, "倍速");
+    assert!(
+        (rate_text_bounds.size.height.0 - time_bounds.size.height.0).abs() <= 1.0,
+        "rate trigger text height ({}) must match time readout height ({})",
+        rate_text_bounds.size.height.0,
+        time_bounds.size.height.0
+    );
+
+    assert_same_height(&app, "label:播放或暂停", "label:全屏", 1.0);
+    assert_same_height(&app, "label:静音", "label:播放设置", 1.0);
+    assert_same_height(&app, "label:播放设置", "label:竖屏视图", 1.0);
+    assert_same_height(&app, "role:button[倍速]", "label:全屏", 1.0);
+}
+
+#[test]
+fn double_clicking_video_canvas_toggles_play_and_pause() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_desktop_manual_clock(gw, ColorScheme::Dark);
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.press("云端之上：千金归来 >> nth=0").unwrap();
+    app.wait_for("选集 (3/68)").unwrap();
+
+    app.press("视频画面").unwrap();
+    app.press("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+    app.fast_forward(Duration::from_secs(5)).unwrap();
+    assert!(
+        app.screen().shows("倍速"),
+        "double-clicking video canvas must pause playback and keep controls visible"
+    );
+
+    app.press("视频画面").unwrap();
+    app.press("视频画面").unwrap();
+    app.fast_forward(Duration::from_secs(5)).unwrap();
+    assert!(
+        !app.screen().shows("倍速"),
+        "double-clicking video canvas again must resume playback so controls auto-hide"
+    );
 }
 
 #[test]

@@ -806,7 +806,7 @@ fn progress_ticks_do_not_reset_auto_hide_or_teardown_popovers_and_feed() {
     app.press("tick_progress").unwrap();
     assert!(app.screen().shows("1.5×"));
 
-    app.press("展开简介").unwrap();
+    app.press("展开选集").unwrap();
     app.press("tick_progress").unwrap();
-    app.wait_for("收起简介").unwrap();
+    app.wait_for("收起选集").unwrap();
 }

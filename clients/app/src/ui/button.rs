@@ -159,6 +159,45 @@ pub fn app_button(
     wrap_variant_button(variant, on_press, content, size, None)
 }
 
+pub fn episode_tile_button(
+    label: impl IntoReactive<SharedString>,
+    a11y_label: impl Into<SharedString>,
+    variant: ButtonVariant,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let base = button()
+        .on_press(on_press)
+        .accessibility_label(a11y_label.into())
+        .w(px(64.0))
+        .h(px(30.0))
+        .items_center()
+        .justify_center()
+        .rounded(token::radius_control)
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(move |s| s.bg(move || hover_bg_for(variant)))
+        .active(|s| {
+            let s = s.opacity(0.88);
+            if reduce_motion() {
+                s
+            } else {
+                s.scale(token::PRESS_SCALE)
+            }
+        })
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring));
+    let base = match bg_for(variant) {
+        Some(_) => base.bg(move || bg_for(variant).unwrap_or_else(token::secondary)),
+        None => base,
+    };
+    base.child(
+        text(label)
+            .text_xs()
+            .tabular_nums()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(move || text_color_for(variant)),
+    )
+}
+
 pub fn app_icon_text_button(
     kind: IconKind,
     label: impl IntoReactive<SharedString>,
@@ -191,6 +230,38 @@ pub fn app_icon_button(
 ) -> impl IntoElement {
     let content = icon(kind, icon_pt_for(size), move || text_color_for(variant));
     wrap_variant_button(variant, on_press, content, size, Some(label))
+}
+
+pub fn overlay_icon_button(
+    kind: IconKind,
+    label: &'static str,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let content = icon(kind, 16.0, || text_color_for(ButtonVariant::OverlayGhost));
+    wrap_variant_button(
+        ButtonVariant::OverlayGhost,
+        on_press,
+        content,
+        ControlSize::Sm,
+        Some(label),
+    )
+}
+
+pub fn overlay_text_button(
+    label: impl IntoReactive<SharedString>,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let content = text(label)
+        .text_xs()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(|| text_color_for(ButtonVariant::OverlayGhost));
+    wrap_variant_button(
+        ButtonVariant::OverlayGhost,
+        on_press,
+        content,
+        ControlSize::Sm,
+        None,
+    )
 }
 
 pub fn text_link_button(

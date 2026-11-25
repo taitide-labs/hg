@@ -129,6 +129,7 @@ fn browse_header(
                 move |submitted| {
                     query::load_browse(BrowseKind::Search { query: submitted });
                 },
+                || {},
             )))
             .child(app_button(
                 "搜索",

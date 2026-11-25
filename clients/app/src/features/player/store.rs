@@ -35,6 +35,8 @@ pub struct PlayerProgressState {
     pub seek_seq: u64,
     pub scrub_preview_secs: Option<u32>,
     pub last_reported_secs: Option<u32>,
+    pub pending_seek_target: Option<u32>,
+    pub pending_seek_guard_ticks: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,7 +106,6 @@ pub struct PlayerState {
     pub source: Option<PlaybackSource>,
     pub mode: PlaybackMode,
     pub bookmarked: bool,
-    pub info_expanded: bool,
     pub episodes_expanded: bool,
     pub episode_segment_index: usize,
     pub active_replies_comment: Option<CommentId>,
@@ -123,7 +124,6 @@ impl Default for PlayerState {
             source: None,
             mode: PlaybackMode::Cinema,
             bookmarked: false,
-            info_expanded: false,
             episodes_expanded: false,
             episode_segment_index: 0,
             active_replies_comment: None,
@@ -315,6 +315,8 @@ pub fn set_source_if_seq(seq: u64, ep_num: EpisodeNumber, source: PlaybackSource
             seek_seq: 0,
             scrub_preview_secs: None,
             last_reported_secs: None,
+            pending_seek_target: None,
+            pending_seek_guard_ticks: 0,
         });
         controls_state().update(|c| c.paused = false);
     }
@@ -436,16 +438,34 @@ pub fn seek_to(position_secs: u32) {
         p.position_secs = position_secs;
         p.seek_seq = p.seek_seq.saturating_add(1);
         p.scrub_preview_secs = None;
+        p.pending_seek_target = Some(position_secs);
+        p.pending_seek_guard_ticks = 6;
     });
 }
 
-pub fn update_playback_progress(position_secs: u32, duration_secs: u32) {
+pub fn update_playback_progress(position_secs: u32, duration_secs: u32) -> bool {
+    let mut accepted = true;
     progress_state().update(|p| {
-        p.position_secs = position_secs;
         if duration_secs > 0 {
             p.duration_secs = duration_secs;
         }
+        if let Some(target) = p.pending_seek_target {
+            if position_secs.abs_diff(target) <= 3 {
+                p.pending_seek_target = None;
+                p.pending_seek_guard_ticks = 0;
+                p.position_secs = position_secs;
+            } else if p.pending_seek_guard_ticks > 0 {
+                p.pending_seek_guard_ticks = p.pending_seek_guard_ticks.saturating_sub(1);
+                accepted = false;
+            } else {
+                p.pending_seek_target = None;
+                p.position_secs = position_secs;
+            }
+        } else {
+            p.position_secs = position_secs;
+        }
     });
+    accepted
 }
 
 pub fn mark_progress_reported(position_secs: u32) {
@@ -547,10 +567,6 @@ pub fn toggle_auto_advance() {
 
 pub fn toggle_loop_single() {
     state().update(|s| s.loop_single = !s.loop_single);
-}
-
-pub fn toggle_info_expanded() {
-    state().update(|s| s.info_expanded = !s.info_expanded);
 }
 
 pub fn toggle_episodes_expanded() {

@@ -294,6 +294,7 @@ fn build_seed_offline_library() -> Vec<OfflineSeriesView> {
         series_id: series_id(1001),
         title: "云端之上：千金归来".to_owned(),
         cover_local_uri: "poster://amber-noir".to_owned(),
+        total_episodes: 68,
         total_size_bytes: 58_400_000,
         episodes: vec![
             OfflineEpisodeView {

@@ -1,4 +1,6 @@
-use nsh_base::input;
+use std::rc::Rc;
+
+use nsh_base::{button, input};
 use nsh_core::prelude::*;
 
 use crate::ui::icons::{IconKind, icon};
@@ -8,7 +10,11 @@ pub fn search_input(
     value: Signal<String>,
     placeholder: &'static str,
     on_submit: impl Fn(String) + 'static,
+    on_clear: impl Fn() + 'static,
 ) -> impl IntoElement {
+    let on_clear = Rc::new(on_clear);
+    let has_text = computed(move || !value.get().is_empty());
+
     view()
         .h(px(34.0))
         .px_3()
@@ -32,4 +38,25 @@ pub fn search_input(
                 .text_color(token::fg)
                 .flex_1(),
         )
+        .child(when(
+            move || has_text.get(),
+            move || {
+                let clear_cb = Rc::clone(&on_clear);
+                button()
+                    .on_press(move || {
+                        value.set(String::new());
+                        clear_cb();
+                    })
+                    .accessibility_label("清空搜索")
+                    .size(px(22.0))
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .transition_colors()
+                    .duration(token::INSTANT_MS)
+                    .hover(|s| s.bg(token::accent))
+                    .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+                    .child(icon(IconKind::Close, 12.0, token::muted_fg))
+            },
+        ))
 }

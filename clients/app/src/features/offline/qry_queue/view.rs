@@ -1,15 +1,21 @@
+use std::time::Duration;
+
 use hg_contracts::ids::EpisodeKey;
 use hg_contracts::offline::{DownloadTaskState, DownloadTaskView};
 use nsh_core::prelude::*;
 
+use super::super::qry_library::query as library_query;
 use super::super::store;
 use super::query::{
     self, TaskStatusTone, progress_detail_text, progress_ratio, queue_summary_text, state_badge,
 };
+use crate::ui::controls::bind_interval;
 use crate::ui::icons::IconKind;
 use crate::ui::poster;
 use crate::ui::surface::{BadgeTone, badge, empty_state, progress_track};
 use crate::ui::token;
+
+const QUEUE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 pub fn download_queue_section<H, R>(
     header_action: impl Fn() -> H + Copy + 'static,
@@ -21,6 +27,12 @@ where
 {
     let section_owner = Owner::current();
     query::load_queue();
+    bind_interval(QUEUE_POLL_INTERVAL, store::has_running_tasks, move || {
+        section_owner.run(|| {
+            query::load_queue();
+            library_query::load_library();
+        });
+    });
     view().w_full().child(dynamic(move || {
         queue_body(section_owner, header_action, task_action)
     }))

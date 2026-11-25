@@ -16,6 +16,7 @@ use crate::ui::surface::separator;
 use crate::ui::token;
 
 const COLLAPSED_SIDEBAR_WIDTH: f32 = 60.0;
+const NARROW_SIDEBAR_BREAKPOINT: f32 = 760.0;
 
 const PRIMARY_NAV_ITEMS: &[(PrimaryTab, IconKind, &str)] = &[
     (PrimaryTab::Discover, IconKind::Discover, "发现"),
@@ -65,12 +66,21 @@ fn toggle_and_persist_sidebar(owner: Owner) {
 
 pub fn app_shell() -> impl IntoElement {
     let shell_owner = Owner::current();
+    let window_width = signal(1240.0_f32);
     let in_player = || nav::active_player().is_some();
     let show_title_bar = || is_desktop() && !nav::is_chrome_fullscreen();
+    let effective_collapsed =
+        move || nav::sidebar_collapsed() || window_width.get() < NARROW_SIDEBAR_BREAKPOINT;
 
     view()
         .flex_1()
         .bg(token::bg)
+        .on_layout(move |bounds: &Bounds<Points>| {
+            let w = bounds.size.width.0;
+            if w > 0.0 && (window_width.get_untracked() - w).abs() > 1.0 {
+                window_width.set(w);
+            }
+        })
         .child(when(show_title_bar, move || {
             desktop_title_bar(
                 when(in_player, || {
@@ -87,7 +97,7 @@ pub fn app_shell() -> impl IntoElement {
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(sidebar_toggle_button(nav::sidebar_collapsed, move || {
+                        .child(sidebar_toggle_button(effective_collapsed, move || {
                             toggle_and_persist_sidebar(shell_owner);
                         }))
                         .child(
@@ -113,17 +123,17 @@ pub fn app_shell() -> impl IntoElement {
                     None => view().into_element(),
                 })
             })
-            .otherwise(main_chrome),
+            .otherwise(move || main_chrome(effective_collapsed)),
         )
 }
 
-fn main_chrome() -> impl IntoElement {
+fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
     if is_desktop() {
         view()
             .flex_1()
             .min_h_0()
             .flex_row()
-            .child(desktop_sidebar())
+            .child(desktop_sidebar(effective_collapsed))
             .child(active_tab_content())
             .into_element()
     } else {
@@ -192,12 +202,12 @@ fn nav_menu_column(
         )
 }
 
-fn desktop_sidebar() -> impl IntoElement {
+fn desktop_sidebar(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
     let drag_base = stored(None::<f32>);
 
     view()
         .w(move || {
-            if nav::sidebar_collapsed() {
+            if effective_collapsed() {
                 px(COLLAPSED_SIDEBAR_WIDTH)
             } else {
                 px(nav::sidebar_width())
@@ -209,10 +219,10 @@ fn desktop_sidebar() -> impl IntoElement {
         .border_r_1()
         .border_color(token::sidebar_border)
         .p_3()
-        .style_when(nav::sidebar_collapsed, |s| s.px_2())
-        .child(nav_menu_column(nav::sidebar_collapsed, nav::select_tab))
+        .style_when(effective_collapsed, |s| s.px_2())
+        .child(nav_menu_column(effective_collapsed, nav::select_tab))
         .child(when(
-            move || !nav::sidebar_collapsed(),
+            move || !effective_collapsed(),
             move || {
                 sidebar_resize_handle(
                     move |delta| {
