@@ -116,20 +116,24 @@ pub fn app_shell() -> impl IntoElement {
             )
         }))
         .child(
-            when(in_player, || {
-                dynamic(|| match nav::active_player() {
-                    Some(route) => pages::player::page::player_page(
-                        route.series_id,
-                        route.initial_episode,
-                        close_player_and_refresh,
-                        nav::set_chrome_fullscreen,
-                    )
-                    .into_element(),
-                    None => view().into_element(),
-                })
-            })
-            .otherwise(move || main_chrome(effective_collapsed)),
+            view()
+                .flex_1()
+                .min_h_0()
+                .style_when(in_player, |s| s.hidden())
+                .child(main_chrome(effective_collapsed)),
         )
+        .child(when(in_player, || {
+            dynamic(|| match nav::active_player() {
+                Some(route) => pages::player::page::player_page(
+                    route.series_id,
+                    route.initial_episode,
+                    close_player_and_refresh,
+                    nav::set_chrome_fullscreen,
+                )
+                .into_element(),
+                None => view().into_element(),
+            })
+        }))
 }
 
 fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
@@ -144,6 +148,9 @@ fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl 
     } else {
         let drawer_open = signal(false);
         on_back_press(|| {
+            if nav::active_player().is_some() {
+                return false;
+            }
             if nav::active_discover_subpage().is_some() {
                 nav::close_discover_subpage();
                 true

@@ -84,3 +84,29 @@ fn offline_drawer_episode_opens_player_and_mobile_back_exits_player_to_shell() {
     mobile.back().unwrap();
     mobile.wait_for("精选推荐").unwrap();
 }
+
+#[test]
+fn returning_from_player_preserves_browse_sort_and_category_context() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
+    let mut app = start_desktop_on_home(gw, ColorScheme::Light);
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+    assert!(!app.screen().shows("分页剧目 30"));
+
+    app.press("最新").unwrap();
+    app.wait_for("分页剧目 30").unwrap();
+    app.scroll("分页剧目 30", nsh_core::prelude::Points(2600.0))
+        .unwrap();
+    app.wait_for("分页剧目 02").unwrap();
+
+    app.press("分页剧目 30 >> nth=0").unwrap();
+    app.wait_for("选集 (1/12)").unwrap();
+
+    app.press("返回").unwrap();
+    app.wait_for("分页剧目 30").unwrap();
+    assert!(
+        app.screen().shows("分页剧目 02"),
+        "returning from player must preserve loaded browse pages and sort instead of resetting to 最热"
+    );
+}
