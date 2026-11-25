@@ -22,6 +22,10 @@ pub fn comment_replies_drawer() -> impl IntoElement {
         };
         untracked(move || query::open_from_player_store(series_id, comment_id));
         on_key("escape", |_| query::close());
+        on_back_press(|| {
+            query::close();
+            true
+        });
         drawer_overlay().into_element()
     })
 }

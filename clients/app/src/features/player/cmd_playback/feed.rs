@@ -2,7 +2,7 @@ use hg_contracts::catalog::{EpisodeComment, SeriesDetail};
 use hg_contracts::ids::EpisodeNumber;
 use nsh_core::prelude::*;
 
-use super::super::store::{self, MobileDetailTab};
+use super::super::store::{self, EpisodeCommentsState, MobileDetailTab};
 use super::command::{
     episode_segment_ranges, folded_episode_window, nickname_initial, truncate_synopsis,
 };
@@ -15,26 +15,32 @@ use crate::ui::surface::{BadgeTone, avatar_circle, badge, separator};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
+const COMMENTS_SCROLL_THRESHOLD_PX: f32 = 160.0;
+
 pub fn desktop_action_row() -> impl IntoElement {
+    let bookmarked_sig = computed(|| store::snapshot().bookmarked);
     view()
         .w_full()
         .flex_shrink_0()
         .flex_row()
         .items_center()
         .gap_2()
-        .child(app_icon_text_button(
-            IconKind::Bookmark,
-            move || {
-                if store::snapshot().bookmarked {
-                    "已追剧"
-                } else {
-                    "追剧"
-                }
-            },
-            ButtonVariant::Secondary,
-            ControlSize::Md,
-            handler::toggle_bookmark,
-        ))
+        .child(dynamic(move || {
+            let bookmarked = bookmarked_sig.get();
+            let (icon_kind, label, variant) = if bookmarked {
+                (IconKind::BookmarkFilled, "已追剧", ButtonVariant::BrandSoft)
+            } else {
+                (IconKind::Bookmark, "追剧", ButtonVariant::Secondary)
+            };
+            app_icon_text_button(
+                icon_kind,
+                label,
+                variant,
+                ControlSize::Md,
+                handler::toggle_bookmark,
+            )
+            .into_element()
+        }))
         .child(app_icon_text_button(
             IconKind::Download,
             "离线下载",
@@ -57,7 +63,21 @@ pub fn desktop_info_feed() -> impl IntoElement {
             scroll()
                 .flex_1()
                 .min_h_0()
-                .child(view().p_4().gap_4().child(dynamic(feed_sections))),
+                .on_scroll(|e: &ScrollEvent| {
+                    if should_load_more_on_scroll(e) {
+                        handler::load_more_comments();
+                    }
+                })
+                .child(
+                    view()
+                        .p_4()
+                        .gap_4()
+                        .child(synopsis_block())
+                        .child(separator())
+                        .child(episodes_block())
+                        .child(separator())
+                        .child(comments_block()),
+                ),
         )
 }
 
@@ -81,48 +101,65 @@ pub fn mobile_detail_sheet() -> impl IntoElement {
             move || tab_sig.get(),
             move |next| tab_sig.set(next),
         ))
-        .child(scroll().flex_1().min_h_0().child(dynamic(move || {
-            let snap = store::snapshot();
-            let Some(detail) = snap.detail else {
-                return view().into_element();
-            };
-            match tab_sig.get() {
-                MobileDetailTab::Info => view()
-                    .gap_4()
-                    .child(synopsis_section(&detail, snap.info_expanded))
-                    .child(desktop_action_row())
-                    .child(separator())
-                    .child(episodes_section(
-                        &detail,
-                        snap.current_episode,
-                        snap.episodes_expanded,
-                        snap.episode_segment_index,
-                    ))
-                    .into_element(),
-                MobileDetailTab::Comments => comments_section(&snap.comments).into_element(),
-            }
-        })))
+        .child(
+            scroll()
+                .flex_1()
+                .min_h_0()
+                .on_scroll(move |e: &ScrollEvent| {
+                    if tab_sig.get() == MobileDetailTab::Comments && should_load_more_on_scroll(e) {
+                        handler::load_more_comments();
+                    }
+                })
+                .child(dynamic(move || match tab_sig.get() {
+                    MobileDetailTab::Info => view()
+                        .gap_4()
+                        .child(synopsis_block())
+                        .child(desktop_action_row())
+                        .child(separator())
+                        .child(episodes_block())
+                        .into_element(),
+                    MobileDetailTab::Comments => comments_block().into_element(),
+                })),
+        )
 }
 
-fn feed_sections() -> impl IntoElement {
-    let snap = store::snapshot();
-    let Some(detail) = snap.detail else {
-        return view().into_element();
-    };
+fn should_load_more_on_scroll(e: &ScrollEvent) -> bool {
+    e.content_size.height > px(0.0)
+        && e.offset.y + e.size.height >= e.content_size.height - px(COMMENTS_SCROLL_THRESHOLD_PX)
+}
 
-    view()
-        .gap_4()
-        .child(synopsis_section(&detail, snap.info_expanded))
-        .child(separator())
-        .child(episodes_section(
-            &detail,
-            snap.current_episode,
-            snap.episodes_expanded,
-            snap.episode_segment_index,
-        ))
-        .child(separator())
-        .child(comments_section(&snap.comments))
-        .into_element()
+fn synopsis_block() -> impl IntoElement {
+    let synopsis_sig = computed(|| {
+        let s = store::snapshot();
+        (s.detail, s.info_expanded)
+    });
+    dynamic(move || match synopsis_sig.get() {
+        (Some(detail), expanded) => synopsis_section(&detail, expanded).into_element(),
+        (None, _) => view().into_element(),
+    })
+}
+
+fn episodes_block() -> impl IntoElement {
+    let episodes_sig = computed(|| {
+        let s = store::snapshot();
+        (
+            s.detail,
+            s.current_episode,
+            s.episodes_expanded,
+            s.episode_segment_index,
+        )
+    });
+    dynamic(move || match episodes_sig.get() {
+        (Some(detail), current_episode, expanded, seg_idx) => {
+            episodes_section(&detail, current_episode, expanded, seg_idx).into_element()
+        }
+        (None, _, _, _) => view().into_element(),
+    })
+}
+
+fn comments_block() -> impl IntoElement {
+    let comments_sig = computed(store::comments_snapshot);
+    dynamic(move || comments_section(&comments_sig.get()).into_element())
 }
 
 fn synopsis_section(detail: &SeriesDetail, expanded: bool) -> impl IntoElement {
@@ -257,8 +294,8 @@ fn episodes_section(
         .child(grid)
 }
 
-fn comments_section(comments: &[EpisodeComment]) -> impl IntoElement {
-    let header = format!("评论 ({})", comments.len());
+fn comments_section(comments: &EpisodeCommentsState) -> impl IntoElement {
+    let header = format!("评论 ({})", comments.total_count);
     let mut list = view().gap_3().child(
         text(header)
             .text_sm()
@@ -266,12 +303,38 @@ fn comments_section(comments: &[EpisodeComment]) -> impl IntoElement {
             .text_color(token::fg),
     );
 
-    if comments.is_empty() {
-        return list.child(text("暂无评论").text_xs().text_color(token::muted_fg));
+    if comments.loading && comments.items.is_empty() {
+        return list.child(
+            text("正在加载评论...")
+                .text_xs()
+                .text_color(token::muted_fg),
+        );
     }
 
-    for comment in comments {
+    if comments.items.is_empty() {
+        let message = if comments.error.is_some() {
+            "评论加载失败"
+        } else {
+            "暂无评论"
+        };
+        return list.child(text(message).text_xs().text_color(token::muted_fg));
+    }
+
+    for comment in &comments.items {
         list = list.child(comment_row(comment));
+    }
+    if comments.loading_more {
+        list = list.child(
+            text("正在加载更多评论...")
+                .text_xs()
+                .text_color(token::muted_fg),
+        );
+    } else if comments.error.is_some() {
+        list = list.child(
+            text("加载失败，请下滑重试")
+                .text_xs()
+                .text_color(token::muted_fg),
+        );
     }
     list
 }
@@ -336,6 +399,9 @@ fn comment_row(comment: &EpisodeComment) -> impl IntoElement {
                 )
                 .child(text(comment.text.clone()).text_sm().text_color(token::fg))
                 .child(text(meta).text_xs().text_color(token::muted_fg))
-                .children((!comment.preview_replies.is_empty()).then_some(replies_box)),
+                .children(
+                    (!comment.preview_replies.is_empty() || comment.reply_count > 0)
+                        .then_some(replies_box),
+                ),
         )
 }

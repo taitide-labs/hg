@@ -39,13 +39,17 @@ fn discover_and_search(harness: &mut E2eHarness) {
 
     harness
         .app
-        .type_text("搜索剧名、标签...", "夜雨")
-        .expect("type search keyword");
-    harness.app.press("搜索").expect("submit search");
+        .press("搜索")
+        .expect("open standalone search page");
     harness
         .app
         .wait_for("热搜")
         .expect("search page meta loaded");
+    harness
+        .app
+        .type_text("搜索剧名、标签...", "夜雨")
+        .expect("type search keyword");
+    harness.app.press("执行搜索").expect("submit search");
     harness
         .app
         .wait_for("夜雨长灯")
@@ -62,7 +66,7 @@ fn verify_player_replies_and_loopback(harness: &mut E2eHarness) {
         .press("夜雨长灯 >> nth=0")
         .expect("open series 101 player");
     harness.app.wait_for("选集 (1/3)").expect("player loaded");
-    harness.app.wait_for("评论 (1)").expect("comments loaded");
+    harness.app.wait_for("评论 (22)").expect("comments loaded");
     harness.app.wait_for("林深见鹿").expect("comment visible");
 
     harness
@@ -127,16 +131,18 @@ fn seek_bookmark_and_verify_watchlist(harness: &mut E2eHarness) {
     harness.app.press("追剧").expect("switch to watchlist tab");
     harness
         .app
-        .wait_for("最近观看")
-        .expect("watch history section visible");
-    harness
-        .app
         .wait_for("我的追剧")
         .expect("bookmarks section visible");
     harness
         .app
         .wait_for("夜雨长灯 >> nth=0")
         .expect("series persisted in watchlist");
+
+    harness.app.press("历史").expect("switch to history tab");
+    harness
+        .app
+        .wait_for("最近观看")
+        .expect("watch history section visible");
     harness
         .app
         .wait_for("text:/00:10/")

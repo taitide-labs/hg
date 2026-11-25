@@ -16,7 +16,7 @@ use hg_contracts::offline::{
 };
 use hg_contracts::viewing::{
     PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SeriesBookmark, StorageOverview, WatchHistoryEntry,
+    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry,
 };
 use hg_runtime::catalog::upstream::{CatalogUpstream, EdgeCatalogUpstream};
 use hg_runtime::catalog::{cmd_playback_and_cache, qry_discovery, qry_series_detail};
@@ -246,13 +246,31 @@ impl LocalGateway {
     pub fn spawn_background_download_pump(&self) {
         let offline = self.contexts.offline.clone();
         self.tokio_handle.spawn(async move {
+            let mut active = tokio::task::JoinSet::new();
             loop {
-                match cmd_download_queue::execute_next_queued_task(&offline).await {
-                    Ok(Some(_)) => {}
-                    Ok(None) | Err(_) => {
-                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                while active.try_join_next().is_some() {}
+                let max_concurrent = qry_download_queue::download_policy(&offline)
+                    .await
+                    .map_or(1, |policy| usize::from(policy.max_concurrent_tasks.max(1)));
+                if active.len() < max_concurrent
+                    && let Ok(Some(_)) =
+                        cmd_download_queue::execute_next_queued_task(&offline).await
+                {
+                    let target_extra = max_concurrent.saturating_sub(1);
+                    for _ in 0..target_extra {
+                        if active.len() >= max_concurrent {
+                            break;
+                        }
+                        let extra_offline = offline.clone();
+                        active.spawn(async move {
+                            drop(
+                                cmd_download_queue::execute_next_queued_task(&extra_offline).await,
+                            );
+                        });
                     }
+                    continue;
                 }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             }
         });
     }
@@ -484,6 +502,32 @@ impl AppGateway for LocalGateway {
         self.dispatch(async move {
             cmd_watchlist_and_settings::update_playback_preference(&viewing, preference).await
         })
+    }
+
+    fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move { qry_watchlist_and_settings::search_history(&viewing).await })
+    }
+
+    fn record_search_history(&self, keyword: String) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::record_search_history(&viewing, keyword).await
+        })
+    }
+
+    fn remove_search_history(&self, keyword: String) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::remove_search_history(&viewing, keyword).await
+        })
+    }
+
+    fn clear_search_history(&self) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { cmd_watchlist_and_settings::clear_search_history(&viewing).await },
+        )
     }
 
     fn clear_playback_cache(&self) -> GatewayFuture<()> {

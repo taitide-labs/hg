@@ -53,8 +53,8 @@ pub fn open_from_player_store(series_id: SeriesId, comment_id: CommentId) {
     if current == (Some(series_id), Some(comment_id)) {
         return;
     }
-    let snap = store::snapshot();
-    let parent = find_parent_comment(&snap.comments, comment_id);
+    let comments = store::comments_snapshot().items;
+    let parent = find_parent_comment(&comments, comment_id);
     open_and_load(series_id, comment_id, parent);
 }
 

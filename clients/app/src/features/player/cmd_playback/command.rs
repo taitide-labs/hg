@@ -77,6 +77,50 @@ pub const fn step_volume(current_percent: u8, louder: bool) -> u8 {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResumePlan {
+    pub episode: EpisodeNumber,
+    pub position_secs: Option<u32>,
+}
+
+#[must_use]
+pub fn resume_plan(
+    requested: Option<EpisodeNumber>,
+    last_watched: Option<(EpisodeNumber, u32, bool)>,
+    total_episodes: u32,
+) -> ResumePlan {
+    let first = EpisodeNumber::new(NonZeroU32::MIN);
+    match (requested, last_watched) {
+        (Some(episode), Some((last, position, false))) if episode == last && position > 0 => {
+            ResumePlan {
+                episode,
+                position_secs: Some(position),
+            }
+        }
+        (Some(episode), _) => ResumePlan {
+            episode,
+            position_secs: None,
+        },
+        (None, Some((last, position, completed))) => {
+            if completed {
+                ResumePlan {
+                    episode: adjacent_episode(last, total_episodes, true).unwrap_or(last),
+                    position_secs: None,
+                }
+            } else {
+                ResumePlan {
+                    episode: last,
+                    position_secs: (position > 0).then_some(position),
+                }
+            }
+        }
+        (None, None) => ResumePlan {
+            episode: first,
+            position_secs: None,
+        },
+    }
+}
+
 #[must_use]
 pub fn adjacent_episode(
     current: EpisodeNumber,

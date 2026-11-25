@@ -70,11 +70,41 @@ pub struct SeriesBookmark {
     pub bookmarked_at_epoch_secs: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum AppAppearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaybackPreference {
     pub preferred_profile: StreamProfile,
     pub playback_cache_limit_mb: u32,
     pub default_rate_hundredths: u16,
+    pub appearance: AppAppearance,
+    pub sidebar_collapsed: bool,
+    pub sidebar_width: u16,
+}
+
+impl Default for PlaybackPreference {
+    fn default() -> Self {
+        Self {
+            preferred_profile: StreamProfile::Hevc,
+            playback_cache_limit_mb: 512,
+            default_rate_hundredths: 100,
+            appearance: AppAppearance::System,
+            sidebar_collapsed: false,
+            sidebar_width: 208,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchHistoryEntry {
+    pub keyword: String,
+    pub searched_at_epoch_secs: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

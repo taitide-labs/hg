@@ -1,8 +1,8 @@
 use hg_backend_contracts::catalog::SeriesSnapshot;
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{SeriesId, StreamProfile};
-use hg_contracts::viewing::PlaybackPreference;
-use hg_viewing_domain::preference::validate_playback_preference;
+use hg_contracts::viewing::{AppAppearance, PlaybackPreference};
+use hg_viewing_domain::preference::{MAX_SEARCH_HISTORY_ENTRIES, validate_playback_preference};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BookmarkWrite {
@@ -17,6 +17,21 @@ pub struct BookmarkWrite {
 
 pub fn check_playback_preference(pref: &PlaybackPreference) -> Result<(), ContractError> {
     validate_playback_preference(pref).map_err(ContractError::from)
+}
+
+#[must_use]
+pub fn normalize_search_keyword(keyword: &str) -> Option<String> {
+    let trimmed = keyword.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
+#[must_use]
+pub const fn search_history_limit() -> i64 {
+    MAX_SEARCH_HISTORY_ENTRIES as i64
 }
 
 #[must_use]
@@ -40,5 +55,14 @@ pub const fn profile_as_str(profile: StreamProfile) -> &'static str {
     match profile {
         StreamProfile::Hevc => "hevc",
         StreamProfile::Main => "main",
+    }
+}
+
+#[must_use]
+pub const fn appearance_as_str(appearance: AppAppearance) -> &'static str {
+    match appearance {
+        AppAppearance::System => "system",
+        AppAppearance::Light => "light",
+        AppAppearance::Dark => "dark",
     }
 }

@@ -31,21 +31,87 @@ pub fn selected_rate() -> u16 {
     })
 }
 
+pub fn apply_loaded_preference(pref: PlaybackPreference) {
+    let option = AppearanceOption::from(pref.appearance);
+    store::state().update(|s| {
+        s.playback_pref = Some(pref);
+        s.error = None;
+    });
+    appearance_signal().set(option);
+    set_color_scheme(option.into());
+}
+
 pub fn select_appearance(option: AppearanceOption) {
     appearance_signal().set(option);
     set_color_scheme(option.into());
+    let app_appearance = option.into();
+    if let Some(current) = store::state().with_untracked(|s| s.playback_pref) {
+        let next = command::with_appearance(current, app_appearance);
+        save_preference(current, next);
+        return;
+    }
+
+    let seq = next_save_generation();
+    let gw = gateway::current();
+    spawn(async move {
+        let base = gw.playback_preference().await.unwrap_or_default();
+        let next = command::with_appearance(base, app_appearance);
+        if is_latest_generation(seq) {
+            store::state().update(|s| {
+                s.playback_pref = Some(next);
+                s.error = None;
+            });
+        }
+        if let Err(err) = gw.update_playback_preference(next).await
+            && is_latest_generation(seq)
+        {
+            store::state().update(|s| {
+                s.playback_pref = Some(base);
+                s.error = Some(err.to_string());
+            });
+        }
+    });
+}
+
+pub fn persist_sidebar_state(collapsed: bool, width: u16) {
+    if let Some(current) = store::state().with_untracked(|s| s.playback_pref) {
+        let next = command::with_sidebar(current, collapsed, width);
+        if next != current {
+            save_preference(current, next);
+        }
+        return;
+    }
+
+    let seq = next_save_generation();
+    let gw = gateway::current();
+    spawn(async move {
+        let base = gw.playback_preference().await.unwrap_or_default();
+        let next = command::with_sidebar(base, collapsed, width);
+        if next == base {
+            return;
+        }
+        if is_latest_generation(seq) {
+            store::state().update(|s| {
+                s.playback_pref = Some(next);
+                s.error = None;
+            });
+        }
+        if let Err(err) = gw.update_playback_preference(next).await
+            && is_latest_generation(seq)
+        {
+            store::state().update(|s| {
+                s.playback_pref = Some(base);
+                s.error = Some(err.to_string());
+            });
+        }
+    });
 }
 
 pub fn load_playback_preference() {
     let gw = gateway::current();
     spawn(async move {
         match gw.playback_preference().await {
-            Ok(pref) => {
-                store::state().update(|s| {
-                    s.playback_pref = Some(pref);
-                    s.error = None;
-                });
-            }
+            Ok(pref) => apply_loaded_preference(pref),
             Err(err) => {
                 store::state().update(|s| s.error = Some(err.to_string()));
             }

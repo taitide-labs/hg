@@ -5,7 +5,8 @@ use hg_contracts::viewing::PlaybackPreference;
 use crate::ViewingDeps;
 
 use super::workflow::{
-    BookmarkWrite, check_playback_preference, plan_bookmark_series, profile_as_str,
+    BookmarkWrite, appearance_as_str, check_playback_preference, normalize_search_keyword,
+    plan_bookmark_series, profile_as_str, search_history_limit,
 };
 
 pub async fn remove_watch_history(
@@ -76,6 +77,8 @@ pub async fn update_playback_preference(
     check_playback_preference(&preference)?;
 
     let profile = profile_as_str(preference.preferred_profile);
+    let appearance = appearance_as_str(preference.appearance);
+    let sidebar_collapsed = i64::from(preference.sidebar_collapsed);
     let mut tx = begin_write_tx(deps, "更新播放偏好").await?;
 
     sqlx::query(
@@ -83,16 +86,25 @@ pub async fn update_playback_preference(
             id,
             preferred_profile,
             playback_cache_limit_mb,
-            default_rate_hundredths
-        ) VALUES (1, ?1, ?2, ?3)
+            default_rate_hundredths,
+            appearance,
+            sidebar_collapsed,
+            sidebar_width
+        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
         ON CONFLICT(id) DO UPDATE SET
             preferred_profile = excluded.preferred_profile,
             playback_cache_limit_mb = excluded.playback_cache_limit_mb,
-            default_rate_hundredths = excluded.default_rate_hundredths",
+            default_rate_hundredths = excluded.default_rate_hundredths,
+            appearance = excluded.appearance,
+            sidebar_collapsed = excluded.sidebar_collapsed,
+            sidebar_width = excluded.sidebar_width",
     )
     .bind(profile)
     .bind(i64::from(preference.playback_cache_limit_mb))
     .bind(i64::from(preference.default_rate_hundredths))
+    .bind(appearance)
+    .bind(sidebar_collapsed)
+    .bind(i64::from(preference.sidebar_width))
     .execute(&mut *tx)
     .await
     .map_err(|err| ContractError::Internal {
@@ -100,6 +112,81 @@ pub async fn update_playback_preference(
     })?;
 
     commit_write_tx(tx, "更新播放偏好").await
+}
+
+pub async fn record_search_history(
+    deps: &ViewingDeps,
+    keyword: String,
+) -> Result<(), ContractError> {
+    let Some(normalized) = normalize_search_keyword(&keyword) else {
+        return Ok(());
+    };
+    let searched_at = sqlite_i64(deps.clock.now_epoch_secs(), "搜索时间戳")?;
+    let mut tx = begin_write_tx(deps, "记录搜索历史").await?;
+
+    sqlx::query(
+        "INSERT INTO viewing_search_history (keyword, searched_at_epoch_secs)
+        VALUES (?1, ?2)
+        ON CONFLICT(keyword) DO UPDATE SET
+            searched_at_epoch_secs = excluded.searched_at_epoch_secs",
+    )
+    .bind(&normalized)
+    .bind(searched_at)
+    .execute(&mut *tx)
+    .await
+    .map_err(|err| ContractError::Internal {
+        detail: format!("记录搜索历史失败: {err}"),
+    })?;
+
+    sqlx::query(
+        "DELETE FROM viewing_search_history
+        WHERE keyword NOT IN (
+            SELECT keyword FROM viewing_search_history
+            ORDER BY searched_at_epoch_secs DESC, keyword ASC
+            LIMIT ?1
+        )",
+    )
+    .bind(search_history_limit())
+    .execute(&mut *tx)
+    .await
+    .map_err(|err| ContractError::Internal {
+        detail: format!("裁剪搜索历史失败: {err}"),
+    })?;
+
+    commit_write_tx(tx, "记录搜索历史").await
+}
+
+pub async fn remove_search_history(
+    deps: &ViewingDeps,
+    keyword: String,
+) -> Result<(), ContractError> {
+    let Some(normalized) = normalize_search_keyword(&keyword) else {
+        return Ok(());
+    };
+    let mut tx = begin_write_tx(deps, "移除搜索历史").await?;
+
+    sqlx::query("DELETE FROM viewing_search_history WHERE keyword = ?1")
+        .bind(&normalized)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("移除搜索历史失败: {err}"),
+        })?;
+
+    commit_write_tx(tx, "移除搜索历史").await
+}
+
+pub async fn clear_search_history(deps: &ViewingDeps) -> Result<(), ContractError> {
+    let mut tx = begin_write_tx(deps, "清空搜索历史").await?;
+
+    sqlx::query("DELETE FROM viewing_search_history")
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("清空搜索历史失败: {err}"),
+        })?;
+
+    commit_write_tx(tx, "清空搜索历史").await
 }
 
 pub async fn clear_playback_cache(deps: &ViewingDeps) -> Result<(), ContractError> {

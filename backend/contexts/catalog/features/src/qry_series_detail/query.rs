@@ -21,7 +21,7 @@ pub async fn fetch_series_detail(
     deps: &CatalogDeps,
     series_id: SeriesId,
 ) -> Result<SeriesDetail, PortError> {
-    let cache_key = format!("series_detail:{series_id}");
+    let cache_key = format!("series_detail:v2:{series_id}");
     let now =
         i64::try_from(deps.clock.now_epoch_secs()).map_err(|err| PortError::InvalidState {
             detail: format!("当前时间戳超出 SQLite 整数范围: {err}"),

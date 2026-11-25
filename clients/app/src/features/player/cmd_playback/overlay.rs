@@ -11,23 +11,27 @@ use crate::ui::button::{
 };
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::surface::{cinema_separator, progress_track, toggle_switch_row};
+use crate::ui::surface::{cinema_separator, toggle_switch_row};
 use crate::ui::token;
-use crate::ui::video_surface::{VideoSurfaceState, bind_auto_hide_timer, video_surface};
+use crate::ui::video_surface::{
+    VideoSurfaceState, bind_auto_hide_timer, scrub_slider, video_surface,
+};
 
 const CONTROLS_AUTO_HIDE_DELAY: Duration = Duration::from_secs(3);
 
 pub(super) fn current_video_surface_state() -> VideoSurfaceState {
     let snap = store::snapshot();
+    let controls = store::controls_snapshot();
+    let progress = store::progress_snapshot();
     VideoSurfaceState {
         src: snap.source.map(|s| s.playable_uri),
-        paused: snap.paused,
-        rate: f64::from(snap.rate_hundredths) / 100.0,
-        volume: f64::from(snap.volume_percent) / 100.0,
-        muted: snap.muted,
-        seek_secs: snap.position_secs,
-        seek_seq: snap.seek_seq,
-        aspect: snap.aspect.protocol_key(),
+        paused: controls.paused,
+        rate: f64::from(controls.rate_hundredths) / 100.0,
+        volume: f64::from(controls.volume_percent) / 100.0,
+        muted: controls.muted,
+        seek_secs: progress.position_secs,
+        seek_seq: progress.seek_seq,
+        aspect: controls.aspect.protocol_key(),
     }
 }
 
@@ -43,6 +47,7 @@ pub fn video_surface_box(
         store::hide_controls,
     );
 
+    let show_controls = computed(store::should_show_controls);
     let frame = view()
         .label("视频画面")
         .w_full()
@@ -53,12 +58,13 @@ pub fn video_surface_box(
         .bg(token::cinema_bg)
         .on_mouse_enter(|_: &nsh_core::MouseEvent| store::reveal_controls())
         .on_mouse_move(|_: &nsh_core::MouseEvent| store::reveal_controls())
-        .on_mouse_leave(|_: &nsh_core::MouseEvent| store::hide_controls())
+        .on_mouse_leave(|_: &nsh_core::MouseEvent| store::leave_surface())
         .child(video_picture_area(on_back))
         .child(bottom_right_popover())
-        .child(when(store::should_show_controls, move || {
-            bottom_control_bar(on_toggle_fullscreen)
-        }));
+        .child(when(
+            move || show_controls.get(),
+            move || bottom_control_bar(on_toggle_fullscreen),
+        ));
 
     if fullscreen {
         frame.into_element()
@@ -79,7 +85,7 @@ fn video_picture_area(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
 }
 
 fn aspect_frame_preview() -> impl IntoElement {
-    let is_portrait = computed(|| store::snapshot().aspect == AspectPreset::Portrait9x16);
+    let is_portrait = computed(|| store::controls_snapshot().aspect == AspectPreset::Portrait9x16);
     view().size_full().items_center().justify_center().child(
         view()
             .h_full()
@@ -105,7 +111,8 @@ fn top_overlay_strip(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
     let show_back = !is_desktop();
     view()
         .absolute()
-        .top_3()
+        .top_0()
+        .pt_safe_area_plus(px(12.0))
         .left_3()
         .children(show_back.then(|| {
             app_icon_button(
@@ -119,35 +126,42 @@ fn top_overlay_strip(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
 }
 
 fn osd_hint_pill() -> impl IntoElement {
-    view().absolute().top_3().right_3().child(dynamic(|| {
-        let Some(hint) = store::snapshot().status_hint else {
-            return view().into_element();
-        };
-        view()
-            .px_3()
-            .py_1()
-            .rounded(token::radius_badge)
-            .bg(token::cinema_scrim)
-            .child(
-                text(hint)
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(token::cinema_fg),
-            )
-            .into_element()
-    }))
+    let hint_sig = computed(|| store::controls_snapshot().status_hint);
+    view()
+        .absolute()
+        .top_0()
+        .pt_safe_area_plus(px(12.0))
+        .right_3()
+        .child(dynamic(move || {
+            let Some(hint) = hint_sig.get() else {
+                return view().into_element();
+            };
+            view()
+                .px_3()
+                .py_1()
+                .rounded(token::radius_badge)
+                .bg(token::cinema_scrim)
+                .child(
+                    text(hint)
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(token::cinema_fg),
+                )
+                .into_element()
+        }))
 }
 
 fn bottom_right_popover() -> impl IntoElement {
+    let popover_sig = computed(|| store::controls_snapshot().popover);
     view()
         .absolute()
         .bottom(px(56.0))
-        .right(move || match store::snapshot().popover {
+        .right(move || match popover_sig.get() {
             ActivePopover::Speed => px(124.0),
             ActivePopover::Settings => px(48.0),
             ActivePopover::None => px(12.0),
         })
-        .child(dynamic(|| match store::snapshot().popover {
+        .child(dynamic(move || match popover_sig.get() {
             ActivePopover::None => view().into_element(),
             ActivePopover::Settings => settings_popover().into_element(),
             ActivePopover::Speed => speed_popover().into_element(),
@@ -200,8 +214,8 @@ fn speed_popover() -> impl IntoElement {
         (100, "1.0×"),
         (75, "0.75×"),
     ];
-    let current = store::snapshot().rate_hundredths;
-    let mut panel = view()
+    let current = computed(|| store::controls_snapshot().rate_hundredths);
+    view()
         .bind_motion(&enter)
         .w(px(86.0))
         .p_1p5()
@@ -209,22 +223,25 @@ fn speed_popover() -> impl IntoElement {
         .bg(token::cinema_surface)
         .border_1()
         .border_color(token::cinema_border)
-        .gap_1();
-
-    for &(rate, label) in presets {
-        let variant = if current == rate {
-            ButtonVariant::CinemaPrimary
-        } else {
-            ButtonVariant::OverlayGhost
-        };
-        panel = panel.child(app_button(label, variant, ControlSize::Sm, move || {
-            store::set_rate(rate);
-        }));
-    }
-    panel
+        .child(dynamic(move || {
+            let active_rate = current.get();
+            let mut panel = view().gap_1();
+            for &(rate, label) in presets {
+                let variant = if active_rate == rate {
+                    ButtonVariant::CinemaPrimary
+                } else {
+                    ButtonVariant::OverlayGhost
+                };
+                panel = panel.child(app_button(label, variant, ControlSize::Sm, move || {
+                    store::set_rate(rate);
+                }));
+            }
+            panel
+        }))
 }
 
 fn bottom_control_bar(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> impl IntoElement {
+    cleanup(|| store::set_controls_hovered(false));
     let enter = token::fade_enter();
     view()
         .bind_motion(&enter)
@@ -237,6 +254,8 @@ fn bottom_control_bar(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> impl 
         .pt_2()
         .pb_2()
         .gap_2()
+        .on_mouse_enter(|_: &nsh_core::MouseEvent| store::set_controls_hovered(true))
+        .on_mouse_leave(|_: &nsh_core::MouseEvent| store::set_controls_hovered(false))
         .child(scrub_progress_bar())
         .child(
             view()
@@ -251,23 +270,28 @@ fn bottom_control_bar(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> impl 
 }
 
 fn scrub_progress_bar() -> impl IntoElement {
-    progress_track(|| {
-        let snap = store::snapshot();
-        if snap.duration_secs == 0 {
-            0.0
-        } else {
-            snap.position_secs as f32 / snap.duration_secs as f32
-        }
-    })
+    scrub_slider(
+        || {
+            let p = store::progress_snapshot();
+            p.scrub_preview_secs.unwrap_or(p.position_secs)
+        },
+        || store::progress_snapshot().duration_secs,
+        |secs| store::set_scrub_preview(Some(secs)),
+        |secs| {
+            store::set_scrub_preview(None);
+            handler::seek_to(secs);
+        },
+    )
 }
 
 fn left_transport_cluster() -> impl IntoElement {
+    let paused_sig = computed(|| store::controls_snapshot().paused);
     view()
         .flex_row()
         .items_center()
         .gap_2()
-        .child(dynamic(|| {
-            let icon_kind = if store::snapshot().paused {
+        .child(dynamic(move || {
+            let icon_kind = if paused_sig.get() {
                 IconKind::Play
             } else {
                 IconKind::Pause
@@ -283,11 +307,11 @@ fn left_transport_cluster() -> impl IntoElement {
         }))
         .child(
             text(move || {
-                let snap = store::snapshot();
+                let p = store::progress_snapshot();
                 format!(
                     "{} / {}",
-                    format_time(snap.position_secs),
-                    format_time(snap.duration_secs)
+                    format_time(p.scrub_preview_secs.unwrap_or(p.position_secs)),
+                    format_time(p.duration_secs)
                 )
             })
             .text_xs()
@@ -297,18 +321,20 @@ fn left_transport_cluster() -> impl IntoElement {
 }
 
 fn right_controls_cluster(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> impl IntoElement {
+    let muted_sig = computed(|| store::controls_snapshot().muted);
+    let rate_sig = computed(|| store::controls_snapshot().rate_hundredths);
     view()
         .flex_row()
         .items_center()
         .gap_1()
         .child(app_button(
-            move || format_rate_trigger(store::snapshot().rate_hundredths),
+            move || format_rate_trigger(rate_sig.get()),
             ButtonVariant::OverlayGhost,
             ControlSize::Sm,
             || store::toggle_popover(ActivePopover::Speed),
         ))
-        .child(dynamic(|| {
-            let icon_kind = if store::snapshot().muted {
+        .child(dynamic(move || {
+            let icon_kind = if muted_sig.get() {
                 IconKind::VolumeMuted
             } else {
                 IconKind::Volume

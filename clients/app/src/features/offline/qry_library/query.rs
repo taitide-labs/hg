@@ -3,25 +3,23 @@ use hg_contracts::offline::{OfflineEpisodeView, OfflineSeriesView};
 use nsh_core::prelude::*;
 
 use super::super::store;
+#[cfg(test)]
+pub(super) use super::super::store::sort_library_recent_first;
 use crate::gateway;
 
 pub fn load_library() {
-    store::state().update(|s| {
-        s.loading_library = true;
-        s.error = None;
-    });
+    let should_mark_loading = store::state().with_untracked(|s| !s.has_loaded_library);
+    if should_mark_loading {
+        store::state().update(|s| {
+            s.loading_library = true;
+            s.error = None;
+        });
+    }
 
     let gw = gateway::current();
     spawn(async move {
         match gw.offline_library().await {
-            Ok(mut series_list) => {
-                sort_library_recent_first(&mut series_list);
-                store::state().update(|s| {
-                    s.library = series_list;
-                    s.loading_library = false;
-                    s.error = None;
-                });
-            }
+            Ok(series_list) => store::set_library_loaded(series_list),
             Err(err) => {
                 store::state().update(|s| {
                     s.loading_library = false;
@@ -30,26 +28,6 @@ pub fn load_library() {
             }
         }
     });
-}
-
-pub(super) fn sort_library_recent_first(series_list: &mut [OfflineSeriesView]) {
-    for series in series_list.iter_mut() {
-        series.episodes.sort_by_key(|ep| ep.ep_num.get());
-    }
-    series_list.sort_by(|a, b| {
-        latest_downloaded_epoch(b)
-            .cmp(&latest_downloaded_epoch(a))
-            .then_with(|| a.series_id.get().cmp(&b.series_id.get()))
-    });
-}
-
-fn latest_downloaded_epoch(series: &OfflineSeriesView) -> u64 {
-    series
-        .episodes
-        .iter()
-        .map(|ep| ep.downloaded_at_epoch_secs)
-        .max()
-        .unwrap_or(0)
 }
 
 #[must_use]

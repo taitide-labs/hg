@@ -5,6 +5,8 @@ use hg_contracts::offline::{
 use nsh_core::prelude::*;
 
 use super::super::store;
+#[cfg(test)]
+pub(super) use super::super::store::{is_active_task, sort_queue_tasks};
 use crate::gateway;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,23 +18,18 @@ pub(super) enum TaskStatusTone {
 }
 
 pub fn load_queue() {
-    store::state().update(|s| {
-        s.loading_queue = true;
-        s.error = None;
-    });
+    let should_mark_loading = store::state().with_untracked(|s| !s.has_loaded_queue);
+    if should_mark_loading {
+        store::state().update(|s| {
+            s.loading_queue = true;
+            s.error = None;
+        });
+    }
 
     let gw = gateway::current();
     spawn(async move {
         match gw.download_tasks().await {
-            Ok(mut tasks) => {
-                tasks.retain(|task| is_active_task(task.state));
-                sort_queue_tasks(&mut tasks);
-                store::state().update(|s| {
-                    s.tasks = tasks;
-                    s.loading_queue = false;
-                    s.error = None;
-                });
-            }
+            Ok(tasks) => store::set_queue_loaded(tasks),
             Err(err) => {
                 store::state().update(|s| {
                     s.loading_queue = false;
@@ -40,35 +37,6 @@ pub fn load_queue() {
                 });
             }
         }
-    });
-}
-
-#[must_use]
-pub(super) const fn is_active_task(state: DownloadTaskState) -> bool {
-    !matches!(
-        state,
-        DownloadTaskState::Completed | DownloadTaskState::Cancelled
-    )
-}
-
-const fn state_sort_rank(state: DownloadTaskState) -> u8 {
-    match state {
-        DownloadTaskState::Downloading { .. } => 0,
-        DownloadTaskState::FetchingSource => 1,
-        DownloadTaskState::Queued => 2,
-        DownloadTaskState::Paused { .. } => 3,
-        DownloadTaskState::Failed { .. } => 4,
-        DownloadTaskState::Completed => 5,
-        DownloadTaskState::Cancelled => 6,
-    }
-}
-
-pub(super) fn sort_queue_tasks(tasks: &mut [DownloadTaskView]) {
-    tasks.sort_by(|a, b| {
-        state_sort_rank(a.state)
-            .cmp(&state_sort_rank(b.state))
-            .then_with(|| a.key.series_id.get().cmp(&b.key.series_id.get()))
-            .then_with(|| a.key.ep_num.get().cmp(&b.key.ep_num.get()))
     });
 }
 

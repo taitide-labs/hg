@@ -15,9 +15,7 @@ pub fn delete_series(series_id: SeriesId) {
                     s.error = None;
                 });
                 if let Ok(library) = gw.offline_library().await {
-                    store::state().update(|s| {
-                        s.library = library;
-                    });
+                    store::set_library_loaded(library);
                 }
             }
             Err(err) => {
@@ -39,9 +37,7 @@ pub fn delete_episode(key: EpisodeKey) {
                     s.error = None;
                 });
                 if let Ok(library) = gw.offline_library().await {
-                    store::state().update(|s| {
-                        s.library = library;
-                    });
+                    store::set_library_loaded(library);
                 }
             }
             Err(err) => {

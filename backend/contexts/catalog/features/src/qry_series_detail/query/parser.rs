@@ -159,14 +159,12 @@ pub fn parse_series_detail(
         .collect::<Result<Vec<_>, _>>()?;
 
     let episode_len = u32::try_from(episodes.len()).unwrap_or(u32::MAX);
-    let episode_count = raw
-        .episode_count
-        .or(raw.total_episodes)
+    let total_episodes = [raw.total_episodes, raw.episode_count, Some(episode_len)]
+        .into_iter()
+        .flatten()
+        .max()
         .unwrap_or(episode_len);
-    let total_episodes = raw
-        .total_episodes
-        .or(raw.episode_count)
-        .unwrap_or(episode_count);
+    let episode_count = total_episodes;
     let counts = raw.counts.unwrap_or_default();
     let play_heat = counts.hot.or(raw.hot).unwrap_or(0);
     let hot = raw.hot.or(counts.hot).unwrap_or(0);

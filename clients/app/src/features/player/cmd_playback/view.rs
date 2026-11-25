@@ -10,9 +10,9 @@ use super::overlay::{current_video_surface_state, video_surface_box};
 use crate::ui::button::{ButtonVariant, ControlSize, app_icon_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::surface::{empty_state, progress_track};
+use crate::ui::surface::empty_state;
 use crate::ui::token;
-use crate::ui::video_surface::video_surface;
+use crate::ui::video_surface::{bind_lifecycle_pause, scrub_slider, video_surface};
 
 pub fn player_view(
     series_id: SeriesId,
@@ -26,12 +26,22 @@ pub fn player_view(
         PlaybackMode::ShortDrama
     };
     handler::open_series(series_id, initial_episode, default_mode);
+    cleanup(handler::cleanup_on_exit);
+    bind_lifecycle_pause(handler::pause_on_background);
 
     let toggle_fs = move || {
         let next = store::toggle_fullscreen();
         on_fullscreen_change(next);
     };
     bind_potplayer_shortcuts(on_back, toggle_fs);
+    on_back_press(move || {
+        if store::is_fullscreen_untracked() {
+            toggle_fs();
+        } else {
+            on_back();
+        }
+        true
+    });
 
     let key = computed(store::surface_key);
     view()
@@ -89,7 +99,7 @@ fn bind_potplayer_shortcuts(
     on_key("x", |_| handler::adjust_rate(false));
     on_key("c", |_| handler::adjust_rate(true));
     on_key("escape", move |_| {
-        if store::snapshot().fullscreen {
+        if store::is_fullscreen_untracked() {
             on_toggle_fullscreen();
         } else {
             on_back();
@@ -168,7 +178,8 @@ fn vertical_immersive_layout(on_back: impl Fn() + Copy + 'static) -> impl IntoEl
         .child(
             view()
                 .absolute()
-                .top_4()
+                .top_0()
+                .pt_safe_area_plus(px(12.0))
                 .left_4()
                 .children((!is_desktop()).then(|| {
                     app_icon_button(
@@ -214,18 +225,32 @@ fn vertical_video_canvas() -> impl IntoElement {
 }
 
 fn vertical_right_rail() -> impl IntoElement {
+    let bookmarked_sig = computed(|| store::snapshot().bookmarked);
     view()
         .absolute()
         .right_4()
         .bottom(px(88.0))
         .gap_3()
-        .child(app_icon_button(
-            IconKind::Bookmark,
-            "追剧",
-            ButtonVariant::CinemaGlass,
-            ControlSize::Lg,
-            handler::toggle_bookmark,
-        ))
+        .child(dynamic(move || {
+            let bookmarked = bookmarked_sig.get();
+            let (icon_kind, label, variant) = if bookmarked {
+                (
+                    IconKind::BookmarkFilled,
+                    "已追剧",
+                    ButtonVariant::CinemaBrand,
+                )
+            } else {
+                (IconKind::Bookmark, "追剧", ButtonVariant::CinemaGlass)
+            };
+            app_icon_button(
+                icon_kind,
+                label,
+                variant,
+                ControlSize::Lg,
+                handler::toggle_bookmark,
+            )
+            .into_element()
+        }))
         .child(app_icon_button(
             IconKind::ChevronUp,
             "上一集",
@@ -250,6 +275,12 @@ fn vertical_right_rail() -> impl IntoElement {
 }
 
 fn vertical_bottom_info() -> impl IntoElement {
+    let title_ep_sig = computed(|| {
+        let snap = store::snapshot();
+        let title = snap.detail.map_or_else(String::new, |d| d.summary.title);
+        let ep = snap.current_episode.map_or(1, EpisodeNumber::get);
+        format!("{title} · 第 {ep} 集")
+    });
     view()
         .absolute()
         .left_4()
@@ -257,15 +288,10 @@ fn vertical_bottom_info() -> impl IntoElement {
         .bottom_4()
         .gap_2()
         .child(
-            text(move || {
-                let snap = store::snapshot();
-                let title = snap.detail.map_or_else(String::new, |d| d.summary.title);
-                let ep = snap.current_episode.map_or(1, EpisodeNumber::get);
-                format!("{title} · 第 {ep} 集")
-            })
-            .text_sm()
-            .font_weight(FontWeight::SEMIBOLD)
-            .text_color(token::cinema_fg),
+            text(move || title_ep_sig.get())
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(token::cinema_fg),
         )
         .child(
             view()
@@ -273,21 +299,25 @@ fn vertical_bottom_info() -> impl IntoElement {
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(view().flex_1().child(progress_track(|| {
-                    let snap = store::snapshot();
-                    if snap.duration_secs == 0 {
-                        0.0
-                    } else {
-                        snap.position_secs as f32 / snap.duration_secs as f32
-                    }
-                })))
+                .child(view().flex_1().child(scrub_slider(
+                    || {
+                        let p = store::progress_snapshot();
+                        p.scrub_preview_secs.unwrap_or(p.position_secs)
+                    },
+                    || store::progress_snapshot().duration_secs,
+                    |secs| store::set_scrub_preview(Some(secs)),
+                    |secs| {
+                        store::set_scrub_preview(None);
+                        handler::seek_to(secs);
+                    },
+                )))
                 .child(
                     text(move || {
-                        let snap = store::snapshot();
+                        let p = store::progress_snapshot();
                         format!(
                             "{} / {}",
-                            format_time(snap.position_secs),
-                            format_time(snap.duration_secs)
+                            format_time(p.scrub_preview_secs.unwrap_or(p.position_secs)),
+                            format_time(p.duration_secs)
                         )
                     })
                     .text_xs()

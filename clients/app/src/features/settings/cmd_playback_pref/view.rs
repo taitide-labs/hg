@@ -3,6 +3,7 @@ use nsh_core::prelude::*;
 use super::super::store;
 use super::command::{AppearanceOption, PROFILE_OPTIONS, RATE_PRESETS};
 use super::handler;
+use crate::ui::controls::setting_row;
 use crate::ui::icons::IconKind;
 use crate::ui::surface::{empty_state, section_header, separator};
 use crate::ui::tabs::segmented_tabs;
@@ -145,32 +146,4 @@ fn settings_card() -> View {
         .bg(token::card)
         .border_1()
         .border_color(token::border)
-}
-
-fn setting_row(
-    title: &'static str,
-    description: &'static str,
-    control: impl IntoElement,
-) -> impl IntoElement {
-    view()
-        .w_full()
-        .flex_row()
-        .flex_wrap()
-        .items_center()
-        .justify_between()
-        .gap_4()
-        .child(
-            view()
-                .flex_1()
-                .min_w(px(200.0))
-                .gap_0p5()
-                .child(
-                    text(title)
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(token::card_fg),
-                )
-                .child(text(description).text_xs().text_color(token::muted_fg)),
-        )
-        .child(control)
 }

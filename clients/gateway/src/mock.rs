@@ -21,8 +21,8 @@ use hg_contracts::offline::{
 };
 use hg_contracts::viewing::{
     OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
-    ReportWatchProgressRequest, ReportWatchProgressResult, SeriesBookmark, StorageOverview,
-    WatchHistoryEntry, WatchProgress,
+    ReportWatchProgressRequest, ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark,
+    StorageOverview, WatchHistoryEntry, WatchProgress,
 };
 use parking_lot::Mutex;
 
@@ -543,6 +543,55 @@ impl AppGateway for MockGateway {
     fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()> {
         let result = self.check_error().map(|()| {
             self.state.lock().playback_preference = preference;
+        });
+        Self::ready(result)
+    }
+
+    fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>> {
+        let result = self
+            .check_error()
+            .map(|()| self.state.lock().search_history.clone());
+        Self::ready(result)
+    }
+
+    fn record_search_history(&self, keyword: String) -> GatewayFuture<()> {
+        let result = self.check_error().map(|()| {
+            let trimmed = keyword.trim();
+            if trimmed.is_empty() {
+                return;
+            }
+            let mut state = self.state.lock();
+            state.next_timestamp += 1;
+            let ts = state.next_timestamp;
+            state
+                .search_history
+                .retain(|entry| entry.keyword != trimmed);
+            state.search_history.insert(
+                0,
+                SearchHistoryEntry {
+                    keyword: trimmed.to_owned(),
+                    searched_at_epoch_secs: ts,
+                },
+            );
+            state.search_history.truncate(20);
+        });
+        Self::ready(result)
+    }
+
+    fn remove_search_history(&self, keyword: String) -> GatewayFuture<()> {
+        let result = self.check_error().map(|()| {
+            let trimmed = keyword.trim();
+            self.state
+                .lock()
+                .search_history
+                .retain(|entry| entry.keyword != trimmed);
+        });
+        Self::ready(result)
+    }
+
+    fn clear_search_history(&self) -> GatewayFuture<()> {
+        let result = self.check_error().map(|()| {
+            self.state.lock().search_history.clear();
         });
         Self::ready(result)
     }

@@ -5,9 +5,8 @@ use nsh_core::prelude::*;
 use super::super::parts::series_grid;
 use super::super::store::{self, BrowseKind};
 use super::query;
-use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
-use crate::ui::input::search_input;
+use crate::ui::platform::is_desktop;
 use crate::ui::poster::{RankingCardProps, ranking_compact_card};
 use crate::ui::surface::{empty_state, shelf_header};
 
@@ -16,14 +15,20 @@ pub fn home_feed_view(
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     query::load_home();
-    let search_sig = store::search_input_signal();
+    let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
 
     scroll().flex_1().child(
         view()
+            .w_full()
             .p_6()
             .gap_6()
             .pb_safe_area_plus(px(24.0))
-            .child(search_bar_row(search_sig, on_open_browse))
+            .on_layout(move |bounds: &Bounds<Points>| {
+                let w = bounds.size.width.0;
+                if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
+                    container_width.set(w);
+                }
+            })
             .child(dynamic(move || {
                 let snap = store::home_snapshot();
                 if snap.error.is_some() {
@@ -40,10 +45,14 @@ pub fn home_feed_view(
                     return view().into_element();
                 };
 
+                let cols = ((container_width.get() + 16.0) / 172.0).floor().max(2.0) as usize;
+
                 let mut body = view()
+                    .w_full()
                     .gap_6()
                     .child(featured_shelf(
                         feed.featured,
+                        cols,
                         on_open_browse,
                         on_open_series,
                     ))
@@ -55,48 +64,28 @@ pub fn home_feed_view(
                         .iter()
                         .find(|c| c.id == rec.category_id)
                         .map_or_else(|| "duanju".to_owned(), |c| c.route.clone());
-                    body = body.child(category_shelf(rec, route, on_open_browse, on_open_series));
+                    body = body.child(category_shelf(
+                        rec,
+                        route,
+                        cols,
+                        on_open_browse,
+                        on_open_series,
+                    ));
                 }
                 body.into_element()
             })),
     )
 }
 
-fn search_bar_row(
-    search_sig: Signal<String>,
-    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
-) -> impl IntoElement {
-    view()
-        .w_full()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .child(view().flex_1().max_w(px(520.0)).child(search_input(
-            search_sig,
-            "搜索剧名、标签...",
-            move |submitted| {
-                on_open_browse(BrowseKind::Search { query: submitted });
-            },
-        )))
-        .child(app_button(
-            "搜索",
-            ButtonVariant::Secondary,
-            ControlSize::Md,
-            move || {
-                on_open_browse(BrowseKind::Search {
-                    query: search_sig.get(),
-                });
-            },
-        ))
-}
-
 fn featured_shelf(
     items: Vec<SeriesSummary>,
+    cols: usize,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
-    let preview: Vec<SeriesSummary> = items.into_iter().take(5).collect();
+    let preview: Vec<SeriesSummary> = items.into_iter().take(cols).collect();
     view()
+        .w_full()
         .gap_3()
         .child(shelf_header("精选推荐", "全部", move || {
             on_open_browse(BrowseKind::Featured);
@@ -109,12 +98,17 @@ fn ranking_shelf(
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
-    let mut list = view().flex_row().flex_wrap().gap_3();
+    let mut list = view()
+        .w_full()
+        .grid()
+        .grid_template_columns("repeat(auto-fill, minmax(220px, 1fr))")
+        .gap_3();
     for entry in entries.into_iter().take(4) {
         list = list.child(ranking_preview_card(entry, on_open_series));
     }
 
     view()
+        .w_full()
         .gap_3()
         .child(shelf_header("排行榜", "全部", move || {
             on_open_browse(BrowseKind::Ranking(hg_contracts::catalog::RankingKind::Hot));
@@ -146,14 +140,17 @@ fn ranking_preview_card(
 fn category_shelf(
     rec: CategoryRecommendation,
     route: String,
+    cols: usize,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let cat_id = rec.category_id;
     let cat_name = rec.category_name.clone();
     let header_title = rec.category_name;
+    let preview: Vec<SeriesSummary> = rec.items.into_iter().take(cols).collect();
 
     view()
+        .w_full()
         .gap_3()
         .child(shelf_header(header_title, "全部", move || {
             on_open_browse(BrowseKind::Category {
@@ -162,5 +159,5 @@ fn category_shelf(
                 route: route.clone(),
             });
         }))
-        .child(series_grid(rec.items, on_open_series))
+        .child(series_grid(preview, on_open_series))
 }
