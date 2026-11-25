@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/taitide-labs/hg/compare/v0.2.1...v0.3.0) (2026-11-25)
+
+
+### Features
+
+* **app:** 优化发现搜索体验、深色沉浸视觉、窗口持久化与 NSH 性能 ([#90](https://github.com/taitide-labs/hg/issues/90)) ([ab00d18](https://github.com/taitide-labs/hg/commit/ab00d181cb2ce2b8d3f605927f622feac003408f))
+
 ## [0.2.1](https://github.com/taitide-labs/hg/compare/v0.2.0...v0.2.1) (2026-11-25)
 
 
