@@ -1,14 +1,15 @@
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::SeriesId;
 use hg_contracts::viewing::{
-    PlaybackPreference, SearchHistoryEntry, SeriesBookmark, StorageOverview,
+    DislikedSeriesEntry, PlaybackPreference, SearchHistoryEntry, SeriesBookmark, StorageOverview,
 };
 use hg_infra::storage::StorageLayout;
 
 use crate::ViewingDeps;
 
 use super::query::{
-    fetch_bookmarks, fetch_is_bookmarked, fetch_playback_preference, fetch_search_history,
+    fetch_bookmarks, fetch_disliked_series, fetch_is_bookmarked, fetch_is_disliked,
+    fetch_playback_preference, fetch_search_history,
 };
 
 pub async fn bookmarks(deps: &ViewingDeps) -> Result<Vec<SeriesBookmark>, ContractError> {
@@ -17,6 +18,16 @@ pub async fn bookmarks(deps: &ViewingDeps) -> Result<Vec<SeriesBookmark>, Contra
 
 pub async fn is_bookmarked(deps: &ViewingDeps, series_id: SeriesId) -> Result<bool, ContractError> {
     fetch_is_bookmarked(deps.db.pool(), series_id).await
+}
+
+pub async fn disliked_series(
+    deps: &ViewingDeps,
+) -> Result<Vec<DislikedSeriesEntry>, ContractError> {
+    fetch_disliked_series(deps.db.pool()).await
+}
+
+pub async fn is_disliked(deps: &ViewingDeps, series_id: SeriesId) -> Result<bool, ContractError> {
+    fetch_is_disliked(deps.db.pool(), series_id).await
 }
 
 pub async fn playback_preference(deps: &ViewingDeps) -> Result<PlaybackPreference, ContractError> {

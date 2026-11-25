@@ -5,8 +5,8 @@ use hg_contracts::viewing::PlaybackPreference;
 use crate::ViewingDeps;
 
 use super::workflow::{
-    BookmarkWrite, appearance_as_str, check_playback_preference, normalize_search_keyword,
-    plan_bookmark_series, profile_as_str, search_history_limit, window_mode_as_str,
+    SeriesSnapshotWrite, appearance_as_str, check_playback_preference, normalize_search_keyword,
+    plan_series_snapshot_write, profile_as_str, search_history_limit, window_mode_as_str,
 };
 
 pub async fn remove_watch_history(
@@ -56,33 +56,36 @@ pub async fn clear_watch_history(deps: &ViewingDeps) -> Result<(), ContractError
 }
 
 pub async fn bookmark_series(deps: &ViewingDeps, series_id: SeriesId) -> Result<(), ContractError> {
-    let series = deps
-        .catalog_metadata
-        .fetch_series_snapshot(series_id)
-        .await
-        .map_err(ContractError::from)?;
-
-    let bookmarked_at = deps.clock.now_epoch_secs();
-    let row = plan_bookmark_series(&series, bookmarked_at);
-    persist_bookmark(deps, &row).await
+    upsert_series_entry(deps, series_id, SeriesListTable::Bookmarks, "写入追剧收藏").await
 }
 
 pub async fn unbookmark_series(
     deps: &ViewingDeps,
     series_id: SeriesId,
 ) -> Result<(), ContractError> {
-    let series_id = sqlite_i64(series_id.get(), "剧目标识")?;
-    let mut tx = begin_write_tx(deps, "取消追剧收藏").await?;
+    delete_series_entry(deps, series_id, SeriesListTable::Bookmarks, "取消追剧收藏").await
+}
 
-    sqlx::query("DELETE FROM viewing_bookmarks WHERE series_id = ?1")
-        .bind(series_id)
+pub async fn dislike_series(deps: &ViewingDeps, series_id: SeriesId) -> Result<(), ContractError> {
+    upsert_series_entry(deps, series_id, SeriesListTable::Disliked, "标记不喜欢剧目").await
+}
+
+pub async fn undislike_series(
+    deps: &ViewingDeps,
+    series_id: SeriesId,
+) -> Result<(), ContractError> {
+    delete_series_entry(deps, series_id, SeriesListTable::Disliked, "取消不喜欢剧目").await
+}
+
+pub async fn clear_disliked_series(deps: &ViewingDeps) -> Result<(), ContractError> {
+    let mut tx = begin_write_tx(deps, "清空不喜欢剧目").await?;
+    sqlx::query("DELETE FROM viewing_disliked_series")
         .execute(&mut *tx)
         .await
         .map_err(|err| ContractError::Internal {
-            detail: format!("取消追剧收藏失败: {err}"),
+            detail: format!("清空不喜欢剧目失败: {err}"),
         })?;
-
-    commit_write_tx(tx, "取消追剧收藏").await
+    commit_write_tx(tx, "清空不喜欢剧目").await
 }
 
 pub async fn update_playback_preference(
@@ -254,43 +257,121 @@ pub async fn clear_playback_cache(deps: &ViewingDeps) -> Result<(), ContractErro
     commit_write_tx(tx, "清理播放缓存").await
 }
 
-async fn persist_bookmark(deps: &ViewingDeps, row: &BookmarkWrite) -> Result<(), ContractError> {
+#[derive(Clone, Copy)]
+enum SeriesListTable {
+    Bookmarks,
+    Disliked,
+}
+
+impl SeriesListTable {
+    const fn upsert_sql(self) -> &'static str {
+        match self {
+            Self::Bookmarks => {
+                "INSERT INTO viewing_bookmarks (
+                    series_id,
+                    title,
+                    cover_url,
+                    episode_count,
+                    is_finished,
+                    score,
+                    bookmarked_at_epoch_secs
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(series_id) DO UPDATE SET
+                    title = excluded.title,
+                    cover_url = excluded.cover_url,
+                    episode_count = excluded.episode_count,
+                    is_finished = excluded.is_finished,
+                    score = excluded.score,
+                    bookmarked_at_epoch_secs = excluded.bookmarked_at_epoch_secs"
+            }
+            Self::Disliked => {
+                "INSERT INTO viewing_disliked_series (
+                    series_id,
+                    title,
+                    cover_url,
+                    episode_count,
+                    is_finished,
+                    score,
+                    disliked_at_epoch_secs
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(series_id) DO UPDATE SET
+                    title = excluded.title,
+                    cover_url = excluded.cover_url,
+                    episode_count = excluded.episode_count,
+                    is_finished = excluded.is_finished,
+                    score = excluded.score,
+                    disliked_at_epoch_secs = excluded.disliked_at_epoch_secs"
+            }
+        }
+    }
+
+    const fn delete_sql(self) -> &'static str {
+        match self {
+            Self::Bookmarks => "DELETE FROM viewing_bookmarks WHERE series_id = ?1",
+            Self::Disliked => "DELETE FROM viewing_disliked_series WHERE series_id = ?1",
+        }
+    }
+}
+
+async fn upsert_series_entry(
+    deps: &ViewingDeps,
+    series_id: SeriesId,
+    table: SeriesListTable,
+    action: &str,
+) -> Result<(), ContractError> {
+    let series = deps
+        .catalog_metadata
+        .fetch_series_snapshot(series_id)
+        .await
+        .map_err(ContractError::from)?;
+    let now = deps.clock.now_epoch_secs();
+    let row = plan_series_snapshot_write(&series, now);
+    persist_series_snapshot(deps, &row, table, action).await
+}
+
+async fn delete_series_entry(
+    deps: &ViewingDeps,
+    series_id: SeriesId,
+    table: SeriesListTable,
+    action: &str,
+) -> Result<(), ContractError> {
+    let series_id = sqlite_i64(series_id.get(), "剧目标识")?;
+    let mut tx = begin_write_tx(deps, action).await?;
+    sqlx::query(table.delete_sql())
+        .bind(series_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("{action}失败: {err}"),
+        })?;
+    commit_write_tx(tx, action).await
+}
+
+async fn persist_series_snapshot(
+    deps: &ViewingDeps,
+    row: &SeriesSnapshotWrite,
+    table: SeriesListTable,
+    action: &str,
+) -> Result<(), ContractError> {
     let series_id = sqlite_i64(row.series_id.get(), "剧目标识")?;
-    let bookmarked_at = sqlite_i64(row.bookmarked_at_epoch_secs, "收藏时间戳")?;
-    let mut tx = begin_write_tx(deps, "写入追剧收藏").await?;
+    let recorded_at = sqlite_i64(row.recorded_at_epoch_secs, "记录时间戳")?;
+    let mut tx = begin_write_tx(deps, action).await?;
 
-    sqlx::query(
-        "INSERT INTO viewing_bookmarks (
-            series_id,
-            title,
-            cover_url,
-            episode_count,
-            is_finished,
-            score,
-            bookmarked_at_epoch_secs
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-        ON CONFLICT(series_id) DO UPDATE SET
-            title = excluded.title,
-            cover_url = excluded.cover_url,
-            episode_count = excluded.episode_count,
-            is_finished = excluded.is_finished,
-            score = excluded.score,
-            bookmarked_at_epoch_secs = excluded.bookmarked_at_epoch_secs",
-    )
-    .bind(series_id)
-    .bind(&row.title)
-    .bind(&row.cover_url)
-    .bind(i64::from(row.episode_count))
-    .bind(i64::from(row.is_finished))
-    .bind(f64::from(row.score))
-    .bind(bookmarked_at)
-    .execute(&mut *tx)
-    .await
-    .map_err(|err| ContractError::Internal {
-        detail: format!("写入追剧收藏失败: {err}"),
-    })?;
+    sqlx::query(table.upsert_sql())
+        .bind(series_id)
+        .bind(&row.title)
+        .bind(&row.cover_url)
+        .bind(i64::from(row.episode_count))
+        .bind(i64::from(row.is_finished))
+        .bind(f64::from(row.score))
+        .bind(recorded_at)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("{action}失败: {err}"),
+        })?;
 
-    commit_write_tx(tx, "写入追剧收藏").await
+    commit_write_tx(tx, action).await
 }
 
 fn sqlite_i64(value: u64, label: &str) -> Result<i64, ContractError> {

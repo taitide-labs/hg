@@ -23,7 +23,7 @@ use super::handler::{
     bookmark_series, clear_playback_cache, clear_watch_history, remove_watch_history,
     update_playback_preference,
 };
-use super::workflow::{check_playback_preference, plan_bookmark_series, profile_as_str};
+use super::workflow::{check_playback_preference, plan_series_snapshot_write, profile_as_str};
 
 #[derive(Default)]
 struct StubCatalog {
@@ -143,12 +143,12 @@ fn workflow_plans_bookmark_and_maps_profile() {
         score: 9.1,
     };
 
-    let planned = plan_bookmark_series(&snapshot, 1_700_000_999);
+    let planned = plan_series_snapshot_write(&snapshot, 1_700_000_999);
     assert_eq!(planned.series_id, series_id);
     assert_eq!(planned.title, "月下逢");
     assert_eq!(planned.episode_count, 36);
     assert!(!planned.is_finished);
-    assert_eq!(planned.bookmarked_at_epoch_secs, 1_700_000_999);
+    assert_eq!(planned.recorded_at_epoch_secs, 1_700_000_999);
 
     assert_eq!(profile_as_str(StreamProfile::Hevc), "hevc");
     assert_eq!(profile_as_str(StreamProfile::Main), "main");

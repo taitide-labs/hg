@@ -70,6 +70,17 @@ pub struct SeriesBookmark {
     pub bookmarked_at_epoch_secs: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DislikedSeriesEntry {
+    pub series_id: SeriesId,
+    pub title: String,
+    pub cover_url: String,
+    pub episode_count: u32,
+    pub is_finished: bool,
+    pub score: f32,
+    pub disliked_at_epoch_secs: u64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum AppAppearance {
     System,
