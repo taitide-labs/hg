@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/taitide-labs/hg/compare/v0.2.0...v0.2.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **app:** 修复 Android 视频编译错误并重构前端测试分层 ([#88](https://github.com/taitide-labs/hg/issues/88)) ([e141c7a](https://github.com/taitide-labs/hg/commit/e141c7af9fc46298d1393a7b4f429ccb17e3030a))
+
 ## [0.2.0](https://github.com/taitide-labs/hg/compare/v0.1.2...v0.2.0) (2026-11-25)
 
 
