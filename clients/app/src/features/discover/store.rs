@@ -38,7 +38,6 @@ impl From<RankingTab> for RankingKind {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BrowseKind {
     #[default]
-    Featured,
     Latest,
     Ranking(RankingKind),
     Category {

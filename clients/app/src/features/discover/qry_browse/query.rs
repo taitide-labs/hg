@@ -64,8 +64,7 @@ pub fn load_browse(kind: BrowseKind) {
     spawn(sync_watched_series());
     let default_sort = match kind {
         BrowseKind::Latest => SeriesSort::New,
-        BrowseKind::Featured
-        | BrowseKind::Ranking(_)
+        BrowseKind::Ranking(_)
         | BrowseKind::Category { .. }
         | BrowseKind::Tag { .. }
         | BrowseKind::Search { .. } => SeriesSort::Hot,
@@ -140,7 +139,7 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
 
     spawn(async move {
         match kind {
-            BrowseKind::Featured | BrowseKind::Latest => {
+            BrowseKind::Latest => {
                 let req = ListSeriesRequest {
                     filter: SeriesFilter::All { category_id: None },
                     sort,

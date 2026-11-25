@@ -36,18 +36,6 @@ pub fn load_home() {
         );
         match (feed_res, cats_res, rank_res) {
             (Ok(mut feed), Ok(categories), Ok(rankings)) => {
-                if feed.featured.len() < HOME_SHELF_TARGET_ITEMS
-                    && let Ok(extra) = gw
-                        .list_series(ListSeriesRequest {
-                            filter: SeriesFilter::All { category_id: None },
-                            sort: SeriesSort::Hot,
-                            page: first_page(HOME_SHELF_TARGET_ITEMS as u16),
-                        })
-                        .await
-                {
-                    dedup_append(&mut feed.featured, extra.items, |item| item.id);
-                }
-
                 if feed.latest.len() < HOME_SHELF_TARGET_ITEMS
                     && let Ok(extra) = gw
                         .list_series(ListSeriesRequest {

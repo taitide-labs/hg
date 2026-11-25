@@ -103,7 +103,7 @@ fn update_and_verify_settings_persistence(harness: &mut E2eHarness) {
     harness.app.press("发现").expect("leave settings tab");
     harness
         .app
-        .wait_for("精选推荐")
+        .wait_for("最近更新")
         .expect("discover tab active");
     harness.app.press("设置").expect("re-enter settings tab");
     harness

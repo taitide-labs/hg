@@ -39,10 +39,7 @@ pub fn browse_view(
         store::browse_state().with(|s| {
             matches!(
                 s.kind,
-                BrowseKind::Featured
-                    | BrowseKind::Latest
-                    | BrowseKind::Category { .. }
-                    | BrowseKind::Tag { .. }
+                BrowseKind::Latest | BrowseKind::Category { .. } | BrowseKind::Tag { .. }
             )
         })
     });
@@ -232,7 +229,6 @@ fn browse_header(
 fn title_bar() -> impl IntoElement {
     text(move || {
         store::browse_state().with(|s| match &s.kind {
-            BrowseKind::Featured => "精选推荐".to_owned(),
             BrowseKind::Latest => "最近更新".to_owned(),
             BrowseKind::Ranking(_) => "排行榜".to_owned(),
             BrowseKind::Category { name, .. } => name.clone(),

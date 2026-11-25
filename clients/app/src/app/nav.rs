@@ -20,7 +20,6 @@ pub enum PrimaryTab {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoverSubPage {
-    Featured,
     Latest,
     Ranking,
     Category {

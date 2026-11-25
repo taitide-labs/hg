@@ -39,7 +39,7 @@ fn mount_discover(gw: Arc<MockGateway>, scheme: ColorScheme) -> (Headless, OpenS
 
 fn mount_discover_ready(gw: Arc<MockGateway>, scheme: ColorScheme) -> (Headless, OpenSeriesSpy) {
     let (mut app, opened) = mount_discover(gw, scheme);
-    app.wait_for("精选推荐").unwrap();
+    app.wait_for("最近更新").unwrap();
     (app, opened)
 }
 
@@ -49,10 +49,12 @@ fn discover_home_layout_invariants_and_no_embedded_search_or_hero() {
     let (mut app, opened) = mount_discover_ready(gw, ColorScheme::Light);
     let screen = app.screen();
 
-    for expected in ["精选推荐", "排行榜", "热门短剧", "漫剧与悬疑"] {
+    for expected in ["最近更新", "排行榜", "热门短剧", "漫剧与悬疑"] {
         assert!(screen.shows(expected), "missing section `{expected}`");
         assert_visible_in_viewport(&app, expected, DESKTOP_VIEWPORT);
     }
+    assert!(!screen.shows("精选推荐"));
+    assert!(!screen.shows("查看精选推荐全部"));
     assert!(!screen.shows("今日焦点"));
     assert!(!screen.shows("搜索剧名、标签..."));
 
@@ -78,7 +80,7 @@ fn discover_home_error_state_recovers_on_retry() {
 
     gw.inject_method_error("home_feed", None);
     app.press("重新加载").unwrap();
-    app.wait_for("精选推荐").unwrap();
+    app.wait_for("最近更新").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
 }
 
@@ -96,16 +98,16 @@ fn discover_featured_and_ranking_support_sort_and_back_without_search_chrome() {
     app.wait_for("推荐榜").unwrap();
 
     app.press("返回").unwrap();
-    app.wait_for("查看精选推荐全部").unwrap();
+    app.wait_for("查看最近更新全部").unwrap();
 
-    app.press("查看精选推荐全部").unwrap();
+    app.press("查看最近更新全部").unwrap();
     app.wait_for("春风十里不及卿").unwrap();
     app.wait_for("最热").unwrap();
     app.wait_for("最近更新").unwrap();
     assert!(!app.screen().shows("热搜"));
     assert!(!app.screen().shows("题材"));
-    app.press("最近更新").unwrap();
-    app.wait_for("春风十里不及卿").unwrap();
+    app.press("最热").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
 }
 
 #[test]
@@ -113,7 +115,7 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
 
-    app.press("查看精选推荐全部").unwrap();
+    app.press("查看热门短剧全部").unwrap();
     app.wait_for("分页剧目 01").unwrap();
     assert!(!app.screen().shows("加载更多"));
     assert!(!app.screen().shows("分页剧目 28"));
@@ -164,7 +166,7 @@ fn discover_browse_ignores_stale_sort_response() {
     let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
 
     let slow_hot_gate = gw.queue_method_gate("list_series");
-    app.press("查看精选推荐全部").unwrap();
+    app.press("查看热门短剧全部").unwrap();
     app.wait_for("最近更新").unwrap();
 
     app.press("最近更新").unwrap();
@@ -391,7 +393,7 @@ fn browse_pagination_virtualizes_and_preserves_visible_card_nodes() {
     app.set_viewport(Size::new(Points(1240.0), Points(1600.0)))
         .unwrap();
 
-    app.press("查看精选推荐全部").unwrap();
+    app.press("查看热门短剧全部").unwrap();
     app.wait_for("分页剧目 01").unwrap();
     let before_id = app.screen().id("分页剧目 01").unwrap();
 
@@ -413,7 +415,7 @@ fn large_viewport_adapts_page_size_and_fills_screen_on_resize() {
         .unwrap();
     app.wait(Duration::from_millis(40)).unwrap();
 
-    app.press("查看精选推荐全部").unwrap();
+    app.press("查看最近更新全部").unwrap();
     app.wait_for("分页剧目 40").unwrap();
     assert!(
         app.screen().shows("分页剧目 40"),

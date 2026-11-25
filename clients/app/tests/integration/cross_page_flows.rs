@@ -24,7 +24,7 @@ fn discover_to_player_fullscreen_hides_shell_chrome_and_back_returns_to_discover
     app.wait_for("返回").unwrap();
 
     app.press("返回").unwrap();
-    app.wait_for("精选推荐").unwrap();
+    app.wait_for("最近更新").unwrap();
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn offline_drawer_episode_opens_player_and_mobile_back_exits_player_to_shell() {
     assert!(mobile.screen().shows("离线下载"));
 
     mobile.back().unwrap();
-    mobile.wait_for("精选推荐").unwrap();
+    mobile.wait_for("最近更新").unwrap();
 }
 
 #[test]

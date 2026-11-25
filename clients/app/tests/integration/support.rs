@@ -17,7 +17,7 @@ pub(crate) fn start_desktop(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headle
 
 pub(crate) fn start_desktop_on_home(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
     let mut app = start_desktop(gw, scheme);
-    app.wait_for("精选推荐").unwrap();
+    app.wait_for("最近更新").unwrap();
     app
 }
 

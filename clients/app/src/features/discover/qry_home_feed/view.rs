@@ -59,21 +59,15 @@ pub fn home_feed_view(
                     view()
                         .w_full()
                         .gap_6()
-                        .child(featured_shelf(
-                            feed.featured,
-                            cols,
-                            on_open_browse,
-                            on_open_series,
-                        ))
+                        .children((!feed.latest.is_empty()).then(|| {
+                            latest_shelf(feed.latest, cols, on_open_browse, on_open_series)
+                        }))
                         .child(ranking_shelf(
                             snap.rankings,
                             rank_cols,
                             on_open_browse,
                             on_open_series,
-                        ))
-                        .children((!feed.latest.is_empty()).then(|| {
-                            latest_shelf(feed.latest, cols, on_open_browse, on_open_series)
-                        }));
+                        ));
 
                 for rec in feed.category_recommendations {
                     let route = snap
@@ -91,22 +85,6 @@ pub fn home_feed_view(
                 }
                 body.into_element()
             })),
-    )
-}
-
-fn featured_shelf(
-    items: Vec<SeriesSummary>,
-    cols: usize,
-    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    series_shelf_block(
-        "精选推荐",
-        BrowseKind::Featured,
-        items,
-        cols,
-        on_open_browse,
-        on_open_series,
     )
 }
 

@@ -27,7 +27,7 @@ fn discovery_search_player_replies_seek_and_watchlist_persistence_flow() {
 }
 
 fn discover_and_search(harness: &mut E2eHarness) {
-    harness.app.wait_for("精选推荐").expect("home loaded");
+    harness.app.wait_for("最近更新").expect("home loaded");
     let feed = harness
         .block_on(harness.gateway.home_feed())
         .expect("query home feed through local gateway");

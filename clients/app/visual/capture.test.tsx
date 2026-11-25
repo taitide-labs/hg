@@ -9,7 +9,7 @@ test("capture desktop light screens", async () => {
     colorScheme: "light",
   });
 
-  await app.waitFor("精选推荐");
+  await app.waitFor("最近更新");
   await app.screenshot(`${OUT}/01-discover-light.png`);
 
   await app.press("搜索");
@@ -46,7 +46,7 @@ test("capture desktop dark screens", async () => {
     colorScheme: "dark",
   });
 
-  await app.waitFor("精选推荐");
+  await app.waitFor("最近更新");
   await app.screenshot(`${OUT}/08-discover-dark.png`);
 
   await app.press("设置");
@@ -61,6 +61,6 @@ test("capture narrow width layout", async () => {
     colorScheme: "light",
   });
 
-  await app.waitFor("精选推荐");
+  await app.waitFor("最近更新");
   await app.screenshot(`${OUT}/10-discover-narrow.png`);
 });
