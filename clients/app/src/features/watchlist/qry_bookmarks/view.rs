@@ -6,7 +6,7 @@ use super::super::store;
 use super::query::{self, episode_status, format_score};
 use crate::ui::icons::IconKind;
 use crate::ui::poster;
-use crate::ui::surface::{BadgeTone, badge, empty_state};
+use crate::ui::surface::{BadgeTone, badge, empty_state, list_row_skeleton};
 use crate::ui::token;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,15 +56,7 @@ where
                 )),
             )
             .into_element(),
-            BookmarksPhase::Loading => view()
-                .py_6()
-                .items_center()
-                .child(
-                    text("正在加载追剧收藏...")
-                        .text_sm()
-                        .text_color(token::muted_fg),
-                )
-                .into_element(),
+            BookmarksPhase::Loading => list_row_skeleton(4, "追剧列表加载占位").into_element(),
             BookmarksPhase::Empty => empty_state(
                 IconKind::Bookmark,
                 "暂无追剧收藏",

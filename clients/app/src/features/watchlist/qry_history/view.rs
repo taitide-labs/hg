@@ -6,7 +6,7 @@ use super::super::store;
 use super::query::{self, progress_ratio, progress_summary};
 use crate::ui::icons::IconKind;
 use crate::ui::poster;
-use crate::ui::surface::{BadgeTone, badge, empty_state, progress_track};
+use crate::ui::surface::{BadgeTone, badge, empty_state, list_row_skeleton, progress_track};
 use crate::ui::token;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,13 +65,7 @@ where
                 .w_full()
                 .gap_3()
                 .child(section_header_row(false, header_action))
-                .child(
-                    view().py_6().items_center().child(
-                        text("正在加载观看历史...")
-                            .text_sm()
-                            .text_color(token::muted_fg),
-                    ),
-                )
+                .child(list_row_skeleton(4, "历史记录加载占位"))
                 .into_element(),
             HistoryPhase::Empty => view()
                 .w_full()

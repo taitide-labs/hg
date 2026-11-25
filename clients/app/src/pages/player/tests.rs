@@ -576,3 +576,19 @@ fn background_lifecycle_keeps_playback_running() {
     app.press("视频画面").unwrap();
     app.wait_for("text:/00:20 \\/ 02:00/").unwrap();
 }
+
+#[test]
+fn player_shows_skeleton_placeholder_while_detail_is_loading() {
+    let gw = Arc::new(MockGateway::new());
+    let gate = gw.queue_method_gate("series_detail");
+    let opened = Arc::clone(&gw);
+    let mut app = mount_desktop_page(opened, ColorScheme::Dark, move || {
+        player_page(series_1001(), Some(episode_num(1)), || {}, |_| {}, |_| {})
+    });
+
+    app.wait_for("label:播放器加载占位").unwrap();
+    gate.release();
+    app.wait_for("选集 (1/68)").unwrap();
+    app.wait_for_gone("label:播放器加载占位", Duration::from_secs(2))
+        .unwrap();
+}

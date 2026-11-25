@@ -75,8 +75,6 @@ pub fn load_browse(kind: BrowseKind) {
     if let BrowseKind::Search { ref query } = kind {
         store::search_input_signal().set(query.clone());
     }
-    spawn(sync_watched_series());
-    spawn(sync_poster_preferences());
     let default_sort = match kind {
         BrowseKind::Latest => SeriesSort::New,
         BrowseKind::Ranking(_)

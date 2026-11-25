@@ -628,3 +628,30 @@ fn discover_home_shows_skeleton_placeholders_while_feed_is_loading() {
     app.wait_for_gone("label:发现页加载占位", Duration::from_secs(2))
         .unwrap();
 }
+
+#[test]
+fn discover_home_avoids_background_list_series_flood_on_initial_load() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
+    app.wait(Duration::from_millis(80)).unwrap();
+
+    assert!(
+        gw.method_call_count("list_series") <= 1,
+        "home cold start must not flood background category list_series requests (got {})",
+        gw.method_call_count("list_series")
+    );
+}
+
+#[test]
+fn browse_and_ranking_show_skeleton_placeholders_while_loading() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Dark);
+
+    let gate = gw.queue_method_gate("list_series");
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("label:浏览列表加载占位").unwrap();
+    gate.release();
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.wait_for_gone("label:浏览列表加载占位", Duration::from_secs(2))
+        .unwrap();
+}

@@ -16,7 +16,7 @@ use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
 use crate::ui::platform::is_desktop;
 use crate::ui::poster::{PosterContextActions, SeriesRank};
-use crate::ui::surface::empty_state;
+use crate::ui::surface::{empty_state, poster_grid_skeleton};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
@@ -184,7 +184,7 @@ fn series_browse_list(
                     )
                     .into_element()
                 } else if loading {
-                    view().into_element()
+                    poster_grid_skeleton(10, "浏览列表加载占位").into_element()
                 } else {
                     empty_state(
                         IconKind::Search,
@@ -417,7 +417,7 @@ fn ranking_list(
                     )
                     .into_element()
                 } else if loading {
-                    view().into_element()
+                    poster_grid_skeleton(10, "浏览列表加载占位").into_element()
                 } else {
                     empty_state(IconKind::Flame, "暂无榜单数据", "请切换其他榜单查看", None)
                         .into_element()

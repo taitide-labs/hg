@@ -9,7 +9,7 @@ use super::query::{
 };
 use crate::ui::icons::IconKind;
 use crate::ui::poster;
-use crate::ui::surface::{BadgeTone, badge, empty_state};
+use crate::ui::surface::{BadgeTone, badge, empty_state, list_row_skeleton};
 use crate::ui::token;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,15 +75,7 @@ where
                 )),
             )
             .into_element(),
-            LibraryPhase::Loading => view()
-                .py_6()
-                .items_center()
-                .child(
-                    text("正在加载离线片库...")
-                        .text_sm()
-                        .text_color(token::muted_fg),
-                )
-                .into_element(),
+            LibraryPhase::Loading => list_row_skeleton(4, "离线片库加载占位").into_element(),
             LibraryPhase::EmptyNoTasks => empty_state(
                 IconKind::Download,
                 "暂无离线剧目",

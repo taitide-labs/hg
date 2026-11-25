@@ -21,7 +21,7 @@ use crate::ui::controls::{
 use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
 use crate::ui::platform::is_desktop;
-use crate::ui::surface::empty_state;
+use crate::ui::surface::{empty_state, poster_grid_skeleton};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
@@ -516,11 +516,7 @@ fn search_empty_view(page_owner: Owner) -> AnyElement {
         .into_element();
     }
     if loading {
-        view()
-            .py_6()
-            .items_center()
-            .child(text("正在搜索...").text_sm().text_color(token::muted_fg))
-            .into_element()
+        poster_grid_skeleton(8, "搜索结果加载占位").into_element()
     } else {
         empty_state(
             IconKind::Search,

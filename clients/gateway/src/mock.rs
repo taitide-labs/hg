@@ -52,6 +52,7 @@ pub struct MockGateway {
     injected_error: Arc<Mutex<Option<ContractError>>>,
     method_errors: Arc<Mutex<HashMap<&'static str, ContractError>>>,
     method_gates: Arc<Mutex<MethodGateMap>>,
+    method_counts: Arc<Mutex<HashMap<&'static str, usize>>>,
     home_feed_cap: Option<usize>,
 }
 
@@ -69,6 +70,7 @@ impl MockGateway {
             injected_error: Arc::new(Mutex::new(None)),
             method_errors: Arc::new(Mutex::new(HashMap::new())),
             method_gates: Arc::new(Mutex::new(HashMap::new())),
+            method_counts: Arc::new(Mutex::new(HashMap::new())),
             home_feed_cap: None,
         }
     }
@@ -394,11 +396,17 @@ impl MockGateway {
         Ok(())
     }
 
+    #[must_use]
+    pub fn method_call_count(&self, method: &'static str) -> usize {
+        self.method_counts.lock().get(method).copied().unwrap_or(0)
+    }
+
     fn finish<T: Send + 'static>(
         &self,
         method: &'static str,
         result: Result<T, ContractError>,
     ) -> GatewayFuture<T> {
+        *self.method_counts.lock().entry(method).or_insert(0) += 1;
         let gate = self
             .method_gates
             .lock()

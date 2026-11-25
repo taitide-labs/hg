@@ -10,7 +10,7 @@ use crate::ui::button::{
     text_link_button,
 };
 use crate::ui::icons::IconKind;
-use crate::ui::surface::{BadgeTone, avatar_circle, badge, separator};
+use crate::ui::surface::{BadgeTone, avatar_circle, badge, comment_skeleton_list, separator};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
@@ -321,11 +321,7 @@ fn comments_section(comments: &EpisodeCommentsState) -> impl IntoElement {
     );
 
     if comments.loading && comments.items.is_empty() {
-        return list.child(
-            text("正在加载评论...")
-                .text_xs()
-                .text_color(token::muted_fg),
-        );
+        return list.child(comment_skeleton_list(3));
     }
 
     if comments.items.is_empty() {

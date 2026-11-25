@@ -29,7 +29,9 @@ pub fn home_feed_view(
         let cols = series_grid_columns_for_width(inner_w);
         shelf_card_width(inner_w, cols)
     });
-    let context_actions = poster_context_actions(on_open_download, || {});
+    let context_actions = poster_context_actions(on_open_download, move || {
+        page_owner.run(query::refill_disliked_home_shelves);
+    });
     let shell_meta = computed(|| {
         let snap = store::home_snapshot();
         let has_error = snap.error.is_some();

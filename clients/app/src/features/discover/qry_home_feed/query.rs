@@ -58,16 +58,49 @@ fn try_commit_home_batch(batch_cell: &Rc<RefCell<HomeLoadBatch>>) {
 
     match ready {
         Ok((feed, categories, rankings)) => {
-            store::set_home_loaded(feed.clone(), rankings, categories.clone());
-            spawn_parallel_shelf_topups(&feed, &categories);
+            let needs_latest_topup = feed.latest.len() < 12;
+            store::set_home_loaded(feed, rankings, categories);
+            if needs_latest_topup {
+                spawn_latest_topup();
+            }
         }
         Err(err) => store::set_home_error(err),
     }
 }
 
-fn spawn_parallel_shelf_topups(feed: &HomeFeed, categories: &[Category]) {
+fn spawn_latest_topup() {
     let gw = gateway::current();
-    if feed.latest.len() < HOME_CANDIDATE_FETCH_SIZE {
+    spawn(async move {
+        if let Ok(extra) = gw
+            .list_series(ListSeriesRequest {
+                filter: SeriesFilter::All { category_id: None },
+                sort: SeriesSort::New,
+                page: first_page(HOME_CANDIDATE_FETCH_SIZE as u16),
+            })
+            .await
+        {
+            store::home_state().update(|s| {
+                if let Some(current_feed) = &mut s.feed {
+                    dedup_append(&mut current_feed.latest, extra.items, |item| item.id);
+                }
+            });
+        }
+    });
+}
+
+pub fn refill_disliked_home_shelves() {
+    let (feed, categories) =
+        store::home_state().with_untracked(|s| (s.feed.clone(), s.categories.clone()));
+    let Some(feed) = feed else {
+        return;
+    };
+    let gw = gateway::current();
+    let visible_latest = feed
+        .latest
+        .iter()
+        .filter(|item| !store::is_disliked_untracked(item.id))
+        .count();
+    if visible_latest < 12 && feed.latest.len() < HOME_CANDIDATE_FETCH_SIZE {
         let gw_latest = Arc::clone(&gw);
         spawn(async move {
             if let Ok(extra) = gw_latest
@@ -88,7 +121,12 @@ fn spawn_parallel_shelf_topups(feed: &HomeFeed, categories: &[Category]) {
     }
 
     for rec in &feed.category_recommendations {
-        if rec.items.len() >= HOME_CANDIDATE_FETCH_SIZE {
+        let visible_cat = rec
+            .items
+            .iter()
+            .filter(|item| !store::is_disliked_untracked(item.id))
+            .count();
+        if visible_cat >= 12 || rec.items.len() >= HOME_CANDIDATE_FETCH_SIZE {
             continue;
         }
         let cat_id = rec.category_id;

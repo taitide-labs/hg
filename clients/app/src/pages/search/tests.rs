@@ -169,7 +169,7 @@ fn search_page_ignores_stale_keyword_response() {
     let slow_first = gw.queue_method_gate("search_series");
     app.type_text("text:搜索剧名、标签...", "暗夜").unwrap();
     app.press("label:执行搜索").unwrap();
-    app.wait_for("正在搜索...").unwrap();
+    app.wait_for("label:搜索结果加载占位").unwrap();
 
     app.press("千金归来").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
@@ -366,4 +366,20 @@ fn search_pins_input_outside_scroll_list_for_smooth_scrolling() {
         (input_y_before - input_y_after).abs() <= 1.0,
         "search input must stay pinned outside scrollable virtual_list (before={input_y_before}, after={input_y_after})"
     );
+}
+
+#[test]
+fn search_shows_skeleton_placeholders_while_loading() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_on_search(Arc::clone(&gw), ColorScheme::Dark);
+
+    let gate = gw.queue_method_gate("search_series");
+    app.type_text("text:搜索剧名、标签...", "暗夜").unwrap();
+    app.press("执行搜索").unwrap();
+    app.wait_for("label:搜索结果加载占位").unwrap();
+
+    gate.release();
+    app.wait_for("长安暗夜行").unwrap();
+    app.wait_for_gone("label:搜索结果加载占位", Duration::from_secs(2))
+        .unwrap();
 }

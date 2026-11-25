@@ -11,7 +11,7 @@ use crate::ui::controls::confirm_popover;
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::poster;
-use crate::ui::surface::{BadgeTone, badge, empty_state, section_header};
+use crate::ui::surface::{BadgeTone, badge, empty_state, list_row_skeleton, section_header};
 use crate::ui::token;
 
 pub fn disliked_section() -> impl IntoElement {
@@ -251,15 +251,7 @@ fn drawer_body() -> impl IntoElement {
                 .into_element();
             }
             if loading && empty {
-                return view()
-                    .py_6()
-                    .items_center()
-                    .child(
-                        text("正在加载不喜欢列表...")
-                            .text_sm()
-                            .text_color(token::muted_fg),
-                    )
-                    .into_element();
+                return list_row_skeleton(4, "不喜欢列表加载占位").into_element();
             }
             if empty {
                 return empty_state(
