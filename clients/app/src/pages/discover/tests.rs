@@ -304,13 +304,19 @@ fn watched_series_cards_show_distinct_watched_color() {
 }
 
 #[test]
-fn ranking_views_display_series_badge() {
+fn discover_and_ranking_views_render_combined_original_hot_and_new_badges() {
     let gw = Arc::new(MockGateway::new());
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
 
+    app.wait_for("9.4分").unwrap();
+    assert!(app.screen().shows("原创"));
+    assert!(app.screen().shows("热播"));
+    assert!(app.screen().shows("新片"));
+
     app.press("查看排行榜全部").unwrap();
     app.wait_for("#1").unwrap();
-    app.wait_for("热播 Top 1").unwrap();
+    assert!(app.screen().shows("原创"));
+    assert!(app.screen().shows("热播"));
 }
 
 #[test]

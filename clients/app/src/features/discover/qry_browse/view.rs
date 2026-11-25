@@ -4,7 +4,7 @@ use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    pagination_footer, ranking_grid_columns_for_width, series_grid_columns_for_width,
+    pagination_footer, ranking_grid_columns_for_width, series_flags, series_grid_columns_for_width,
     virtual_series_grid,
 };
 use super::super::store::{self, BrowseKind, RankingTab};
@@ -370,6 +370,7 @@ fn ranking_list(
                 match entry {
                     Some(entry) => {
                         let id = entry.series.id;
+                        let flags = series_flags(&entry.series);
                         let meta = format!(
                             "{:.1} 分 · {} · {} 集",
                             entry.series.score,
@@ -385,7 +386,7 @@ fn ranking_list(
                                 rank: entry.rank,
                                 title: entry.series.title,
                                 cover_url: entry.series.cover_url,
-                                badge_text: entry.series.badge,
+                                flags,
                                 metric_text,
                                 meta,
                                 description,

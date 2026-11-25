@@ -13,21 +13,28 @@ pub enum PosterWatchStatus {
     UpdatedAfterWatching,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct SeriesFlags {
+    pub is_original: bool,
+    pub is_hot: bool,
+    pub is_new: bool,
+}
+
 pub struct SeriesCardProps {
     pub title: String,
     pub cover_url: String,
     pub score: f32,
     pub subtitle: String,
     pub episode_label: String,
-    pub badge_text: Option<String>,
+    pub flags: SeriesFlags,
     pub watch_status: PosterWatchStatus,
     pub index: usize,
 }
 
 pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> impl IntoElement {
     let cover_key = props.cover_url;
-    let score_text = format!("{:.1}", props.score);
-    let badge_text = props.badge_text;
+    let score_text = format!("{:.1}分", props.score);
+    let flags = props.flags;
     let episode_label = props.episode_label;
     let watch_status = props.watch_status;
     let title = props.title;
@@ -57,7 +64,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
         .child(poster_cover(
             cover_key,
-            badge_text,
+            flags,
             score_text,
             episode_label,
             watch_status,
@@ -134,9 +141,60 @@ pub fn poster_thumb(
         )
 }
 
+struct FlagPillSpec {
+    enabled: bool,
+    label: &'static str,
+    bg: fn() -> AdaptiveColor,
+    fg: fn() -> AdaptiveColor,
+}
+
+fn series_flag_capsule(flags: SeriesFlags) -> Option<impl IntoElement + use<>> {
+    let items = [
+        FlagPillSpec {
+            enabled: flags.is_original,
+            label: "原创",
+            bg: token::badge_original,
+            fg: token::badge_original_fg,
+        },
+        FlagPillSpec {
+            enabled: flags.is_hot,
+            label: "热播",
+            bg: token::badge_hot,
+            fg: token::badge_hot_fg,
+        },
+        FlagPillSpec {
+            enabled: flags.is_new,
+            label: "新片",
+            bg: token::badge_new,
+            fg: token::badge_new_fg,
+        },
+    ];
+    let mut row = view()
+        .flex_row()
+        .items_center()
+        .rounded_full()
+        .overflow_hidden();
+    let mut has_any = false;
+    for spec in items {
+        if !spec.enabled {
+            continue;
+        }
+        has_any = true;
+        row = row.child(
+            view().px_2().py_0p5().bg(spec.bg).child(
+                text(spec.label)
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(spec.fg),
+            ),
+        );
+    }
+    has_any.then_some(row)
+}
+
 fn poster_cover(
     cover_key: String,
-    badge_text: Option<String>,
+    flags: SeriesFlags,
     score_text: String,
     episode_label: String,
     watch_status: PosterWatchStatus,
@@ -159,8 +217,8 @@ fn poster_cover(
                 .items_center()
                 .justify_between()
                 .gap_2()
-                .child(match badge_text {
-                    Some(label) => badge(label, BadgeTone::Brand).into_element(),
+                .child(match series_flag_capsule(flags) {
+                    Some(capsule) => capsule.into_element(),
                     None => view().into_element(),
                 })
                 .child(
@@ -216,7 +274,7 @@ pub struct RankingCardProps {
     pub rank: u32,
     pub title: String,
     pub cover_url: String,
-    pub badge_text: Option<String>,
+    pub flags: SeriesFlags,
     pub metric_text: Option<String>,
     pub meta: String,
     pub description: Option<String>,
@@ -275,7 +333,7 @@ pub fn ranking_compact_card(
                         .items_center()
                         .gap_1p5()
                         .child(badge(rank_label, tone))
-                        .children(props.badge_text.map(|label| badge(label, BadgeTone::Brand))),
+                        .children(series_flag_capsule(props.flags)),
                 )
                 .child(
                     text(props.title)
@@ -357,7 +415,7 @@ pub fn ranking_list_row(
                                 .text_color(token::card_fg)
                                 .truncate(),
                         )
-                        .children(props.badge_text.map(|label| badge(label, BadgeTone::Brand))),
+                        .children(series_flag_capsule(props.flags)),
                 )
                 .child(
                     view()

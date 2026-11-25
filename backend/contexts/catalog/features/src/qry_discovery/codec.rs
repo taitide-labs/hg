@@ -170,20 +170,20 @@ struct RawVideoItem {
     badge: Option<String>,
     #[serde(default, deserialize_with = "de_bool")]
     is_original: bool,
+    #[serde(default, deserialize_with = "de_bool")]
+    is_hot: bool,
+    #[serde(default, deserialize_with = "de_bool")]
+    is_new: bool,
+    #[serde(default, deserialize_with = "de_u64")]
+    new_at: u64,
 }
 
-fn resolve_badge(badge: Option<String>, is_original: bool) -> Option<String> {
-    badge
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .map(|s| {
-            if s == "黄果原创" {
-                "原创".to_owned()
-            } else {
-                s
-            }
-        })
-        .or_else(|| is_original.then(|| "原创".to_owned()))
+fn resolve_original_flag(is_original: bool, badge: Option<&str>) -> bool {
+    is_original || badge.is_some_and(|raw| !raw.trim().is_empty())
+}
+
+fn resolve_new_flag(is_new: bool, new_at: u64) -> bool {
+    is_new || new_at > 0
 }
 
 fn resolve_episode_count(episode_count: Option<u32>, total_episodes: Option<u32>) -> u32 {
@@ -207,7 +207,8 @@ fn normalize_cover_url(raw: &str) -> String {
 impl RawVideoItem {
     fn into_summary(self, context: &str) -> Result<SeriesSummary, ContractError> {
         let id = parse_series_id(self.id.or(self.video_id).or(self.series_id), context)?;
-        let badge = resolve_badge(self.badge, self.is_original);
+        let is_original = resolve_original_flag(self.is_original, self.badge.as_deref());
+        let is_new = resolve_new_flag(self.is_new, self.new_at);
         Ok(SeriesSummary {
             id,
             title: self.title.trim().to_owned(),
@@ -218,7 +219,9 @@ impl RawVideoItem {
             episode_count: resolve_episode_count(self.episode_count, self.total_episodes),
             is_finished: self.is_finished,
             hot: self.hot,
-            badge,
+            is_original,
+            is_hot: self.is_hot,
+            is_new,
         })
     }
 }
@@ -514,6 +517,12 @@ struct RawRankItem {
     badge: Option<String>,
     #[serde(default, deserialize_with = "de_bool")]
     is_original: bool,
+    #[serde(default, deserialize_with = "de_bool")]
+    is_hot: bool,
+    #[serde(default, deserialize_with = "de_bool")]
+    is_new: bool,
+    #[serde(default, deserialize_with = "de_u64")]
+    new_at: u64,
     #[serde(default)]
     metric_label: Option<String>,
     #[serde(default, deserialize_with = "de_u64_opt")]
@@ -589,7 +598,8 @@ pub fn parse_ranking(
                 let pos = u32::try_from(idx).unwrap_or(u32::MAX);
                 page_offset.saturating_add(pos).saturating_add(1)
             });
-            let badge = resolve_badge(item.badge, item.is_original);
+            let is_original = resolve_original_flag(item.is_original, item.badge.as_deref());
+            let is_new = resolve_new_flag(item.is_new, item.new_at);
             let series = SeriesSummary {
                 id,
                 title: item.title.trim().to_owned(),
@@ -600,7 +610,9 @@ pub fn parse_ranking(
                 episode_count: resolve_episode_count(item.episode_count, item.total_episodes),
                 is_finished: item.is_finished,
                 hot: if item.hot > 0 { item.hot } else { metric_value },
-                badge,
+                is_original,
+                is_hot: item.is_hot,
+                is_new,
             };
             Ok(RankingEntry {
                 rank,

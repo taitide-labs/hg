@@ -169,7 +169,9 @@ impl MockGateway {
                         episode_count: 12,
                         is_finished: true,
                         hot,
-                        badge: None,
+                        is_original: false,
+                        is_hot: false,
+                        is_new: false,
                     },
                     total_episodes: 12,
                     stats: SeriesStats {

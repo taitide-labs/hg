@@ -301,7 +301,9 @@ fn codec_parses_home_feed_and_normalizes_urls() {
         featured.cover_url,
         "https://cdn.example.com/1002.jpg?auth_key=abc"
     );
-    assert_eq!(featured.badge, None);
+    assert!(!featured.is_original);
+    assert!(!featured.is_hot);
+    assert!(!featured.is_new);
     assert!(featured.is_finished);
     let rec_item = feed
         .category_recommendations
@@ -546,34 +548,39 @@ async fn dynamic_endpoints_bypass_and_never_write_cache() {
 }
 
 #[test]
-fn list_series_and_ranking_preserve_original_badge_from_is_original_flag() {
+fn list_series_and_ranking_parse_original_hot_and_new_flags() {
     let list_json = json!({
         "items": [
             {
                 "id": 15941,
-                "title": "列表原创短剧",
+                "title": "原创热播剧",
                 "cover": "/c/15941.jpg",
                 "score": 8.9,
                 "tags": ["逆袭"],
                 "episode_count": 0,
                 "total_episodes": 21,
                 "is_finished": 0,
-                "is_original": 1
+                "is_original": 1,
+                "is_hot": 1,
+                "new_at": 0
             },
             {
                 "id": 15942,
-                "title": "显式角标短剧",
+                "title": "原创上新剧",
                 "cover": "/c/15942.jpg",
                 "score": 9.1,
-                "badge": "黄果原创",
-                "is_original": 1
+                "is_original": 1,
+                "is_hot": 0,
+                "new_at": 1_795_574_760_u64
             },
             {
                 "id": 15943,
-                "title": "普通非原创短剧",
+                "title": "普通剧目",
                 "cover": "/c/15943.jpg",
                 "score": 8.0,
-                "is_original": 0
+                "is_original": 0,
+                "is_hot": 0,
+                "new_at": 0
             }
         ],
         "total": 3
@@ -582,27 +589,37 @@ fn list_series_and_ranking_preserve_original_badge_from_is_original_flag() {
     let first = paged.items.first().expect("first item");
     let second = paged.items.get(1).expect("second item");
     let third = paged.items.get(2).expect("third item");
-    assert_eq!(first.badge.as_deref(), Some("原创"));
+    assert!(first.is_original);
+    assert!(first.is_hot);
+    assert!(!first.is_new);
     assert_eq!(first.episode_count, 21);
-    assert_eq!(second.badge.as_deref(), Some("原创"));
-    assert_eq!(third.badge, None);
+    assert!(second.is_original);
+    assert!(!second.is_hot);
+    assert!(second.is_new);
+    assert!(!third.is_original);
+    assert!(!third.is_hot);
+    assert!(!third.is_new);
 
     let rank_json = json!({
         "items": [
             {
                 "id": 15941,
-                "title": "榜单原创短剧",
+                "title": "榜单原创剧",
                 "cover": "/c/15941.jpg",
                 "score": 9.3,
                 "episode_count": 0,
                 "total_episodes": 30,
-                "is_original": true
+                "is_original": true,
+                "is_hot": true,
+                "is_new": false
             }
         ]
     });
     let ranked = parse_ranking(rank_json, RankingKind::Hot, page_req(1, 20)).expect("parse rank");
     let ranked_first = ranked.items.first().expect("first rank item");
-    assert_eq!(ranked_first.series.badge.as_deref(), Some("原创"));
+    assert!(ranked_first.series.is_original);
+    assert!(ranked_first.series.is_hot);
+    assert!(!ranked_first.series.is_new);
     assert_eq!(ranked_first.series.episode_count, 30);
 }
 
@@ -633,7 +650,9 @@ async fn home_feed_fetches_and_parses_latest_shelf_from_api_home_latest() {
                             "score": 8.7,
                             "episode_count": 2,
                             "total_episodes": 0,
-                            "badge": "黄果原创"
+                            "badge": "原创站点标识",
+                            "is_hot": 1,
+                            "new_at": 1_795_574_760_u64
                         }
                     ],
                     "total": 1,
@@ -650,5 +669,7 @@ async fn home_feed_fetches_and_parses_latest_shelf_from_api_home_latest() {
     assert_eq!(feed.latest.len(), 1);
     let latest_first = feed.latest.first().expect("latest");
     assert_eq!(latest_first.title, "刚刚更新剧");
-    assert_eq!(latest_first.badge.as_deref(), Some("原创"));
+    assert!(latest_first.is_original);
+    assert!(latest_first.is_hot);
+    assert!(latest_first.is_new);
 }

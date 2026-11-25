@@ -118,7 +118,8 @@ fn parses_series_detail_with_aliases_and_status_flags() {
             "cover_url": "/covers/42.enc",
             "score": 8.9,
             "is_finished": false,
-            "badge": "  ",
+            "is_original": 1,
+            "is_hot": 0,
             "tags": ["古风", "悬疑"],
             "counts": { "play_heat": 1200, "likes": 34, "bookmarks": 56, "comments": 78 },
             "episodes": [
@@ -132,7 +133,9 @@ fn parses_series_detail_with_aliases_and_status_flags() {
     assert_eq!(detail.summary.id, series_id);
     assert_eq!(detail.summary.description, "古风短剧");
     assert_eq!(detail.summary.cover_url, "/covers/42.enc");
-    assert_eq!(detail.summary.badge, None);
+    assert!(detail.summary.is_original);
+    assert!(!detail.summary.is_hot);
+    assert!(!detail.summary.is_new);
     assert_eq!(detail.summary.hot, 1200);
     assert_eq!(detail.total_episodes, 2);
     assert_eq!(detail.stats.likes, 34);

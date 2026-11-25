@@ -30,7 +30,8 @@ fn sample_home_payload() -> Value {
                 "score": 9.4,
                 "tags": ["都市", "逆袭"],
                 "desc": "都市逆袭热播",
-                "badge": "热播",
+                "is_original": 1,
+                "is_hot": 1,
                 "episode_count": 60,
                 "is_finished": true
             }],
@@ -45,7 +46,8 @@ fn sample_home_payload() -> Value {
                     "score": 9.4,
                     "tags": ["都市"],
                     "desc": "都市逆袭热播",
-                    "badge": "",
+                    "is_original": 0,
+                    "is_hot": 1,
                     "episode_count": 60,
                     "is_finished": true
                 }]

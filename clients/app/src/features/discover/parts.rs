@@ -9,7 +9,7 @@ use super::store::{self, SeriesWatchStatus, WatchedSeriesSnapshot};
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::poster::{PosterWatchStatus, SeriesCardProps, series_card};
+use crate::ui::poster::{PosterWatchStatus, SeriesCardProps, SeriesFlags, series_card};
 use crate::ui::surface::empty_state;
 use crate::ui::token;
 
@@ -110,12 +110,22 @@ pub async fn sync_watched_series() {
     }
 }
 
+#[must_use]
+pub fn series_flags(item: &SeriesSummary) -> SeriesFlags {
+    SeriesFlags {
+        is_original: item.is_original,
+        is_hot: item.is_hot,
+        is_new: item.is_new,
+    }
+}
+
 pub fn series_card_from_summary(
     item: SeriesSummary,
     index: usize,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let id = item.id;
+    let flags = series_flags(&item);
     let watch_status = match store::series_watch_status(id, item.episode_count) {
         SeriesWatchStatus::Unwatched => PosterWatchStatus::Unwatched,
         SeriesWatchStatus::AllWatched => PosterWatchStatus::AllWatched,
@@ -140,7 +150,7 @@ pub fn series_card_from_summary(
             score: item.score,
             subtitle,
             episode_label: status,
-            badge_text: item.badge,
+            flags,
             watch_status,
             index,
         },

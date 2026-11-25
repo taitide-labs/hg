@@ -67,7 +67,9 @@ struct SeedSeriesSpec {
     episode_count: u32,
     is_finished: bool,
     hot: u64,
-    badge: Option<&'static str>,
+    is_original: bool,
+    is_hot: bool,
+    is_new: bool,
     ep_prefix: &'static str,
 }
 
@@ -83,7 +85,9 @@ fn build_detail(spec: &SeedSeriesSpec) -> SeriesDetail {
             episode_count: spec.episode_count,
             is_finished: spec.is_finished,
             hot: spec.hot,
-            badge: spec.badge.map(str::to_owned),
+            is_original: spec.is_original,
+            is_hot: spec.is_hot,
+            is_new: spec.is_new,
         },
         total_episodes: spec.episode_count,
         stats: SeriesStats {
@@ -108,7 +112,9 @@ fn build_seed_details() -> BTreeMap<SeriesId, SeriesDetail> {
             episode_count: 68,
             is_finished: true,
             hot: 984_200,
-            badge: Some("热播 Top 1"),
+            is_original: true,
+            is_hot: true,
+            is_new: false,
             ep_prefix: "云城风云",
         },
         SeedSeriesSpec {
@@ -121,7 +127,9 @@ fn build_seed_details() -> BTreeMap<SeriesId, SeriesDetail> {
             episode_count: 80,
             is_finished: true,
             hot: 862_500,
-            badge: Some("高分完结"),
+            is_original: true,
+            is_hot: false,
+            is_new: false,
             ep_prefix: "长安迷局",
         },
         SeedSeriesSpec {
@@ -134,7 +142,9 @@ fn build_seed_details() -> BTreeMap<SeriesId, SeriesDetail> {
             episode_count: 72,
             is_finished: false,
             hot: 745_000,
-            badge: Some("连载热追"),
+            is_original: true,
+            is_hot: false,
+            is_new: true,
             ep_prefix: "时代浪潮",
         },
         SeedSeriesSpec {
@@ -147,7 +157,9 @@ fn build_seed_details() -> BTreeMap<SeriesId, SeriesDetail> {
             episode_count: 48,
             is_finished: false,
             hot: 689_300,
-            badge: Some("漫剧精选"),
+            is_original: false,
+            is_hot: true,
+            is_new: true,
             ep_prefix: "轨道突围",
         },
         SeedSeriesSpec {
@@ -160,7 +172,9 @@ fn build_seed_details() -> BTreeMap<SeriesId, SeriesDetail> {
             episode_count: 36,
             is_finished: true,
             hot: 612_800,
-            badge: Some("高能反转"),
+            is_original: false,
+            is_hot: true,
+            is_new: false,
             ep_prefix: "渡轮迷雾",
         },
         SeedSeriesSpec {
@@ -173,7 +187,9 @@ fn build_seed_details() -> BTreeMap<SeriesId, SeriesDetail> {
             episode_count: 54,
             is_finished: true,
             hot: 548_100,
-            badge: None,
+            is_original: false,
+            is_hot: false,
+            is_new: false,
             ep_prefix: "老街晴日",
         },
     ];

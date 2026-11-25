@@ -57,6 +57,14 @@ struct RawSeriesDetail {
     #[serde(default)]
     badge: Option<String>,
     #[serde(default)]
+    is_original: Option<Value>,
+    #[serde(default)]
+    is_hot: Option<Value>,
+    #[serde(default)]
+    is_new: Option<Value>,
+    #[serde(default)]
+    new_at: Option<u64>,
+    #[serde(default)]
     counts: Option<RawSeriesCounts>,
     #[serde(default)]
     episodes: Option<Vec<RawEpisode>>,
@@ -168,7 +176,10 @@ pub fn parse_series_detail(
     let counts = raw.counts.unwrap_or_default();
     let play_heat = counts.hot.or(raw.hot).unwrap_or(0);
     let hot = raw.hot.or(counts.hot).unwrap_or(0);
-    let badge = clean_optional_text(raw.badge);
+    let is_original =
+        parse_flag(raw.is_original.as_ref()) || clean_optional_text(raw.badge).is_some();
+    let is_hot = parse_flag(raw.is_hot.as_ref());
+    let is_new = parse_flag(raw.is_new.as_ref()) || raw.new_at.unwrap_or(0) > 0;
 
     Ok(SeriesDetail {
         summary: SeriesSummary {
@@ -181,7 +192,9 @@ pub fn parse_series_detail(
             episode_count,
             is_finished: raw.is_finished.unwrap_or(false),
             hot,
-            badge,
+            is_original,
+            is_hot,
+            is_new,
         },
         total_episodes,
         stats: SeriesStats {
@@ -352,4 +365,18 @@ fn clean_optional_text(value: Option<String>) -> Option<String> {
             Some(trimmed.to_owned())
         }
     })
+}
+
+fn parse_flag(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(num)) => {
+            num.as_i64().is_some_and(|v| v != 0) || num.as_u64().is_some_and(|v| v != 0)
+        }
+        Some(Value::String(text)) => {
+            let trimmed = text.trim();
+            trimmed.eq_ignore_ascii_case("true") || trimmed == "1"
+        }
+        _ => false,
+    }
 }

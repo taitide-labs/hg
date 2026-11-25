@@ -2,7 +2,7 @@ use hg_contracts::catalog::{CategoryRecommendation, RankingEntry, SeriesSummary}
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
-use super::super::parts::{series_grid, series_grid_columns_for_width};
+use super::super::parts::{series_flags, series_grid, series_grid_columns_for_width};
 use super::super::store::{self, BrowseKind};
 use super::query;
 use crate::ui::icons::IconKind;
@@ -151,6 +151,7 @@ fn ranking_preview_card(
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let id = entry.series.id;
+    let flags = series_flags(&entry.series);
     let meta = format!(
         "{:.1} 分 · {} 集",
         entry.series.score, entry.series.episode_count
@@ -160,7 +161,7 @@ fn ranking_preview_card(
             rank: entry.rank,
             title: entry.series.title,
             cover_url: entry.series.cover_url,
-            badge_text: entry.series.badge,
+            flags,
             metric_text: None,
             meta,
             description: None,
