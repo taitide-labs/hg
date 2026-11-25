@@ -77,13 +77,14 @@ async fn playback_ticket_parses_streams_and_clear_cache_preserves_offline_librar
         .await
         .expect("write offline file");
 
-    sqlx::query(
-        "INSERT INTO catalog_cache_entries (cache_key, payload_json, size_bytes, expires_at_epoch_secs, updated_at_epoch_secs)
-         VALUES ('home', '{}', 2, 1700003600, 1700000000)",
-    )
-    .execute(harness.deps.pool())
-    .await
-    .expect("seed catalog cache entry");
+    harness
+        .deps
+        .cache
+        .write_json("home", &json!({}), 1_700_000_000, 3600)
+        .await
+        .expect("seed memory catalog cache");
+    harness.deps.cache.run_pending_tasks().await;
+    assert_eq!(harness.deps.cache.entry_count(), 1);
 
     cmd_playback_and_cache::clear_catalog_cache(&harness.deps)
         .await
@@ -91,9 +92,5 @@ async fn playback_ticket_parses_streams_and_clear_cache_preserves_offline_librar
 
     assert!(!cache_file.exists());
     assert!(offline_file.exists());
-    let remaining: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM catalog_cache_entries")
-        .fetch_one(harness.deps.pool())
-        .await
-        .expect("count catalog cache");
-    assert_eq!(remaining.0, 0);
+    assert_eq!(harness.deps.cache.entry_count(), 0);
 }

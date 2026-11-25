@@ -182,6 +182,7 @@ async fn sends_empty_json_object_body_and_clears_cover_cache_table() {
         storage: Arc::clone(&storage),
         clock: Arc::new(FixedClock::new(1_700_000_000)),
         upstream: Arc::clone(&upstream) as _,
+        cache: crate::cache::CatalogMemoryCache::default(),
     };
 
     let port = CatalogPlaybackTicketAdapter::new(deps.clone());

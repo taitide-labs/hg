@@ -121,6 +121,7 @@ impl CatalogTestHarness {
             storage,
             clock: Arc::clone(&clock) as _,
             upstream: Arc::clone(&upstream) as _,
+            cache: hg_catalog_features::cache::CatalogMemoryCache::default(),
         };
         Self {
             _temp_dir: temp_dir,

@@ -46,7 +46,9 @@ hkdf = { version = "0.13", default-features = false }
 http-body-util = { version = "0.1", default-features = false }
 hyper = { version = "1", default-features = false, features = ["server", "http1"] }
 hyper-util = { version = "0.1", default-features = false, features = ["tokio", "http1"] }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 libc = "0.2"
+moka = { version = "0.12", default-features = false, features = ["future"] }
 nsh-base = { version = "0.6.1", default-features = false }
 nsh-core = { version = "0.6.1", default-features = false }
 nsh-engine = { version = "0.6.1", default-features = false }

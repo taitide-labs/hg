@@ -435,3 +435,80 @@ fn fixed_clock_advances_deterministically() {
     assert_eq!(clock.now_epoch_secs(), 1_700_000_060);
     assert_eq!(clock.now_epoch_millis(), 1_700_000_060_000);
 }
+
+#[test]
+fn optimize_cover_bytes_downscales_oversized_images_and_shrinks_payload() {
+    let mut img = image::RgbImage::new(1200, 1800);
+    for (x, y, pixel) in img.enumerate_pixels_mut() {
+        *pixel = image::Rgb([
+            u8::try_from((x * 3) % 255).unwrap_or(0),
+            u8::try_from((y * 5) % 255).unwrap_or(0),
+            u8::try_from((x + y) % 255).unwrap_or(0),
+        ]);
+    }
+    let mut png_bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("encode png");
+
+    let optimized = crate::cover_cache::optimize_cover_bytes(&png_bytes);
+    let decoded = image::load_from_memory(&optimized).expect("optimized image must decode");
+    assert!(decoded.width() <= 600 && decoded.height() <= 600);
+    assert!(optimized.len() < png_bytes.len());
+}
+
+#[tokio::test]
+async fn cover_cache_store_evicts_least_recently_used_entries_over_limit() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let store = crate::cover_cache::CoverCacheStore::new(
+        db.clone(),
+        Arc::clone(&storage),
+        Arc::clone(&clock) as _,
+    );
+    store.set_limit_override(Some(20));
+
+    store
+        .store_decrypted("https://img.example/1.jpg", b"\xFF\xD8\xFFcover-one-1234")
+        .await
+        .expect("store 1");
+    clock.advance_secs(10);
+    store
+        .store_decrypted("https://img.example/2.jpg", b"\xFF\xD8\xFFcover-two-1234")
+        .await
+        .expect("store 2");
+    clock.advance_secs(10);
+    let _hit = store
+        .read("https://img.example/1.jpg")
+        .await
+        .expect("touch 1");
+    clock.advance_secs(10);
+    store
+        .store_decrypted("https://img.example/3.jpg", b"\xFF\xD8\xFFcover-three-12")
+        .await
+        .expect("store 3");
+
+    assert!(
+        store
+            .read("https://img.example/2.jpg")
+            .await
+            .expect("read 2")
+            .is_none(),
+        "least recently used cover 2 must be evicted"
+    );
+    assert!(
+        store
+            .read("https://img.example/3.jpg")
+            .await
+            .expect("read 3")
+            .is_some()
+    );
+}

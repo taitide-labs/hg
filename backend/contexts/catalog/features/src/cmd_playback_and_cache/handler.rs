@@ -9,19 +9,14 @@ use crate::CatalogDeps;
 use super::workflow::{parse_playback_ticket, playback_request_path};
 
 pub async fn clear_catalog_cache(deps: &CatalogDeps) -> Result<(), ContractError> {
+    deps.cache.invalidate_all().await;
+
     let mut tx = deps
         .pool()
         .begin()
         .await
         .map_err(|err| ContractError::Internal {
             detail: format!("开启清理目录缓存事务失败: {err}"),
-        })?;
-
-    sqlx::query("DELETE FROM catalog_cache_entries")
-        .execute(&mut *tx)
-        .await
-        .map_err(|err| ContractError::Internal {
-            detail: format!("清理目录接口缓存表失败: {err}"),
         })?;
 
     sqlx::query("DELETE FROM catalog_cover_cache")

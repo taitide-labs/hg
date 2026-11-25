@@ -104,6 +104,7 @@ impl TestEnv {
             storage,
             clock: Arc::clone(&clock) as _,
             upstream: Arc::clone(&upstream) as _,
+            cache: crate::cache::CatalogMemoryCache::default(),
         };
         Self {
             _temp_dir: temp_dir,
@@ -503,12 +504,8 @@ async fn public_endpoints_use_ttl_cache_and_expire() {
     .await
     .expect("ranking");
     assert_eq!(ranks.items.len(), 1);
-
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM catalog_cache_entries")
-        .fetch_one(env.deps.pool())
-        .await
-        .expect("count cache rows");
-    assert_eq!(count.0, 3);
+    env.deps.cache.run_pending_tasks().await;
+    assert_eq!(env.deps.cache.entry_count(), 3);
 }
 
 #[tokio::test]
@@ -540,11 +537,8 @@ async fn dynamic_endpoints_bypass_and_never_write_cache() {
         .expect("suggest");
     assert_eq!(suggest.phrases, vec!["热播".to_owned()]);
 
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM catalog_cache_entries")
-        .fetch_one(env.deps.pool())
-        .await
-        .expect("count cache rows after dynamic");
-    assert_eq!(count.0, 0);
+    env.deps.cache.run_pending_tasks().await;
+    assert_eq!(env.deps.cache.entry_count(), 0);
 }
 
 #[test]

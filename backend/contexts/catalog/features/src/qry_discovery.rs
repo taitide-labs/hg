@@ -1,4 +1,3 @@
-mod cache;
 mod codec;
 pub mod handler;
 pub mod query;

@@ -9,7 +9,6 @@ use serde_json::Value;
 
 use crate::CatalogDeps;
 
-use super::cache::{read_cached_json, write_cached_json};
 use super::codec::{
     extract_data, parse_categories, parse_home_feed, parse_home_latest, parse_hot_keywords,
     parse_hot_tags, parse_paged_series, parse_ranking, parse_search_suggestions, parse_tag_groups,
@@ -34,7 +33,7 @@ where
 
     if cache_ttl.is_some() {
         let now = deps.clock.now_epoch_secs();
-        if let Some(cached) = read_cached_json::<T>(deps.pool(), &route.path, now).await? {
+        if let Some(cached) = deps.cache.read_json::<T>(&route.path, now).await {
             return Ok(cached);
         }
     }
@@ -49,7 +48,12 @@ where
 
     if let Some(ttl_secs) = cache_ttl {
         let now = deps.clock.now_epoch_secs();
-        write_cached_json(deps.pool(), &route.path, &parsed, now, ttl_secs).await?;
+        deps.cache
+            .write_json(&route.path, &parsed, now, ttl_secs)
+            .await
+            .map_err(|err| ContractError::Internal {
+                detail: format!("序列化目录缓存失败: {err}"),
+            })?;
     }
 
     Ok(parsed)
