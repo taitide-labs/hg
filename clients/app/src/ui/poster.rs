@@ -56,7 +56,9 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
         );
     }
 
+    let hover_play_label = format!("悬浮播放 {title}");
     button()
+        .group()
         .on_press(on_press)
         .accessibility_label(title.clone())
         .w_full()
@@ -64,9 +66,6 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
         .gap_1p5()
         .p_0p5()
         .rounded(token::radius)
-        .transition_opacity()
-        .duration(token::INSTANT_MS)
-        .hover(|s| s.opacity(0.92))
         .active(|s| {
             if reduce_motion() {
                 s.opacity(0.86)
@@ -80,6 +79,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
             flags,
             score_text,
             episode_label,
+            hover_play_label,
             watch_status,
         ))
         .child(
@@ -205,6 +205,7 @@ fn poster_cover(
     flags: SeriesFlags,
     score_text: String,
     episode_label: String,
+    hover_play_label: String,
     watch_status: PosterWatchStatus,
 ) -> impl IntoElement {
     let image_layer = cover_image_layer(&cover_key);
@@ -219,6 +220,29 @@ fn poster_cover(
         .p_1p5()
         .justify_between()
         .children(image_layer)
+        .child(
+            view()
+                .absolute()
+                .inset_0()
+                .items_center()
+                .justify_center()
+                .child(
+                    view()
+                        .label(hover_play_label)
+                        .size(px(44.0))
+                        .rounded_full()
+                        .bg(token::cinema_scrim)
+                        .border_1()
+                        .border_color(token::cinema_border)
+                        .items_center()
+                        .justify_center()
+                        .opacity(0.0)
+                        .transition_opacity()
+                        .duration(token::FAST_MS)
+                        .group_hover(|s| s.opacity(1.0))
+                        .child(icon(IconKind::Play, 18.0, token::cinema_fg)),
+                ),
+        )
         .child(
             view()
                 .flex_row()
@@ -244,37 +268,26 @@ fn poster_cover(
                 ),
         )
         .child(
-            view()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(
-                    view()
-                        .px_2()
-                        .py_0p5()
-                        .rounded(token::radius_badge)
-                        .bg(move || match watch_status {
-                            PosterWatchStatus::AllWatched => token::watched(),
-                            PosterWatchStatus::UpdatedAfterWatching => token::warning_soft(),
-                            PosterWatchStatus::Unwatched => token::cinema_scrim(),
-                        })
-                        .child(text(episode_label).text_xs().text_color(
-                            move || match watch_status {
+            view().flex_row().items_center().justify_start().child(
+                view()
+                    .px_2()
+                    .py_0p5()
+                    .rounded(token::radius_badge)
+                    .bg(move || match watch_status {
+                        PosterWatchStatus::AllWatched => token::watched(),
+                        PosterWatchStatus::UpdatedAfterWatching => token::warning_soft(),
+                        PosterWatchStatus::Unwatched => token::cinema_scrim(),
+                    })
+                    .child(
+                        text(episode_label)
+                            .text_xs()
+                            .text_color(move || match watch_status {
                                 PosterWatchStatus::AllWatched => token::watched_fg(),
                                 PosterWatchStatus::UpdatedAfterWatching => token::warning(),
                                 PosterWatchStatus::Unwatched => token::cinema_fg(),
-                            },
-                        )),
-                )
-                .child(
-                    view()
-                        .size(px(28.0))
-                        .rounded_full()
-                        .bg(token::cinema_scrim)
-                        .items_center()
-                        .justify_center()
-                        .child(icon(IconKind::Play, 12.0, token::cinema_fg)),
-                ),
+                            }),
+                    ),
+            ),
         )
 }
 

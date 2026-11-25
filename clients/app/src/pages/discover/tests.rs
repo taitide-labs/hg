@@ -354,6 +354,42 @@ fn discover_poster_card_uses_compact_spacing_and_minimal_immersive_inset() {
 }
 
 #[test]
+fn poster_card_centers_play_overlay_and_reveals_only_on_hover() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Dark);
+
+    let selector = "label:悬浮播放 春风十里不及卿 >> nth=0";
+    let rest_opacity = app
+        .screen()
+        .view_style(selector)
+        .unwrap()
+        .map_or(1.0, |s| s.opacity);
+    assert!(
+        rest_opacity < 0.05,
+        "poster play icon should be hidden at rest, got opacity={rest_opacity}"
+    );
+
+    let card_bounds = node_bounds(&app, "label:春风十里不及卿 >> nth=0");
+    let play_bounds = node_bounds(&app, selector);
+    let play_cx = play_bounds.origin.x.0 + play_bounds.size.width.0 / 2.0;
+    let card_cx = card_bounds.origin.x.0 + card_bounds.size.width.0 / 2.0;
+    assert!(
+        (play_cx - card_cx).abs() <= 4.0,
+        "play overlay must be horizontally centered inside poster (play_cx={play_cx}, card_cx={card_cx})"
+    );
+
+    app.hover("label:春风十里不及卿 >> nth=0").unwrap();
+    app.wait_until("hover play visible", Duration::from_secs(1), |screen| {
+        screen
+            .view_style(selector)
+            .ok()
+            .flatten()
+            .is_some_and(|s| s.opacity > 0.9)
+    })
+    .unwrap();
+}
+
+#[test]
 fn ranking_list_uses_responsive_multicolumn_high_density_cards() {
     let gw = Arc::new(MockGateway::new());
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
