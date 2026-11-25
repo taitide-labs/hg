@@ -9,7 +9,8 @@ pub struct OfflineState {
     pub loading_queue: bool,
     pub has_loaded_library: bool,
     pub has_loaded_queue: bool,
-    pub error: Option<String>,
+    pub queue_error: Option<String>,
+    pub library_error: Option<String>,
 }
 
 #[must_use]
@@ -69,7 +70,10 @@ pub(crate) fn sort_queue_tasks(tasks: &mut [DownloadTaskView]) {
 pub(crate) fn set_library_loaded(mut library: Vec<OfflineSeriesView>) {
     sort_library_recent_first(&mut library);
     let unchanged = state().with_untracked(|s| {
-        s.has_loaded_library && !s.loading_library && s.error.is_none() && s.library == library
+        s.has_loaded_library
+            && !s.loading_library
+            && s.library_error.is_none()
+            && s.library == library
     });
     if unchanged {
         return;
@@ -80,7 +84,7 @@ pub(crate) fn set_library_loaded(mut library: Vec<OfflineSeriesView>) {
         }
         s.loading_library = false;
         s.has_loaded_library = true;
-        s.error = None;
+        s.library_error = None;
     });
 }
 
@@ -88,7 +92,7 @@ pub(crate) fn set_queue_loaded(mut tasks: Vec<DownloadTaskView>) {
     tasks.retain(|task| is_active_task(task.state));
     sort_queue_tasks(&mut tasks);
     let unchanged = state().with_untracked(|s| {
-        s.has_loaded_queue && !s.loading_queue && s.error.is_none() && s.tasks == tasks
+        s.has_loaded_queue && !s.loading_queue && s.queue_error.is_none() && s.tasks == tasks
     });
     if unchanged {
         return;
@@ -99,6 +103,6 @@ pub(crate) fn set_queue_loaded(mut tasks: Vec<DownloadTaskView>) {
         }
         s.loading_queue = false;
         s.has_loaded_queue = true;
-        s.error = None;
+        s.queue_error = None;
     });
 }

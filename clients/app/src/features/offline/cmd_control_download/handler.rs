@@ -15,7 +15,7 @@ pub fn control_all(action: ControlAllDownloadsAction) {
             Ok(()) => {
                 store::state().update(|s| {
                     command::apply_bulk_control(&mut s.tasks, action);
-                    s.error = None;
+                    s.queue_error = None;
                 });
                 if let Ok(tasks) = gw.download_tasks().await {
                     store::set_queue_loaded(tasks);
@@ -23,7 +23,7 @@ pub fn control_all(action: ControlAllDownloadsAction) {
             }
             Err(err) => {
                 store::state().update(|s| {
-                    s.error = Some(err.to_string());
+                    s.queue_error = Some(err.to_string());
                 });
             }
         }
@@ -40,7 +40,7 @@ pub fn control_task(key: EpisodeKey, action: ControlDownloadAction) {
             Ok(()) => {
                 store::state().update(|s| {
                     command::apply_single_control(&mut s.tasks, key, action);
-                    s.error = None;
+                    s.queue_error = None;
                 });
                 if let Ok(tasks) = gw.download_tasks().await {
                     store::set_queue_loaded(tasks);
@@ -48,7 +48,7 @@ pub fn control_task(key: EpisodeKey, action: ControlDownloadAction) {
             }
             Err(err) => {
                 store::state().update(|s| {
-                    s.error = Some(err.to_string());
+                    s.queue_error = Some(err.to_string());
                 });
             }
         }

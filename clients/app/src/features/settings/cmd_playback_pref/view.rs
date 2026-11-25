@@ -49,6 +49,7 @@ fn appearance_card() -> impl IntoElement {
 }
 
 fn playback_pref_card() -> impl IntoElement {
+    let card_owner = Owner::current();
     let status = computed(|| {
         store::state().with(|s| {
             if s.playback_pref.is_some() {
@@ -73,7 +74,10 @@ fn playback_pref_card() -> impl IntoElement {
                 IconKind::Play,
                 "播放偏好加载失败",
                 "请稍后重试获取当前播放偏好",
-                Some(("重新加载", Box::new(handler::load_playback_preference))),
+                Some((
+                    "重新加载",
+                    Box::new(move || card_owner.run(handler::load_playback_preference)),
+                )),
             )
             .into_element(),
             LoadStatus::Loading => settings_card()
@@ -119,7 +123,7 @@ fn loaded_playback_card() -> impl IntoElement {
         .child(separator())
         .child(setting_row(
             "默认倍速",
-            "新开剧集起播时应用的默认播放倍速",
+            "新开剧目起播时应用的默认播放倍速",
             segmented_tabs(
                 RATE_PRESETS.to_vec(),
                 handler::selected_rate,

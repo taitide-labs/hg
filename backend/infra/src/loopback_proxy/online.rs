@@ -1,3 +1,7 @@
+use std::fmt::{self, Write as _};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use bytes::Bytes;
@@ -5,9 +9,183 @@ use http_body_util::Full;
 use hyper::header::CONTENT_TYPE;
 use hyper::{Method, Response, StatusCode};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use sha2::{Digest as _, Sha256};
+use sqlx::FromRow;
 use url::Url;
 
+use crate::clock::Clock;
+use crate::db::LocalDatabase;
 use crate::error::InfraError;
+use crate::storage::StorageLayout;
+
+const DEFAULT_CACHE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
+const BYTES_PER_MB: u64 = 1024 * 1024;
+
+#[derive(Clone)]
+pub(super) struct PlaybackCacheStore {
+    db: LocalDatabase,
+    storage: Arc<StorageLayout>,
+    clock: Arc<dyn Clock>,
+    limit_override_bytes: Arc<AtomicU64>,
+}
+
+impl fmt::Debug for PlaybackCacheStore {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PlaybackCacheStore")
+            .field("limit_override_bytes", &self.limit_override_bytes)
+            .finish()
+    }
+}
+
+#[derive(FromRow)]
+struct CachedSegmentRow {
+    segment_key: String,
+    local_rel_path: String,
+    size_bytes: i64,
+}
+
+impl PlaybackCacheStore {
+    pub(super) fn new(
+        db: LocalDatabase,
+        storage: Arc<StorageLayout>,
+        clock: Arc<dyn Clock>,
+    ) -> Self {
+        Self {
+            db,
+            storage,
+            clock,
+            limit_override_bytes: Arc::new(AtomicU64::new(0)),
+        }
+    }
+
+    pub(super) fn set_limit_override(&self, limit_bytes: Option<u64>) {
+        self.limit_override_bytes
+            .store(limit_bytes.unwrap_or(0), Ordering::SeqCst);
+    }
+
+    async fn read_cached_segment(&self, key: &str) -> Option<Bytes> {
+        let rel_path = format!("{key}.seg");
+        let full_path = self.storage.playback_cache_dir().join(&rel_path);
+        let bytes = tokio::fs::read(&full_path).await.ok()?;
+        if bytes.is_empty() {
+            return None;
+        }
+        let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
+        drop(
+            sqlx::query(
+                "UPDATE viewing_playback_cache_segments
+                 SET accessed_at_epoch_secs = ?2
+                 WHERE segment_key = ?1",
+            )
+            .bind(key)
+            .bind(now)
+            .execute(self.db.pool())
+            .await,
+        );
+        Some(Bytes::from(bytes))
+    }
+
+    async fn write_and_evict_segment(&self, key: &str, bytes: &[u8]) {
+        if bytes.is_empty() {
+            return;
+        }
+        let rel_path = format!("{key}.seg");
+        let dir = self.storage.playback_cache_dir();
+        if tokio::fs::create_dir_all(&dir).await.is_err() {
+            return;
+        }
+        let full_path = dir.join(&rel_path);
+        let tmp_path = full_path.with_extension("tmp");
+        if tokio::fs::write(&tmp_path, bytes).await.is_err() {
+            return;
+        }
+        if tokio::fs::rename(&tmp_path, &full_path).await.is_err() {
+            drop(tokio::fs::remove_file(&tmp_path).await);
+            return;
+        }
+
+        let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
+        let size = i64::try_from(bytes.len()).unwrap_or(i64::MAX);
+        drop(
+            sqlx::query(
+                "INSERT INTO viewing_playback_cache_segments (
+                    segment_key, local_rel_path, size_bytes, accessed_at_epoch_secs
+                ) VALUES (?1, ?2, ?3, ?4)
+                ON CONFLICT(segment_key) DO UPDATE SET
+                    local_rel_path = excluded.local_rel_path,
+                    size_bytes = excluded.size_bytes,
+                    accessed_at_epoch_secs = excluded.accessed_at_epoch_secs",
+            )
+            .bind(key)
+            .bind(&rel_path)
+            .bind(size)
+            .bind(now)
+            .execute(self.db.pool())
+            .await,
+        );
+
+        self.evict_lru_over_limit(key).await;
+    }
+
+    async fn resolve_limit_bytes(&self) -> u64 {
+        let override_bytes = self.limit_override_bytes.load(Ordering::SeqCst);
+        if override_bytes > 0 {
+            return override_bytes;
+        }
+        let row: Option<(i64,)> = sqlx::query_as(
+            "SELECT playback_cache_limit_mb FROM viewing_playback_preference WHERE id = 1",
+        )
+        .fetch_optional(self.db.pool())
+        .await
+        .ok()
+        .flatten();
+        row.and_then(|(mb,)| u64::try_from(mb).ok())
+            .map_or(DEFAULT_CACHE_LIMIT_BYTES, |mb| {
+                mb.saturating_mul(BYTES_PER_MB)
+            })
+    }
+
+    async fn evict_lru_over_limit(&self, protected_key: &str) {
+        let limit_bytes = self.resolve_limit_bytes().await;
+        let Ok(rows) = sqlx::query_as::<_, CachedSegmentRow>(
+            "SELECT segment_key, local_rel_path, size_bytes
+             FROM viewing_playback_cache_segments
+             ORDER BY accessed_at_epoch_secs ASC, segment_key ASC",
+        )
+        .fetch_all(self.db.pool())
+        .await
+        else {
+            return;
+        };
+
+        let mut total_bytes = rows
+            .iter()
+            .map(|r| u64::try_from(r.size_bytes).unwrap_or(0))
+            .fold(0_u64, u64::saturating_add);
+        if total_bytes <= limit_bytes {
+            return;
+        }
+
+        let cache_dir = self.storage.playback_cache_dir();
+        for row in rows {
+            if total_bytes <= limit_bytes {
+                break;
+            }
+            if row.segment_key == protected_key {
+                continue;
+            }
+            let size = u64::try_from(row.size_bytes).unwrap_or(0);
+            total_bytes = total_bytes.saturating_sub(size);
+            drop(
+                sqlx::query("DELETE FROM viewing_playback_cache_segments WHERE segment_key = ?1")
+                    .bind(&row.segment_key)
+                    .execute(self.db.pool())
+                    .await,
+            );
+            drop(tokio::fs::remove_file(cache_dir.join(&row.local_rel_path)).await);
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(super) struct OnlineStreamSession {
@@ -47,6 +225,7 @@ pub(super) fn build_online_session(
 
 pub(super) async fn proxy_online_request(
     client: &reqwest::Client,
+    cache: Option<&PlaybackCacheStore>,
     method: &Method,
     token: &str,
     subpath: &str,
@@ -61,6 +240,16 @@ pub(super) async fn proxy_online_request(
         },
         _ => return empty_response(StatusCode::NOT_FOUND),
     };
+
+    let url_looks_like_playlist = is_hls_playlist(&target_url, None);
+    let cache_key = (!url_looks_like_playlist && *method == Method::GET)
+        .then(|| segment_cache_key(&target_url));
+
+    if let (Some(store), Some(key)) = (cache, cache_key.as_deref())
+        && let Some(cached) = store.read_cached_segment(key).await
+    {
+        return ok_response(content_type_for_url(&target_url), cached);
+    }
 
     let req_builder = if *method == Method::HEAD {
         client.head(target_url.clone())
@@ -88,15 +277,11 @@ pub(super) async fn proxy_online_request(
     let content_type = if is_playlist {
         "application/vnd.apple.mpegurl".to_owned()
     } else {
-        upstream_ct.unwrap_or_else(|| "application/octet-stream".to_owned())
+        upstream_ct.unwrap_or_else(|| content_type_for_url(&target_url).to_owned())
     };
 
     if *method == Method::HEAD {
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_TYPE, content_type)
-            .body(Full::new(Bytes::new()))
-            .unwrap_or_else(|_| empty_response(StatusCode::INTERNAL_SERVER_ERROR));
+        return ok_response(&content_type, Bytes::new());
     }
 
     let Ok(raw_bytes) = upstream_resp.bytes().await else {
@@ -108,9 +293,40 @@ pub(super) async fn proxy_online_request(
             Err(_) => raw_bytes,
         }
     } else {
+        if let (Some(store), Some(key)) = (cache, cache_key.as_deref()) {
+            store.write_and_evict_segment(key, &raw_bytes).await;
+        }
         raw_bytes
     };
 
+    ok_response(&content_type, body)
+}
+
+fn segment_cache_key(url: &Url) -> String {
+    let mut hasher = Sha256::new();
+    if let Some(host) = url.host_str() {
+        hasher.update(host.as_bytes());
+    }
+    hasher.update(url.path().as_bytes());
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        let _written = write!(&mut hex, "{byte:02x}");
+    }
+    hex
+}
+
+fn content_type_for_url(url: &Url) -> &'static str {
+    if url.path().ends_with(".ts") {
+        "video/mp2t"
+    } else if url.path().ends_with(".m4s") || url.path().ends_with(".mp4") {
+        "video/mp4"
+    } else {
+        "application/octet-stream"
+    }
+}
+
+fn ok_response(content_type: &str, body: Bytes) -> Response<Full<Bytes>> {
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, content_type)

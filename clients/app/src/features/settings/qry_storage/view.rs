@@ -17,6 +17,7 @@ pub fn storage_section<A>(clear_action: impl Fn() -> A + Copy + 'static) -> impl
 where
     A: IntoElement + 'static,
 {
+    let section_owner = Owner::current();
     query::load_storage();
 
     let status = computed(|| {
@@ -42,7 +43,10 @@ where
                 IconKind::Download,
                 "存储占用加载失败",
                 "请稍后重试获取缓存与离线片库空间信息",
-                Some(("重新加载", Box::new(query::load_storage))),
+                Some((
+                    "重新加载",
+                    Box::new(move || section_owner.run(query::load_storage)),
+                )),
             )
             .into_element(),
             LoadStatus::Loading => loading_card().into_element(),

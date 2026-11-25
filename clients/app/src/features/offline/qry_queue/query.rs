@@ -22,7 +22,7 @@ pub fn load_queue() {
     if should_mark_loading {
         store::state().update(|s| {
             s.loading_queue = true;
-            s.error = None;
+            s.queue_error = None;
         });
     }
 
@@ -33,7 +33,7 @@ pub fn load_queue() {
             Err(err) => {
                 store::state().update(|s| {
                     s.loading_queue = false;
-                    s.error = Some(err.to_string());
+                    s.queue_error = Some(err.to_string());
                 });
             }
         }

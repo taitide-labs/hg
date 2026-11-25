@@ -163,6 +163,9 @@ async fn make_deps() -> (TempDir, Arc<RecordingHaltPort>, OfflineDeps) {
         db,
         storage,
         clock: Arc::new(FixedClock::new(1_700_000_000)),
+        network: Arc::new(hg_infra::network::FixedNetworkMonitor::new(
+            hg_infra::network::NetworkKind::Unmetered,
+        )),
         catalog_metadata: Arc::clone(&noop) as _,
         catalog_tickets: Arc::clone(&noop) as _,
         playback_halt: Arc::clone(&halt) as _,

@@ -4,6 +4,7 @@ use hg_backend_contracts::catalog::{CatalogMetadataPort, CatalogPlaybackTicketPo
 use hg_backend_contracts::viewing::PlaybackHaltPort;
 use hg_infra::clock::Clock;
 use hg_infra::db::LocalDatabase;
+use hg_infra::network::NetworkMonitor;
 use hg_infra::storage::StorageLayout;
 use sqlx::SqlitePool;
 
@@ -22,6 +23,7 @@ pub struct OfflineDeps {
     pub db: LocalDatabase,
     pub storage: Arc<StorageLayout>,
     pub clock: Arc<dyn Clock>,
+    pub network: Arc<dyn NetworkMonitor>,
     pub catalog_metadata: Arc<dyn CatalogMetadataPort>,
     pub catalog_tickets: Arc<dyn CatalogPlaybackTicketPort>,
     pub playback_halt: Arc<dyn PlaybackHaltPort>,

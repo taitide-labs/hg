@@ -107,7 +107,7 @@ fn offline_batch_download_offline_first_playback_and_delete_halt_flow() {
         .expect("back on offline library");
     harness
         .app
-        .press("删除 夜雨长灯 离线剧集")
+        .press("删除 夜雨长灯 离线剧目")
         .expect("delete offline series");
     harness
         .app

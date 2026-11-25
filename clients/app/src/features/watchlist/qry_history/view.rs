@@ -18,13 +18,15 @@ where
     H: IntoElement + 'static,
     R: IntoElement + 'static,
 {
+    let section_owner = Owner::current();
     query::load_history();
     view().w_full().gap_3().child(dynamic(move || {
-        history_body(on_open_series, header_action, row_action)
+        history_body(section_owner, on_open_series, header_action, row_action)
     }))
 }
 
 fn history_body<H, R>(
+    section_owner: Owner,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     header_action: impl Fn() -> H + Copy + 'static,
     row_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
@@ -45,7 +47,10 @@ where
                 IconKind::Clock,
                 "观看历史加载失败",
                 "请稍后重试刷新观看记录",
-                Some(("重新加载", Box::new(query::load_history))),
+                Some((
+                    "重新加载",
+                    Box::new(move || section_owner.run(query::load_history)),
+                )),
             ))
             .into_element();
     }
@@ -73,7 +78,7 @@ where
             .child(empty_state(
                 IconKind::Clock,
                 "暂无观看历史",
-                "开始观看任意剧集后将在此保留续播进度",
+                "开始观看任意剧目后将在此保留续播进度",
                 None,
             ))
             .into_element();

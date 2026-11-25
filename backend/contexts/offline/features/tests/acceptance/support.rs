@@ -205,6 +205,9 @@ impl OfflineTestHarness {
             db,
             storage,
             clock: Arc::clone(&clock) as _,
+            network: Arc::new(hg_infra::network::FixedNetworkMonitor::new(
+                hg_infra::network::NetworkKind::Unmetered,
+            )),
             catalog_metadata: Arc::clone(&catalog) as _,
             catalog_tickets: catalog,
             playback_halt: Arc::clone(&halt) as _,

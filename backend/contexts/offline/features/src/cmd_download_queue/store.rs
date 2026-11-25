@@ -11,7 +11,8 @@ use sqlx::{FromRow, SqlitePool};
 
 use super::workflow::{
     apply_batch_control_action, apply_control_action, begin_fetching, columns_to_state,
-    mark_completed, mark_failed, parse_profile, profile_to_str, state_to_columns,
+    mark_completed, mark_failed, parse_profile, pause_for_wifi_only, profile_to_str,
+    resume_from_wifi_only, state_to_columns,
 };
 
 #[derive(Debug, Clone)]
@@ -37,9 +38,17 @@ pub(crate) struct CompletedEpisodeCommit {
     pub(crate) now_epoch_secs: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PolicyPrefs {
+    pub(crate) preferred_profile: StreamProfile,
+    pub(crate) wifi_only: bool,
+    pub(crate) max_concurrent_tasks: u8,
+}
+
 #[derive(Debug, FromRow)]
 struct PolicyPrefsRow {
     preferred_profile: String,
+    wifi_only: i64,
     max_concurrent_tasks: i64,
 }
 
@@ -64,11 +73,9 @@ struct TaskStateRow {
     downloaded_bytes: i64,
 }
 
-pub(crate) async fn load_policy_prefs(
-    pool: &SqlitePool,
-) -> Result<(StreamProfile, u8), ContractError> {
+pub(crate) async fn load_policy_prefs(pool: &SqlitePool) -> Result<PolicyPrefs, ContractError> {
     let row = sqlx::query_as::<_, PolicyPrefsRow>(
-        "SELECT preferred_profile, max_concurrent_tasks
+        "SELECT preferred_profile, wifi_only, max_concurrent_tasks
          FROM offline_download_policy
          WHERE id = 1",
     )
@@ -80,16 +87,98 @@ pub(crate) async fn load_policy_prefs(
 
     match row {
         Some(prefs) => {
-            let profile = parse_profile(&prefs.preferred_profile)?;
-            let max_concurrent = u8::try_from(prefs.max_concurrent_tasks).map_err(|err| {
+            let preferred_profile = parse_profile(&prefs.preferred_profile)?;
+            let max_concurrent_tasks = u8::try_from(prefs.max_concurrent_tasks).map_err(|err| {
                 ContractError::Internal {
                     detail: format!("并发任务上限字段非法: {err}"),
                 }
             })?;
-            Ok((profile, max_concurrent))
+            Ok(PolicyPrefs {
+                preferred_profile,
+                wifi_only: prefs.wifi_only != 0,
+                max_concurrent_tasks,
+            })
         }
-        None => Ok((StreamProfile::Hevc, 2)),
+        None => Ok(PolicyPrefs {
+            preferred_profile: StreamProfile::Hevc,
+            wifi_only: true,
+            max_concurrent_tasks: 2,
+        }),
     }
+}
+
+pub(crate) async fn pause_tasks_for_wifi_only(
+    pool: &SqlitePool,
+    now_epoch_secs: u64,
+) -> Result<(), ContractError> {
+    let now = to_i64_u64(now_epoch_secs, "时间戳")?;
+    let mut tx = pool.begin().await.map_err(|err| ContractError::Internal {
+        detail: format!("开启仅 Wi-Fi 挂起事务失败: {err}"),
+    })?;
+
+    let rows = sqlx::query_as::<_, TaskStateRow>(
+        "SELECT
+            series_id, ep_num, series_title, episode_title, cover_url, profile,
+            state, pause_reason, failure_reason, completed_segments, total_segments,
+            downloaded_bytes
+         FROM offline_download_tasks
+         WHERE state IN ('queued', 'fetching_source', 'downloading')",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|err| ContractError::Internal {
+        detail: format!("查询待挂起下载任务失败: {err}"),
+    })?;
+
+    for row in rows {
+        let key = decode_row_key(&row)?;
+        let (current_state, downloaded_bytes) = decode_row_state(&row)?;
+        if let Some(next_state) = pause_for_wifi_only(current_state) {
+            let cols = state_to_columns(next_state, downloaded_bytes);
+            update_task_columns(&mut tx, key, &cols, None, now).await?;
+        }
+    }
+
+    tx.commit().await.map_err(|err| ContractError::Internal {
+        detail: format!("提交仅 Wi-Fi 挂起事务失败: {err}"),
+    })
+}
+
+pub(crate) async fn resume_wifi_blocked_tasks(
+    pool: &SqlitePool,
+    now_epoch_secs: u64,
+) -> Result<(), ContractError> {
+    let now = to_i64_u64(now_epoch_secs, "时间戳")?;
+    let mut tx = pool.begin().await.map_err(|err| ContractError::Internal {
+        detail: format!("开启恢复 Wi-Fi 挂起任务事务失败: {err}"),
+    })?;
+
+    let rows = sqlx::query_as::<_, TaskStateRow>(
+        "SELECT
+            series_id, ep_num, series_title, episode_title, cover_url, profile,
+            state, pause_reason, failure_reason, completed_segments, total_segments,
+            downloaded_bytes
+         FROM offline_download_tasks
+         WHERE state = 'paused' AND pause_reason = 'wifi_only_blocked'",
+    )
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|err| ContractError::Internal {
+        detail: format!("查询 Wi-Fi 挂起下载任务失败: {err}"),
+    })?;
+
+    for row in rows {
+        let key = decode_row_key(&row)?;
+        let (current_state, downloaded_bytes) = decode_row_state(&row)?;
+        if let Some(next_state) = resume_from_wifi_only(current_state) {
+            let cols = state_to_columns(next_state, downloaded_bytes);
+            update_task_columns(&mut tx, key, &cols, None, now).await?;
+        }
+    }
+
+    tx.commit().await.map_err(|err| ContractError::Internal {
+        detail: format!("提交恢复 Wi-Fi 挂起任务事务失败: {err}"),
+    })
 }
 
 pub(crate) async fn upsert_policy(

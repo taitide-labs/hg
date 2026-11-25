@@ -17,6 +17,7 @@ enum LoadStatus {
 }
 
 pub fn download_policy_section() -> impl IntoElement {
+    let section_owner = Owner::current();
     handler::load_download_policy();
 
     let status = computed(|| {
@@ -42,7 +43,10 @@ pub fn download_policy_section() -> impl IntoElement {
                 IconKind::Download,
                 "下载策略加载失败",
                 "请稍后重试获取离线下载策略",
-                Some(("重新加载", Box::new(handler::load_download_policy))),
+                Some((
+                    "重新加载",
+                    Box::new(move || section_owner.run(handler::load_download_policy)),
+                )),
             )
             .into_element(),
             LoadStatus::Loading => settings_card()

@@ -76,7 +76,7 @@ fn remove_episode_from_library_updates_size_and_prunes_empty_series() {
 fn a11y_labels_format_series_and_episode_targets() {
     assert_eq!(
         delete_series_a11y_label("云端之上：千金归来"),
-        "删除 云端之上：千金归来 离线剧集"
+        "删除 云端之上：千金归来 离线剧目"
     );
     assert_eq!(
         manage_episodes_a11y_label("云端之上：千金归来"),

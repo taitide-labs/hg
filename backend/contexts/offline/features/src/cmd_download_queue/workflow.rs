@@ -102,6 +102,38 @@ pub fn apply_batch_control_action(
     }
 }
 
+#[must_use]
+pub fn pause_for_wifi_only(state: DownloadTaskState) -> Option<DownloadTaskState> {
+    match state {
+        DownloadTaskState::Queued
+        | DownloadTaskState::FetchingSource
+        | DownloadTaskState::Downloading { .. } => {
+            transition_to_paused(state, PauseReason::WifiOnlyBlocked).ok()
+        }
+        DownloadTaskState::Paused { .. }
+        | DownloadTaskState::Failed { .. }
+        | DownloadTaskState::Completed
+        | DownloadTaskState::Cancelled => None,
+    }
+}
+
+#[must_use]
+pub fn resume_from_wifi_only(state: DownloadTaskState) -> Option<DownloadTaskState> {
+    match state {
+        DownloadTaskState::Paused {
+            reason: PauseReason::WifiOnlyBlocked,
+            ..
+        } => transition_to_resumed(state).ok(),
+        DownloadTaskState::Queued
+        | DownloadTaskState::FetchingSource
+        | DownloadTaskState::Downloading { .. }
+        | DownloadTaskState::Paused { .. }
+        | DownloadTaskState::Failed { .. }
+        | DownloadTaskState::Completed
+        | DownloadTaskState::Cancelled => None,
+    }
+}
+
 pub fn begin_fetching(state: DownloadTaskState) -> Result<DownloadTaskState, ContractError> {
     transition_to_fetching(state).map_err(ContractError::from)
 }

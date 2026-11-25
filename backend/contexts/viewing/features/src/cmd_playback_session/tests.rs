@@ -318,22 +318,130 @@ async fn refreshes_online_playback_using_stored_preference_and_halts_series_sess
     db.close().await;
 }
 
+async fn spawn_three_segment_upstream() -> (
+    std::net::SocketAddr,
+    Arc<std::sync::atomic::AtomicUsize>,
+    tokio::task::JoinHandle<()>,
+) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    use tokio::net::TcpListener;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+    let hits = Arc::new(AtomicUsize::new(0));
+    let hits_srv = Arc::clone(&hits);
+    let server = tokio::spawn(async move {
+        for _ in 0..6 {
+            let Ok((mut sock, _)) = listener.accept().await else {
+                break;
+            };
+            let mut buf = [0_u8; 1024];
+            let n = sock.read(&mut buf).await.unwrap_or(0);
+            let req = String::from_utf8_lossy(buf.get(..n).unwrap_or_default());
+            let (ct, body) = if req.contains("/index.m3u8") {
+                (
+                    "application/vnd.apple.mpegurl",
+                    b"#EXTM3U\n#EXTINF:5,\nseg1.ts\n#EXTINF:5,\nseg2.ts\n#EXTINF:5,\nseg3.ts\n#EXT-X-ENDLIST\n".to_vec(),
+                )
+            } else {
+                hits_srv.fetch_add(1, Ordering::SeqCst);
+                ("video/mp2t", vec![0x47_u8; 80])
+            };
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            drop(sock.write_all(header.as_bytes()).await);
+            drop(sock.write_all(&body).await);
+        }
+    });
+    (addr, hits, server)
+}
+
+async fn fetch_len(client: &reqwest::Client, url: &str) -> usize {
+    client
+        .get(url)
+        .send()
+        .await
+        .expect("fetch segment")
+        .bytes()
+        .await
+        .expect("segment bytes")
+        .len()
+}
+
 #[tokio::test]
-#[ignore = "BUG: 在线回环代理直通流式转发，尚未写入 viewing_playback_cache_segments 或按 PlaybackPreference.playback_cache_limit_mb 自动淘汰"]
 async fn online_loopback_playback_caches_segments_within_configured_limit() {
+    use std::sync::atomic::Ordering;
+
     let temp = tempfile::tempdir().expect("tempdir");
     let storage = Arc::new(
         StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
     );
     storage.ensure_dirs().await.expect("ensure dirs");
     let db = LocalDatabase::open_in_memory().await.expect("sqlite");
-    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM viewing_playback_cache_segments")
-        .fetch_one(db.pool())
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let loopback = LoopbackProxyHandle::start_with_cache(
+        Arc::clone(&storage),
+        db.clone(),
+        Arc::clone(&clock) as _,
+    )
+    .await
+    .expect("loopback with cache");
+    loopback.set_playback_cache_limit_override(Some(160));
+
+    let (addr, hits, server) = spawn_three_segment_upstream().await;
+    let key = sample_key(99, 1);
+    let manifest_uri = loopback
+        .register_online_stream(key, &format!("http://{addr}/stream/index.m3u8"), &[])
+        .expect("register online stream");
+    let client = reqwest::Client::new();
+    let playlist = client
+        .get(&manifest_uri)
+        .send()
         .await
-        .expect("count playback cache segments");
-    assert!(
-        count.0 > 0,
-        "online playback segments must populate viewing_playback_cache_segments and honor cache limit"
-    );
+        .expect("manifest")
+        .text()
+        .await
+        .expect("manifest text");
+    let seg_paths: Vec<&str> = playlist
+        .lines()
+        .filter(|l| l.starts_with("/online/"))
+        .collect();
+    assert_eq!(seg_paths.len(), 3);
+
+    let base = loopback.base_url();
+    let s1 = format!("{base}{}", seg_paths.first().copied().expect("seg1"));
+    let s2 = format!("{base}{}", seg_paths.get(1).copied().expect("seg2"));
+    let s3 = format!("{base}{}", seg_paths.get(2).copied().expect("seg3"));
+
+    assert_eq!(fetch_len(&client, &s1).await, 80);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+    clock.advance_secs(5);
+    assert_eq!(fetch_len(&client, &s1).await, 80);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+    clock.advance_secs(5);
+    assert_eq!(fetch_len(&client, &s2).await, 80);
+    clock.advance_secs(5);
+    assert_eq!(fetch_len(&client, &s3).await, 80);
+
+    let (count, total_bytes): (i64, i64) = sqlx::query_as(
+        "SELECT COUNT(*), COALESCE(SUM(size_bytes), 0) FROM viewing_playback_cache_segments",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count playback cache segments");
+    assert_eq!(count, 2);
+    assert_eq!(total_bytes, 160);
+
+    let disk_bytes = StorageLayout::dir_size_bytes(storage.playback_cache_dir())
+        .await
+        .expect("disk bytes");
+    assert_eq!(disk_bytes, 160);
+
+    server.abort();
+    loopback.shutdown();
     db.close().await;
 }
