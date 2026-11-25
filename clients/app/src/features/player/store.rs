@@ -1,6 +1,8 @@
+use std::collections::HashMap;
+
 use hg_contracts::catalog::{EpisodeComment, SeriesDetail};
 use hg_contracts::ids::{CommentId, EpisodeNumber, PageInfo, SeriesId};
-use hg_contracts::viewing::{PlaybackMode, PlaybackSource};
+use hg_contracts::viewing::{PlaybackMode, PlaybackSource, WatchProgress};
 use nsh_core::prelude::*;
 
 use super::cmd_playback::command::AspectPreset;
@@ -139,6 +141,9 @@ impl Default for PlayerState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct LoadedPlaybackSeq(u64);
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct EpisodeProgressMap(HashMap<EpisodeNumber, WatchProgress>);
+
 fn state() -> Signal<PlayerState> {
     global::<PlayerState>()
 }
@@ -157,6 +162,10 @@ fn comments_state() -> Signal<EpisodeCommentsState> {
 
 fn loaded_seq_state() -> Signal<LoadedPlaybackSeq> {
     global::<LoadedPlaybackSeq>()
+}
+
+fn episode_progress_state() -> Signal<EpisodeProgressMap> {
+    global::<EpisodeProgressMap>()
 }
 
 #[must_use]
@@ -224,6 +233,7 @@ pub fn mobile_tab_signal() -> Signal<MobileDetailTab> {
 pub fn reset_for_open(default_mode: PlaybackMode) -> u64 {
     global::<MobileDetailTab>().set(MobileDetailTab::Info);
     loaded_seq_state().set(LoadedPlaybackSeq(0));
+    episode_progress_state().set(EpisodeProgressMap::default());
     progress_state().set(PlayerProgressState::default());
     controls_state().set(PlayerControlsState::default());
     comments_state().update(|c| {
@@ -246,13 +256,43 @@ pub fn reset_for_open(default_mode: PlaybackMode) -> u64 {
 }
 
 #[must_use]
-pub fn bump_episode_seq() -> u64 {
+pub fn begin_episode_switch() -> u64 {
+    loaded_seq_state().set(LoadedPlaybackSeq(0));
+    progress_state().set(PlayerProgressState::default());
     let mut next = 0;
     state().update(|s| {
         next = s.episode_seq.wrapping_add(1).max(1);
         s.episode_seq = next;
+        s.source = None;
+        s.error = None;
     });
     next
+}
+
+pub fn hydrate_episode_progress(items: Vec<WatchProgress>) {
+    let mut map = HashMap::with_capacity(items.len());
+    for item in items {
+        map.insert(item.key.ep_num, item);
+    }
+    episode_progress_state().set(EpisodeProgressMap(map));
+}
+
+pub fn record_episode_progress_local(progress: WatchProgress) {
+    episode_progress_state().update(|m| {
+        let prev_completed = m.0.get(&progress.key.ep_num).is_some_and(|p| p.completed);
+        m.0.insert(
+            progress.key.ep_num,
+            WatchProgress {
+                completed: progress.completed || prev_completed,
+                ..progress
+            },
+        );
+    });
+}
+
+#[must_use]
+pub fn episode_progress_for_untracked(ep_num: EpisodeNumber) -> Option<WatchProgress> {
+    episode_progress_state().with_untracked(|m| m.0.get(&ep_num).copied())
 }
 
 #[must_use]
@@ -293,10 +333,22 @@ pub fn set_detail_if_seq(seq: u64, detail: SeriesDetail, bookmarked: bool) -> bo
 }
 
 pub fn set_source_if_seq(seq: u64, ep_num: EpisodeNumber, source: PlaybackSource) -> bool {
-    let mut applied = false;
+    if state().with_untracked(|s| s.episode_seq != seq) {
+        return false;
+    }
     let duration_secs = source.duration_secs;
     let segment_index = (ep_num.get().saturating_sub(1) / 50) as usize;
+    progress_state().set(PlayerProgressState {
+        position_secs: 0,
+        duration_secs,
+        seek_seq: 0,
+        scrub_preview_secs: None,
+        last_reported_secs: None,
+        pending_seek_target: None,
+        pending_seek_guard_ticks: 0,
+    });
     let mut source_slot = Some(source);
+    let mut applied = false;
     state().update(|s| {
         if s.episode_seq != seq {
             return;
@@ -309,15 +361,6 @@ pub fn set_source_if_seq(seq: u64, ep_num: EpisodeNumber, source: PlaybackSource
     });
     if applied {
         loaded_seq_state().set(LoadedPlaybackSeq(seq));
-        progress_state().set(PlayerProgressState {
-            position_secs: 0,
-            duration_secs,
-            seek_seq: 0,
-            scrub_preview_secs: None,
-            last_reported_secs: None,
-            pending_seek_target: None,
-            pending_seek_guard_ticks: 0,
-        });
         controls_state().update(|c| c.paused = false);
     }
     applied

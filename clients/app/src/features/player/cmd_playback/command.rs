@@ -1,6 +1,7 @@
 use std::num::NonZeroU32;
 
 use hg_contracts::ids::EpisodeNumber;
+use hg_contracts::viewing::WatchProgress;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AspectPreset {
@@ -118,6 +119,30 @@ pub fn resume_plan(
             episode: first,
             position_secs: None,
         },
+    }
+}
+
+#[must_use]
+pub const fn is_tail_completed(position_secs: u32, duration_secs: u32) -> bool {
+    if duration_secs == 0 {
+        return false;
+    }
+    let remaining = duration_secs.saturating_sub(position_secs);
+    if remaining <= 3 {
+        return true;
+    }
+    (position_secs as u64).saturating_mul(100) >= (duration_secs as u64).saturating_mul(95)
+}
+
+#[must_use]
+pub const fn episode_switch_resume_secs(saved: Option<&WatchProgress>) -> Option<u32> {
+    let Some(progress) = saved else {
+        return None;
+    };
+    if progress.completed || progress.position_secs == 0 {
+        None
+    } else {
+        Some(progress.position_secs)
     }
 }
 

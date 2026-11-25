@@ -31,7 +31,8 @@ use nsh_testing::Headless;
 use super::super::store;
 use super::command::{
     AspectPreset, ResumePlan, adjacent_episode, clamp_seek, episode_segment_ranges,
-    folded_episode_window, format_rate_trigger, resume_plan, step_rate,
+    episode_switch_resume_secs, folded_episode_window, format_rate_trigger, is_tail_completed,
+    resume_plan, step_rate,
 };
 use super::handler;
 use crate::gateway;
@@ -440,6 +441,11 @@ fn harness_actions(gw_release: Arc<TestGateway>) -> impl IntoElement {
     view()
         .child(
             nsh_base::button()
+                .on_press(|| handler::on_playback_progress(45, 127))
+                .child(text("progress_45")),
+        )
+        .child(
+            nsh_base::button()
                 .on_press(|| handler::on_playback_progress(125, 127))
                 .child(text("progress_98")),
         )
@@ -457,6 +463,11 @@ fn harness_actions(gw_release: Arc<TestGateway>) -> impl IntoElement {
             nsh_base::button()
                 .on_press(store::toggle_loop_single)
                 .child(text("toggle_loop")),
+        )
+        .child(
+            nsh_base::button()
+                .on_press(|| handler::switch_episode(ep(1)))
+                .child(text("switch_ep1")),
         )
         .child(
             nsh_base::button()
@@ -812,4 +823,47 @@ fn progress_ticks_do_not_reset_auto_hide_or_teardown_popovers_and_feed() {
     app.press("展开选集").unwrap();
     app.press("tick_progress").unwrap();
     app.wait_for("收起选集").unwrap();
+}
+
+#[test]
+fn episode_switch_resets_progress_and_follows_industry_resume_rules() {
+    assert!(!is_tail_completed(45, 127));
+    assert!(is_tail_completed(125, 127));
+    assert_eq!(episode_switch_resume_secs(None), None);
+    let incomplete = WatchProgress {
+        key: EpisodeKey::new(sid(1001), ep(1)),
+        position_secs: 45,
+        duration_secs: 127,
+        completed: false,
+    };
+    assert_eq!(episode_switch_resume_secs(Some(&incomplete)), Some(45));
+    let completed = WatchProgress {
+        completed: true,
+        ..incomplete
+    };
+    assert_eq!(episode_switch_resume_secs(Some(&completed)), None);
+
+    let gw = Arc::new(TestGateway::new(100, 0));
+    let mut app = start_harness(gw);
+
+    app.press("progress_45").unwrap();
+    app.wait_for("pos=45").unwrap();
+
+    app.press("switch_ep2").unwrap();
+    app.wait_for("ep=2").unwrap();
+    assert!(app.screen().shows("pos=0"));
+    assert!(app.screen().shows("seek=0"));
+
+    app.press("progress_98").unwrap();
+    app.wait_for("pos=125").unwrap();
+
+    app.press("switch_ep1").unwrap();
+    app.wait_for("ep=1").unwrap();
+    app.wait_for("pos=45").unwrap();
+    assert!(app.screen().shows("seek=1"));
+
+    app.press("switch_ep2").unwrap();
+    app.wait_for("ep=2").unwrap();
+    assert!(app.screen().shows("pos=0"));
+    assert!(app.screen().shows("seek=0"));
 }
