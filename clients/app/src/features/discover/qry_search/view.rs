@@ -11,7 +11,8 @@ use super::super::store::{self, SearchTarget};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button, text_link_button};
 use crate::ui::controls::{
-    chip_remove_button, confirm_destructive, submit_button, tag_chip_button, tag_fold_button,
+    chip_remove_button, confirm_destructive, selected_tag_chip, submit_button, tag_chip_button,
+    tag_fold_button,
 };
 use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
@@ -26,12 +27,16 @@ const TAG_FOLD_BUTTON_RESERVE_PX: f32 = 38.0;
 pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl IntoElement {
     let page_owner = Owner::current();
     query::init_search_page();
+    cleanup(query::reset_on_leave);
     let search_sig = store::search_input_signal();
     let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
     let expanded_groups = signal(BTreeSet::<u32>::new());
     let scroller = element_ref();
-    let is_tag = computed(|| {
-        store::search_state().with(|s| matches!(s.target, Some(SearchTarget::Tag { .. })))
+    let active_tag_name = computed(|| {
+        store::search_state().with(|s| match &s.target {
+            Some(SearchTarget::Tag { name, .. }) => Some(name.clone()),
+            _ => None,
+        })
     });
 
     let header_block = view()
@@ -56,20 +61,9 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
                     )
                 })),
         )
-        .child(when(
-            move || is_tag.get(),
-            move || {
-                let sort_items = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
-                segmented_tabs(
-                    sort_items,
-                    move || store::search_state().with(|s| s.sort),
-                    move |next| {
-                        scroller.scroll_to(point(px(0.0), px(0.0)), false);
-                        page_owner.run(move || query::switch_sort(next));
-                    },
-                )
-            },
-        ));
+        .child(dynamic(move || {
+            active_tag_controls_bar(active_tag_name.get(), scroller, page_owner)
+        }));
 
     let footer_block = search_footer_block(page_owner);
 
@@ -110,6 +104,50 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
             .footer(footer_block)
             .element_ref(&scroller),
         )
+}
+
+fn active_tag_controls_bar(
+    tag_name: Option<String>,
+    scroller: ElementRef,
+    page_owner: Owner,
+) -> AnyElement {
+    let Some(tag_name) = tag_name else {
+        return view().into_element();
+    };
+    let clear_a11y = format!("清除标签 {tag_name}");
+    let sort_items = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
+    view()
+        .w_full()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    text("已选标签")
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(token::muted_fg),
+                )
+                .child(selected_tag_chip(tag_name, clear_a11y, move || {
+                    scroller.scroll_to(point(px(0.0), px(0.0)), false);
+                    page_owner.run(query::clear_results);
+                })),
+        )
+        .child(segmented_tabs(
+            sort_items,
+            move || store::search_state().with(|s| s.sort),
+            move |next| {
+                scroller.scroll_to(point(px(0.0), px(0.0)), false);
+                page_owner.run(move || query::switch_sort(next));
+            },
+        ))
+        .into_element()
 }
 
 fn search_bar_row(

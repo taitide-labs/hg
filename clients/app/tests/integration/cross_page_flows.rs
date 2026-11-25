@@ -114,7 +114,7 @@ fn returning_from_player_preserves_browse_sort_and_category_context() {
 #[test]
 fn player_synopsis_tag_navigates_to_search_with_tag_selected() {
     let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_on_home(gw, ColorScheme::Light);
+    let mut app = start_desktop_on_home(gw, ColorScheme::Dark);
 
     app.press("云端之上：千金归来 >> nth=0").unwrap();
     app.wait_for("选集 (3/68)").unwrap();
@@ -122,7 +122,33 @@ fn player_synopsis_tag_navigates_to_search_with_tag_selected() {
     app.press("逆袭").unwrap();
     app.wait_for("热搜").unwrap();
     app.wait_for("最近更新").unwrap();
+    app.wait_for("label:清除标签 逆袭").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
     assert!(!app.screen().shows("全 80 集"));
     assert!(!app.screen().shows("春风十里不及卿"));
+}
+
+#[test]
+fn search_tag_resets_when_switching_tabs_but_persists_through_player_return() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_desktop_on_home(gw, ColorScheme::Dark);
+
+    app.press("搜索").unwrap();
+    app.wait_for("热搜").unwrap();
+    app.press("悬疑 >> nth=0").unwrap();
+    app.wait_for("全 80 集").unwrap();
+    app.wait_for("label:清除标签 悬疑").unwrap();
+
+    app.press("长安暗夜行 >> nth=0").unwrap();
+    app.wait_for("选集 (2/80)").unwrap();
+    app.press("返回").unwrap();
+    app.wait_for("label:清除标签 悬疑").unwrap();
+    app.wait_for("全 80 集").unwrap();
+
+    app.press("发现").unwrap();
+    app.wait_for("最近更新").unwrap();
+    app.press("搜索").unwrap();
+    app.wait_for("热搜").unwrap();
+    assert!(!app.screen().shows("label:清除标签 悬疑"));
+    assert!(!app.screen().shows("全 80 集"));
 }

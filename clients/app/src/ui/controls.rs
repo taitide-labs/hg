@@ -260,6 +260,45 @@ pub fn tag_chip_button(
 }
 
 pub fn chip_remove_button(a11y_label: String, on_press: impl Fn() + 'static) -> impl IntoElement {
+    remove_icon_button(a11y_label, 11.0, token::muted_fg, token::accent, on_press)
+}
+
+pub fn selected_tag_chip(
+    label: String,
+    clear_a11y: String,
+    on_clear: impl Fn() + 'static,
+) -> impl IntoElement {
+    view()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .pl_2p5()
+        .pr_1()
+        .h(px(28.0))
+        .rounded(token::radius_control)
+        .bg(token::brand_soft)
+        .child(
+            text(label)
+                .text_sm()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(token::brand_soft_fg),
+        )
+        .child(remove_icon_button(
+            clear_a11y,
+            12.0,
+            token::brand_soft_fg,
+            token::accent,
+            on_clear,
+        ))
+}
+
+fn remove_icon_button(
+    a11y_label: String,
+    icon_size: f32,
+    fg_fn: fn() -> AdaptiveColor,
+    hover_bg_fn: fn() -> AdaptiveColor,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
     button()
         .on_press(on_press)
         .accessibility_label(a11y_label)
@@ -269,9 +308,9 @@ pub fn chip_remove_button(a11y_label: String, on_press: impl Fn() + 'static) -> 
         .rounded_full()
         .transition_colors()
         .duration(token::INSTANT_MS)
-        .hover(|s| s.bg(token::accent))
+        .hover(move |s| s.bg(hover_bg_fn))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
-        .child(icon(IconKind::Close, 11.0, token::muted_fg))
+        .child(icon(IconKind::Close, icon_size, fg_fn))
 }
 
 pub fn tag_fold_button(

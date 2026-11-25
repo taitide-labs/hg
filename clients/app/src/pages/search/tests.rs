@@ -198,6 +198,24 @@ fn search_input_clear_icon_clears_query_and_results() {
 }
 
 #[test]
+fn search_selected_tag_shows_clear_icon_and_clears_active_filter() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_on_search(gw, ColorScheme::Dark);
+
+    assert!(!app.screen().shows("label:清除标签 悬疑"));
+
+    app.press("悬疑 >> nth=0").unwrap();
+    app.wait_for("全 80 集").unwrap();
+    app.wait_for("label:清除标签 悬疑").unwrap();
+
+    app.press("label:清除标签 悬疑").unwrap();
+    app.wait_for_gone("label:清除标签 悬疑", Duration::from_secs(2))
+        .unwrap();
+    app.wait_for_gone("全 80 集", Duration::from_secs(2))
+        .unwrap();
+}
+
+#[test]
 fn search_tags_hide_empty_groups_and_collapse_multiline_groups_behind_plus_icon() {
     let long_tags: Vec<TagItem> = (1..=24_u32)
         .map(|i| TagItem {

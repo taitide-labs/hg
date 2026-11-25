@@ -62,9 +62,21 @@ pub fn init_search_page() {
 }
 
 pub fn clear_results() {
+    reset_search_state(false);
+}
+
+pub fn reset_on_leave() {
+    store::search_input_signal().set(String::new());
+    reset_search_state(true);
+}
+
+fn reset_search_state(reset_sort: bool) {
     store::search_state().update(|s| {
         s.request_seq = s.request_seq.wrapping_add(1);
         s.target = None;
+        if reset_sort {
+            s.sort = SeriesSort::Hot;
+        }
         s.items.clear();
         s.pagination = None;
         s.loading = false;
