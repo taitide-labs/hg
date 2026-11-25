@@ -25,7 +25,20 @@ pub fn open_series(
     let gw = gateway::current();
 
     spawn(async move {
-        let pref_res = gw.playback_preference().await;
+        let ((pref_res, detail_res, bookmarked_res), (disliked_res, progress_res, history_res)) =
+            gateway::join2(
+                gateway::join3(
+                    gw.playback_preference(),
+                    gw.series_detail(series_id),
+                    gw.is_bookmarked(series_id),
+                ),
+                gateway::join3(
+                    gw.is_disliked(series_id),
+                    gw.episode_progress(series_id),
+                    gw.watch_history(),
+                ),
+            )
+            .await;
         if store::current_episode_seq() != seq {
             return;
         }
@@ -34,11 +47,10 @@ pub fn open_series(
             store::set_rate_silent(rate);
         }
 
-        let detail_res = gw.series_detail(series_id).await;
-        let is_bookmarked = gw.is_bookmarked(series_id).await.unwrap_or(false);
-        let is_disliked = gw.is_disliked(series_id).await.unwrap_or(false);
-        let ep_progress = gw.episode_progress(series_id).await.unwrap_or_default();
-        let last_watched = gw.watch_history().await.ok().and_then(|entries| {
+        let is_bookmarked = bookmarked_res.unwrap_or(false);
+        let is_disliked = disliked_res.unwrap_or(false);
+        let ep_progress = progress_res.unwrap_or_default();
+        let last_watched = history_res.ok().and_then(|entries| {
             entries
                 .into_iter()
                 .find(|entry| entry.series_id == series_id)
@@ -375,8 +387,7 @@ async fn load_episode_internal(
     };
     let playback_fut = gw.prepare_episode_playback(key);
     let comments_fut = gw.list_episode_comments(comments_request(series_id, ep_num, 1));
-    let playback_res = playback_fut.await;
-    let comments_res = comments_fut.await;
+    let (playback_res, comments_res) = gateway::join2(playback_fut, comments_fut).await;
     match playback_res {
         Ok(source) => {
             if !store::set_source_if_seq(seq, ep_num, source) {

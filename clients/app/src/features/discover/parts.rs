@@ -89,7 +89,7 @@ pub fn min_items_to_fill_viewport(
 
 pub async fn sync_poster_preferences() {
     let gw = gateway::current();
-    let (disliked_res, bookmarks_res) = (gw.disliked_series().await, gw.bookmarks().await);
+    let (disliked_res, bookmarks_res) = gateway::join2(gw.disliked_series(), gw.bookmarks()).await;
     if let Ok(disliked) = disliked_res {
         let ids: BTreeSet<SeriesId> = disliked.into_iter().map(|entry| entry.series_id).collect();
         store::set_disliked_ids(ids);
@@ -260,40 +260,29 @@ pub fn series_horizontal_shelf(
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
     context_actions: &PosterContextActions,
 ) -> impl IntoElement {
-    let is_empty = computed(move || items.with(Vec::is_empty));
     let actions = context_actions.clone();
-
-    when(
-        move || is_empty.get(),
-        || {
-            empty_state(
-                IconKind::Search,
-                "暂无匹配剧目",
-                "尝试更换关键词或筛选条件",
-                None,
-            )
+    virtual_list(
+        move || items.with(Vec::len),
+        move |at: Position| {
+            let item = computed(move || items.with(|list| list.get(at.index()).cloned()));
+            view()
+                .w(move || px(card_width.get()))
+                .child(series_card_reactive(item, on_open_series, actions.clone()))
         },
     )
-    .otherwise(move || {
-        let actions = actions.clone();
-        scroll().w_full().horizontal().scrollbar(false).child(
-            view().flex_row().items_start().gap_3().child(each(
-                items,
-                |p: &SeriesCardProps| p.id,
-                move |item_sig, _| {
-                    let card_item = computed(move || Some(item_sig.get()));
-                    view()
-                        .w(move || px(card_width.get()))
-                        .flex_shrink_0()
-                        .child(series_card_reactive(
-                            card_item,
-                            on_open_series,
-                            actions.clone(),
-                        ))
-                },
-            )),
-        )
-    })
+    .horizontal()
+    .scrollbar(false)
+    .keys(move || items.with(|list| list.iter().map(|p| p.id).collect::<Vec<u64>>()))
+    .estimated_item_size(move || px(card_width.get()))
+    .column_gap(px(12.0))
+    .w_full()
+    .h(move || px((card_width.get() * (224.0 / 160.0)).ceil() + 54.0))
+    .empty(empty_state(
+        IconKind::Search,
+        "暂无匹配剧目",
+        "尝试更换关键词或筛选条件",
+        None,
+    ))
 }
 
 pub struct VirtualGridCallbacks {

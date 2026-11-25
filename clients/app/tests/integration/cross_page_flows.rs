@@ -172,10 +172,9 @@ fn disliking_in_player_hides_series_across_discover_on_return_and_settings_resto
     app.wait_for("最近更新").unwrap();
     app.wait_for_gone("云端之上：千金归来", Duration::from_secs(2))
         .unwrap();
-    assert!(
-        app.screen().shows("TOP 12"),
-        "home ranking shelf must smoothly backfill to 12 items after hiding one"
-    );
+    app.scroll("TOP 1", nsh_core::prelude::Points(1800.0))
+        .unwrap();
+    app.wait_for("TOP 12").unwrap();
 
     app.press("设置").unwrap();
     app.wait_for("不喜欢的剧目").unwrap();

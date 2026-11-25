@@ -67,6 +67,18 @@ pub struct PosterContextActions {
     pub on_toggle_dislike: Rc<dyn Fn(u64)>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct HoveredPosterCard(Option<u64>);
+
+fn hovered_card_signal() -> Signal<HoveredPosterCard> {
+    global::<HoveredPosterCard>()
+}
+
+fn is_card_hovered(item: Memo<Option<SeriesCardProps>>) -> bool {
+    let hovered_id = hovered_card_signal().get().0;
+    hovered_id.is_some() && item.with(|opt| opt.as_ref().map(|p| p.id) == hovered_id)
+}
+
 pub fn series_card(
     item: Memo<Option<SeriesCardProps>>,
     watch_status_fn: impl Fn(u64, u32) -> PosterWatchStatus + Copy + 'static,
@@ -82,8 +94,19 @@ pub fn series_card(
 
     let context_handler = context_actions;
     button()
-        .group()
         .style_when(move || item.with(Option::is_none), |s| s.hidden())
+        .on_mouse_enter(move |_: &nsh_core::MouseEvent| {
+            let id = item.with_untracked(|opt| opt.as_ref().map(|p| p.id));
+            hovered_card_signal().set(HoveredPosterCard(id));
+        })
+        .on_mouse_leave(move |_: &nsh_core::MouseEvent| {
+            let id = item.with_untracked(|opt| opt.as_ref().map(|p| p.id));
+            hovered_card_signal().update(|cur| {
+                if cur.0 == id {
+                    cur.0 = None;
+                }
+            });
+        })
         .on_press(move || {
             if let Some(id) = item.with_untracked(|opt| opt.as_ref().map(|p| p.id)) {
                 on_open(id);
@@ -135,24 +158,21 @@ pub fn series_card(
                     .text_color(token::fg)
                     .truncate(),
                 )
-                .child(
-                    text(move || {
-                        item.with(|opt| {
-                            opt.as_ref()
-                                .map(|p| p.tags_text.clone())
-                                .unwrap_or_default()
+                .child(when(
+                    move || item.with(|opt| opt.as_ref().is_some_and(|p| !p.tags_text.is_empty())),
+                    move || {
+                        text(move || {
+                            item.with(|opt| {
+                                opt.as_ref()
+                                    .map(|p| p.tags_text.clone())
+                                    .unwrap_or_default()
+                            })
                         })
-                    })
-                    .style_when(
-                        move || {
-                            item.with(|opt| opt.as_ref().is_none_or(|p| p.tags_text.is_empty()))
-                        },
-                        |s| s.hidden(),
-                    )
-                    .text_xs()
-                    .text_color(token::muted_fg)
-                    .truncate(),
-                ),
+                        .text_xs()
+                        .text_color(token::muted_fg)
+                        .truncate()
+                    },
+                )),
         )
 }
 
@@ -306,27 +326,29 @@ fn cover_image_layer(cover_url: &str) -> Option<impl IntoElement + use<>> {
 }
 
 fn card_cover_image(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
-    let has_image = computed(move || {
-        item.with(|opt| {
-            opt.as_ref()
-                .is_some_and(|p| is_loadable_image_uri(&p.cover_url))
-        })
-    });
-    when(has_image, move || {
-        image(move || {
-            let uri = item.with(|opt| {
+    when(
+        move || {
+            item.with(|opt| {
                 opt.as_ref()
-                    .filter(|p| is_loadable_image_uri(&p.cover_url))
-                    .map(|p| p.cover_url.clone())
-                    .unwrap_or_default()
-            });
-            nsh_core::element::ImageSrc::from(uri)
-        })
-        .absolute()
-        .inset_0()
-        .size_full()
-        .object_fit(ResizeMode::Cover)
-    })
+                    .is_some_and(|p| is_loadable_image_uri(&p.cover_url))
+            })
+        },
+        move || {
+            image(move || {
+                let uri = item.with(|opt| {
+                    opt.as_ref()
+                        .filter(|p| is_loadable_image_uri(&p.cover_url))
+                        .map(|p| p.cover_url.clone())
+                        .unwrap_or_default()
+                });
+                nsh_core::element::ImageSrc::from(uri)
+            })
+            .absolute()
+            .inset_0()
+            .size_full()
+            .object_fit(ResizeMode::Cover)
+        },
+    )
 }
 
 fn reactive_cover_image(cover_url: Memo<String>) -> impl IntoElement {
@@ -451,176 +473,26 @@ const FLAG_PILL_SPECS: [FlagPillSpec; 3] = [
     },
 ];
 
-fn reactive_flag_capsule(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
-    let mut row = view().flex_row().items_center().gap_0p5().style_when(
-        move || {
-            item.with(|opt| {
-                opt.as_ref()
-                    .is_none_or(|p| !p.flags.is_original && !p.flags.is_hot && !p.flags.is_new)
-            })
-        },
-        |s| s.hidden(),
-    );
-    for spec in FLAG_PILL_SPECS {
-        row = row.child(
-            view()
-                .px_1p5()
-                .py_0p5()
-                .rounded(token::radius_badge)
-                .bg(spec.bg)
-                .style_when(
-                    move || item.with(|opt| opt.as_ref().is_none_or(|p| !(spec.pred)(&p.flags))),
-                    |s| s.hidden(),
-                )
-                .child(
-                    text(spec.label)
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(spec.fg),
-                ),
-        );
-    }
-    row
-}
-
-fn format_episode_status(count: u32, is_finished: bool, status: PosterWatchStatus) -> String {
-    match status {
-        PosterWatchStatus::UpdatedAfterWatching => format!("有更新 · {count} 集"),
-        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched if is_finished => {
-            format!("全 {count} 集")
-        }
-        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched => {
-            format!("更新至 {count} 集")
-        }
-    }
-}
-
-fn reactive_poster_cover(
-    item: Memo<Option<SeriesCardProps>>,
-    watch_status: Memo<PosterWatchStatus>,
-) -> impl IntoElement {
+fn flag_pill(spec: &FlagPillSpec) -> impl IntoElement {
     view()
-        .w_full()
-        .aspect_ratio(160.0 / 224.0)
-        .relative()
-        .rounded(token::radius)
-        .overflow_hidden()
-        .bg(move || {
-            item.with(|opt| token::poster_surface(opt.as_ref().map_or("", |p| &p.cover_url)))
-        })
-        .p_1p5()
-        .justify_between()
-        .child(card_cover_image(item))
-        .child(poster_hover_play_overlay(item))
-        .child(poster_top_bar(item))
+        .px_1p5()
+        .py_0p5()
+        .rounded(token::radius_badge)
+        .bg(spec.bg)
         .child(
-            view().flex_row().items_center().justify_start().child(
-                view()
-                    .px_2()
-                    .py_0p5()
-                    .rounded(token::radius_badge)
-                    .bg(move || match watch_status.get() {
-                        PosterWatchStatus::AllWatched => token::watched(),
-                        PosterWatchStatus::UpdatedAfterWatching => token::warning_soft(),
-                        PosterWatchStatus::Unwatched => token::cinema_scrim(),
-                    })
-                    .child(
-                        text(move || {
-                            let ws = watch_status.get();
-                            item.with(|opt| {
-                                opt.as_ref().map_or_else(SharedString::default, |p| {
-                                    SharedString::from(format_episode_status(
-                                        p.episode_count,
-                                        p.is_finished,
-                                        ws,
-                                    ))
-                                })
-                            })
-                        })
-                        .text_xs()
-                        .text_color(move || match watch_status.get() {
-                            PosterWatchStatus::AllWatched => token::watched_fg(),
-                            PosterWatchStatus::UpdatedAfterWatching => token::warning(),
-                            PosterWatchStatus::Unwatched => token::cinema_fg(),
-                        }),
-                    ),
-            ),
+            text(spec.label)
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(spec.fg),
         )
 }
 
-fn poster_hover_play_overlay(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
-    view()
-        .absolute()
-        .inset_0()
-        .items_center()
-        .justify_center()
-        .child(
-            view()
-                .label(move || {
-                    item.with(|opt| {
-                        opt.as_ref().map_or_else(SharedString::default, |p| {
-                            SharedString::from(format!("悬浮播放 {}", p.title))
-                        })
-                    })
-                })
-                .size(px(44.0))
-                .rounded_full()
-                .bg(token::cinema_scrim)
-                .border_1()
-                .border_color(token::cinema_border)
-                .items_center()
-                .justify_center()
-                .opacity(0.0)
-                .group_hover(|s| s.opacity(1.0))
-                .child(
-                    text("▶")
-                        .text_sm()
-                        .font_weight(FontWeight::BOLD)
-                        .text_color(token::cinema_fg),
-                ),
-        )
-}
-
-fn poster_top_bar(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
-    view()
-        .w_full()
-        .flex_row()
-        .items_center()
-        .gap_1()
-        .child(reactive_rank_badge(item))
-        .child(reactive_flag_capsule(item))
-        .child(view().flex_1())
-        .child(
-            view()
-                .px_1p5()
-                .py_0p5()
-                .rounded(token::radius_badge)
-                .bg(token::cinema_scrim)
-                .child(
-                    text(move || {
-                        item.with(|opt| {
-                            opt.as_ref().map_or_else(SharedString::default, |p| {
-                                SharedString::from(format!("{:.1}分", p.score))
-                            })
-                        })
-                    })
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(token::badge_original),
-                ),
-        )
-}
-
-fn reactive_rank_badge(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+fn rank_badge_pill(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
     view()
         .self_start()
         .px_2()
         .py_0p5()
         .rounded(token::radius_badge)
-        .style_when(
-            move || item.with(|opt| opt.as_ref().is_none_or(|p| p.rank.is_none())),
-            |s| s.hidden(),
-        )
         .bg(move || {
             let top3 = item.with(|opt| {
                 opt.as_ref()
@@ -655,5 +527,181 @@ fn reactive_rank_badge(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement 
                     token::cinema_fg()
                 }
             }),
+        )
+}
+
+fn format_episode_status(count: u32, is_finished: bool, status: PosterWatchStatus) -> String {
+    match status {
+        PosterWatchStatus::UpdatedAfterWatching => format!("有更新 · {count} 集"),
+        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched if is_finished => {
+            format!("全 {count} 集")
+        }
+        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched => {
+            format!("更新至 {count} 集")
+        }
+    }
+}
+
+fn reactive_poster_cover(
+    item: Memo<Option<SeriesCardProps>>,
+    watch_status: Memo<PosterWatchStatus>,
+) -> impl IntoElement {
+    view()
+        .w_full()
+        .aspect_ratio(160.0 / 224.0)
+        .relative()
+        .rounded(token::radius)
+        .overflow_hidden()
+        .bg(move || {
+            item.with(|opt| token::poster_surface(opt.as_ref().map_or("", |p| &p.cover_url)))
+        })
+        .p_1p5()
+        .justify_between()
+        .child(card_cover_image(item))
+        .child(when(
+            move || is_card_hovered(item),
+            move || poster_hover_play_overlay(item),
+        ))
+        .child(poster_top_bar(item))
+        .child(
+            view()
+                .self_start()
+                .px_2()
+                .py_0p5()
+                .rounded(token::radius_badge)
+                .bg(move || match watch_status.get() {
+                    PosterWatchStatus::AllWatched => token::watched(),
+                    PosterWatchStatus::UpdatedAfterWatching => token::warning_soft(),
+                    PosterWatchStatus::Unwatched => token::cinema_scrim(),
+                })
+                .child(
+                    text(move || {
+                        let ws = watch_status.get();
+                        item.with(|opt| {
+                            opt.as_ref().map_or_else(SharedString::default, |p| {
+                                SharedString::from(format_episode_status(
+                                    p.episode_count,
+                                    p.is_finished,
+                                    ws,
+                                ))
+                            })
+                        })
+                    })
+                    .text_xs()
+                    .text_color(move || match watch_status.get() {
+                        PosterWatchStatus::AllWatched => token::watched_fg(),
+                        PosterWatchStatus::UpdatedAfterWatching => token::warning(),
+                        PosterWatchStatus::Unwatched => token::cinema_fg(),
+                    }),
+                ),
+        )
+}
+
+fn poster_hover_play_overlay(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    view()
+        .absolute()
+        .inset_0()
+        .items_center()
+        .justify_center()
+        .child(
+            view()
+                .label(move || {
+                    item.with(|opt| {
+                        opt.as_ref().map_or_else(SharedString::default, |p| {
+                            SharedString::from(format!("悬浮播放 {}", p.title))
+                        })
+                    })
+                })
+                .size(px(44.0))
+                .rounded_full()
+                .bg(token::cinema_scrim)
+                .border_1()
+                .border_color(token::cinema_border)
+                .items_center()
+                .justify_center()
+                .child(
+                    text("▶")
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(token::cinema_fg),
+                ),
+        )
+}
+
+fn has_any_flag(flags: SeriesFlags) -> bool {
+    flags.is_original || flags.is_hot || flags.is_new
+}
+
+fn poster_left_badges(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    when(
+        move || {
+            item.with(|opt| {
+                opt.as_ref()
+                    .is_some_and(|p| p.rank.is_some() || has_any_flag(p.flags))
+            })
+        },
+        move || {
+            view()
+                .flex_row()
+                .items_center()
+                .gap_1()
+                .child(when(
+                    move || item.with(|opt| opt.as_ref().is_some_and(|p| p.rank.is_some())),
+                    move || rank_badge_pill(item),
+                ))
+                .child(when(
+                    move || item.with(|opt| opt.as_ref().is_some_and(|p| has_any_flag(p.flags))),
+                    move || {
+                        dynamic(move || {
+                            let flags =
+                                item.with(|opt| opt.as_ref().map(|p| p.flags).unwrap_or_default());
+                            let mut row = view().flex_row().items_center().gap_1();
+                            for spec in &FLAG_PILL_SPECS {
+                                if (spec.pred)(&flags) {
+                                    row = row.child(flag_pill(spec));
+                                }
+                            }
+                            row
+                        })
+                    },
+                ))
+        },
+    )
+}
+
+fn poster_top_bar(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    let has_left = move || {
+        item.with(|opt| {
+            opt.as_ref()
+                .is_some_and(|p| p.rank.is_some() || has_any_flag(p.flags))
+        })
+    };
+
+    view()
+        .w_full()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .style_when(has_left, |s| s.justify_between())
+        .style_when(move || !has_left(), |s| s.justify_end())
+        .child(poster_left_badges(item))
+        .child(
+            view()
+                .px_1p5()
+                .py_0p5()
+                .rounded(token::radius_badge)
+                .bg(token::cinema_scrim)
+                .child(
+                    text(move || {
+                        item.with(|opt| {
+                            opt.as_ref().map_or_else(SharedString::default, |p| {
+                                SharedString::from(format!("{:.1}分", p.score))
+                            })
+                        })
+                    })
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(token::badge_original),
+                ),
         )
 }

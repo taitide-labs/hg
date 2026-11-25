@@ -224,7 +224,7 @@ fn discover_home_fullscreen_grows_visible_series() {
         "desktop base width should show 4 cards across (got {base_featured})"
     );
     assert!(app.screen().shows("TOP 1"));
-    assert!(app.screen().shows("TOP 12"));
+    assert!(app.screen().shows("TOP 4"));
 
     app.set_viewport(Size::new(Points(1920.0), Points(1080.0)))
         .unwrap();
@@ -363,25 +363,12 @@ fn poster_card_centers_play_overlay_and_reveals_only_on_hover() {
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Dark);
 
     let selector = "label:悬浮播放 春风十里不及卿 >> nth=0";
-    let rest_opacity = app
-        .screen()
-        .view_style(selector)
-        .unwrap()
-        .map_or(1.0, |s| s.opacity);
     assert!(
-        rest_opacity < 0.05,
-        "poster play icon should be hidden at rest, got opacity={rest_opacity}"
+        app.screen().view_style(selector).unwrap().is_none(),
+        "poster play icon must not pre-mount hidden overlay nodes at rest"
     );
 
     let card_bounds = node_bounds(&app, "label:春风十里不及卿 >> nth=0");
-    let play_bounds = node_bounds(&app, selector);
-    let play_cx = play_bounds.origin.x.0 + play_bounds.size.width.0 / 2.0;
-    let card_cx = card_bounds.origin.x.0 + card_bounds.size.width.0 / 2.0;
-    assert!(
-        (play_cx - card_cx).abs() <= 4.0,
-        "play overlay must be horizontally centered inside poster (play_cx={play_cx}, card_cx={card_cx})"
-    );
-
     app.hover("label:春风十里不及卿 >> nth=0").unwrap();
     app.wait_until("hover play visible", Duration::from_secs(1), |screen| {
         screen
@@ -391,6 +378,14 @@ fn poster_card_centers_play_overlay_and_reveals_only_on_hover() {
             .is_some_and(|s| s.opacity > 0.9)
     })
     .unwrap();
+
+    let play_bounds = node_bounds(&app, selector);
+    let play_cx = play_bounds.origin.x.0 + play_bounds.size.width.0 / 2.0;
+    let card_cx = card_bounds.origin.x.0 + card_bounds.size.width.0 / 2.0;
+    assert!(
+        (play_cx - card_cx).abs() <= 4.0,
+        "play overlay must be horizontally centered inside poster (play_cx={play_cx}, card_cx={card_cx})"
+    );
 }
 
 #[test]
@@ -556,7 +551,7 @@ fn poster_context_menu_supports_dislike_with_smooth_backfill_and_bookmark() {
     let gw = Arc::new(MockGateway::new().with_paged_catalog(20));
     let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
 
-    app.wait_for("分页剧目 14").unwrap();
+    app.wait_for("分页剧目 20").unwrap();
     let sibling_before = app.screen().id("长安暗夜行 >> nth=0").unwrap();
     app.right_click("label:云端之上：千金归来 >> nth=0")
         .unwrap();
@@ -573,7 +568,7 @@ fn poster_context_menu_supports_dislike_with_smooth_backfill_and_bookmark() {
         sibling_before, sibling_after,
         "disliking a poster must update keyed shelf smoothly without tearing down sibling cards"
     );
-    assert!(app.screen().shows("TOP 12"));
+    assert!(app.screen().shows("TOP 1"));
     assert!(
         gw.snapshot_disliked()
             .iter()
@@ -630,15 +625,49 @@ fn discover_home_shows_skeleton_placeholders_while_feed_is_loading() {
 }
 
 #[test]
-fn discover_home_avoids_background_list_series_flood_on_initial_load() {
-    let gw = Arc::new(MockGateway::new());
-    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
-    app.wait(Duration::from_millis(80)).unwrap();
+fn discover_home_tops_up_short_shelves_to_ten_and_skips_full_shelves() {
+    let gw_full = Arc::new(MockGateway::new().with_paged_catalog(20));
+    let (mut app_full, _opened) = mount_discover_ready(Arc::clone(&gw_full), ColorScheme::Light);
+    app_full.wait(Duration::from_millis(80)).unwrap();
+    assert_eq!(
+        gw_full.method_call_count("list_series"),
+        0,
+        "home shelves already at >= 10 items must trigger zero background list_series requests"
+    );
 
+    let gw_short = Arc::new(
+        MockGateway::new()
+            .with_paged_catalog(20)
+            .with_capped_home_feed(5),
+    );
+    let (mut app_short, _opened_short) =
+        mount_discover_ready(Arc::clone(&gw_short), ColorScheme::Light);
+    app_short.wait_for("分页剧目 02").unwrap();
+    app_short.wait(Duration::from_millis(80)).unwrap();
+    assert_eq!(
+        gw_short.method_call_count("list_series"),
+        3,
+        "only shelves below 10 items (latest + 2 short categories) may issue top-up requests"
+    );
+
+    app_short
+        .scroll("云端之上：千金归来", Points(900.0))
+        .unwrap();
+    app_short.wait_for("分页剧目 04").unwrap();
+    app_short.scroll("分页剧目 04", Points(-900.0)).unwrap();
+    app_short.wait_for("云端之上：千金归来").unwrap();
+
+    app_short
+        .right_click("label:云端之上：千金归来 >> nth=0")
+        .unwrap();
+    app_short.wait_for("不喜欢").unwrap();
+    app_short.press("不喜欢").unwrap();
+    app_short
+        .wait_for_gone("云端之上：千金归来", Duration::from_secs(2))
+        .unwrap();
     assert!(
-        gw.method_call_count("list_series") <= 1,
-        "home cold start must not flood background category list_series requests (got {})",
-        gw.method_call_count("list_series")
+        gw_short.method_call_count("list_series") <= 4,
+        "disliking from a topped-up 10-item category shelf must stay stocked cleanly"
     );
 }
 
@@ -654,4 +683,80 @@ fn browse_and_ranking_show_skeleton_placeholders_while_loading() {
     app.wait_for("云端之上：千金归来").unwrap();
     app.wait_for_gone("label:浏览列表加载占位", Duration::from_secs(2))
         .unwrap();
+}
+
+#[test]
+fn discover_home_syncs_poster_preferences_concurrently() {
+    let gw = Arc::new(MockGateway::new());
+    let disliked_gate = gw.queue_method_gate("disliked_series");
+    let (mut app, _opened) = mount_discover(Arc::clone(&gw), ColorScheme::Light);
+
+    app.wait_for("最近更新").unwrap();
+    app.wait(Duration::from_millis(20)).unwrap();
+    assert_eq!(gw.method_call_count("disliked_series"), 1);
+    assert_eq!(
+        gw.method_call_count("bookmarks"),
+        1,
+        "bookmarks sync must dispatch concurrently without waiting on disliked_series"
+    );
+
+    disliked_gate.release();
+}
+
+#[test]
+fn discover_home_renders_cached_snapshot_immediately_while_revalidating_from_network() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(20));
+    let snapshot = hg_contracts::catalog::HomeSnapshot {
+        feed: block_ready(gw.home_feed()).expect("home feed"),
+        categories: block_ready(gw.categories()).expect("categories"),
+        rankings: block_ready(gw.list_ranking(hg_contracts::catalog::ListRankingRequest {
+            kind: hg_contracts::catalog::RankingKind::Hot,
+            page: hg_contracts::ids::PageRequest::new(
+                NonZeroU32::new(1).unwrap(),
+                std::num::NonZeroU16::new(20).unwrap(),
+            ),
+        }))
+        .expect("ranking")
+        .items,
+    };
+
+    let gw_swr = Arc::new(
+        MockGateway::new()
+            .with_paged_catalog(20)
+            .with_cached_home_snapshot(snapshot),
+    );
+    let feed_gate = gw_swr.queue_method_gate("home_feed");
+    let (mut app, _opened) = mount_discover(Arc::clone(&gw_swr), ColorScheme::Dark);
+
+    app.wait_for("最近更新").unwrap();
+    app.wait_for("TOP 1").unwrap();
+    assert!(!app.screen().shows("label:发现页加载占位"));
+
+    gw_swr.inject_method_error(
+        "home_feed",
+        Some(ContractError::NetworkUnavailable {
+            detail: "offline during revalidate".to_owned(),
+        }),
+    );
+    feed_gate.release();
+    app.wait(Duration::from_millis(40)).unwrap();
+    assert!(
+        app.screen().shows("最近更新") && !app.screen().shows("重新加载"),
+        "failed background refresh must preserve rendered SWR home snapshot"
+    );
+}
+
+#[test]
+fn discover_home_horizontal_shelves_virtualize_offscreen_cards() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(20));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Dark);
+
+    app.wait_for("TOP 1").unwrap();
+    assert!(
+        !app.screen().shows("TOP 12"),
+        "horizontal shelf must virtualize and avoid mounting offscreen tail cards at initial load"
+    );
+
+    app.scroll("TOP 1", Points(1800.0)).unwrap();
+    app.wait_for("TOP 12").unwrap();
 }

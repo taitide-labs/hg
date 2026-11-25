@@ -71,31 +71,33 @@ pub fn home_feed_view(
             })
             .child(dynamic(move || {
                 let (has_error, has_feed, category_meta) = shell_meta.get();
-                if has_error {
-                    return empty_state(
-                        IconKind::Discover,
-                        "片库加载失败",
-                        "请稍后重试刷新发现内容",
-                        Some((
-                            "重新加载",
-                            Box::new(move || page_owner.run(query::load_home)),
-                        )),
+                untracked(|| {
+                    if has_error {
+                        return empty_state(
+                            IconKind::Discover,
+                            "片库加载失败",
+                            "请稍后重试刷新发现内容",
+                            Some((
+                                "重新加载",
+                                Box::new(move || page_owner.run(query::load_home)),
+                            )),
+                        )
+                        .into_element();
+                    }
+
+                    if !has_feed {
+                        return home_skeleton_view(card_width).into_element();
+                    }
+
+                    render_home_shelves(
+                        category_meta,
+                        card_width,
+                        on_open_browse,
+                        on_open_series,
+                        &context_actions,
                     )
-                    .into_element();
-                }
-
-                if !has_feed {
-                    return home_skeleton_view(card_width).into_element();
-                }
-
-                render_home_shelves(
-                    category_meta,
-                    card_width,
-                    on_open_browse,
-                    on_open_series,
-                    &context_actions,
-                )
-                .into_element()
+                    .into_element()
+                })
             })),
     )
 }

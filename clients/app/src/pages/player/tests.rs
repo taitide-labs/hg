@@ -592,3 +592,45 @@ fn player_shows_skeleton_placeholder_while_detail_is_loading() {
     app.wait_for_gone("label:播放器加载占位", Duration::from_secs(2))
         .unwrap();
 }
+
+#[test]
+fn player_open_series_and_episode_load_dispatch_requests_concurrently() {
+    let gw = Arc::new(MockGateway::new());
+    let init_pref_gate = gw.queue_method_gate("playback_preference");
+    let open_pref_gate = gw.queue_method_gate("playback_preference");
+    let ep_gate = gw.queue_method_gate("prepare_episode_playback");
+    let opened = Arc::clone(&gw);
+    let mut app = mount_desktop_page(opened, ColorScheme::Dark, move || {
+        player_page(series_1001(), Some(episode_num(1)), || {}, |_| {}, |_| {})
+    });
+
+    init_pref_gate.release();
+    app.wait(Duration::from_millis(30)).unwrap();
+    assert_eq!(gw.method_call_count("playback_preference"), 2);
+    for method in [
+        "series_detail",
+        "is_bookmarked",
+        "is_disliked",
+        "episode_progress",
+        "watch_history",
+    ] {
+        assert_eq!(
+            gw.method_call_count(method),
+            1,
+            "`open_series` must dispatch `{method}` concurrently with `playback_preference`"
+        );
+    }
+
+    open_pref_gate.release();
+    app.wait_for("选集 (1/68)").unwrap();
+    app.wait(Duration::from_millis(30)).unwrap();
+    assert_eq!(gw.method_call_count("prepare_episode_playback"), 1);
+    assert_eq!(
+        gw.method_call_count("list_episode_comments"),
+        1,
+        "`load_episode_internal` must dispatch `list_episode_comments` concurrently with `prepare_episode_playback`"
+    );
+
+    ep_gate.release();
+    app.wait_for("离线下载").unwrap();
+}
