@@ -6,10 +6,10 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, EpisodeSummary, HomeFeed, HotKeyword, HotTag,
-    ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
-    PagedResult, RankingEntry, RankingKind, SearchSeriesRequest, SearchSuggestion, SeriesDetail,
-    SeriesFilter, SeriesSort, SeriesStats, SeriesSummary, TagGroup,
+    Category, CommentReply, EpisodeComment, EpisodeSummary, HomeFeed, HomeSnapshot, HotKeyword,
+    HotTag, ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest,
+    ListSeriesRequest, PagedResult, RankingEntry, RankingKind, SearchSeriesRequest,
+    SearchSuggestion, SeriesDetail, SeriesFilter, SeriesSort, SeriesStats, SeriesSummary, TagGroup,
 };
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{
@@ -54,6 +54,7 @@ pub struct MockGateway {
     method_gates: Arc<Mutex<MethodGateMap>>,
     method_counts: Arc<Mutex<HashMap<&'static str, usize>>>,
     home_feed_cap: Option<usize>,
+    cached_snapshot: Arc<Mutex<Option<HomeSnapshot>>>,
 }
 
 impl Default for MockGateway {
@@ -72,7 +73,14 @@ impl MockGateway {
             method_gates: Arc::new(Mutex::new(HashMap::new())),
             method_counts: Arc::new(Mutex::new(HashMap::new())),
             home_feed_cap: None,
+            cached_snapshot: Arc::new(Mutex::new(None)),
         }
+    }
+
+    #[must_use]
+    pub fn with_cached_home_snapshot(self, snapshot: HomeSnapshot) -> Self {
+        *self.cached_snapshot.lock() = Some(snapshot);
+        self
     }
 
     #[must_use]
@@ -466,6 +474,13 @@ impl MockGateway {
 }
 
 impl AppGateway for MockGateway {
+    fn cached_home_snapshot(&self) -> GatewayFuture<Option<HomeSnapshot>> {
+        let result = self
+            .check_error("cached_home_snapshot")
+            .map(|()| self.cached_snapshot.lock().clone());
+        self.finish("cached_home_snapshot", result)
+    }
+
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
         let cap = self.home_feed_cap;
         let result = self.check_error("home_feed").map(|()| {

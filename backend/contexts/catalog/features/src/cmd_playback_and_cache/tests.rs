@@ -200,6 +200,14 @@ async fn sends_empty_json_object_body_and_clears_cover_cache_table() {
     .await
     .expect("seed cover cache");
 
+    sqlx::query(
+        "INSERT INTO catalog_snapshot_cache (cache_key, payload_json, updated_at_epoch_secs)
+         VALUES ('home_feed', '{}', 1700000000)",
+    )
+    .execute(deps.pool())
+    .await
+    .expect("seed snapshot cache");
+
     clear_catalog_cache(&deps)
         .await
         .expect("clear catalog cache should succeed");
@@ -209,4 +217,10 @@ async fn sends_empty_json_object_body_and_clears_cover_cache_table() {
         .await
         .expect("count cover cache");
     assert_eq!(remaining_covers.0, 0);
+
+    let remaining_snapshots: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM catalog_snapshot_cache")
+        .fetch_one(deps.pool())
+        .await
+        .expect("count snapshot cache");
+    assert_eq!(remaining_snapshots.0, 0);
 }

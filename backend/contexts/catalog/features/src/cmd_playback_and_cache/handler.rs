@@ -26,6 +26,13 @@ pub async fn clear_catalog_cache(deps: &CatalogDeps) -> Result<(), ContractError
             detail: format!("清理封面缓存表失败: {err}"),
         })?;
 
+    sqlx::query("DELETE FROM catalog_snapshot_cache")
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("清理目录快照缓存表失败: {err}"),
+        })?;
+
     tx.commit().await.map_err(|err| ContractError::Internal {
         detail: format!("提交清理目录缓存事务失败: {err}"),
     })?;

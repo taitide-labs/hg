@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
+    Category, CommentReply, EpisodeComment, HomeFeed, HomeSnapshot, HotKeyword, HotTag,
     ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
     PagedResult, RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesDetail, SeriesSummary,
     TagGroup,
@@ -302,6 +302,21 @@ impl Drop for LocalGateway {
 }
 
 impl AppGateway for LocalGateway {
+    fn cached_home_snapshot(&self) -> GatewayFuture<Option<HomeSnapshot>> {
+        let catalog = self.contexts.catalog.clone();
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let Some(mut snapshot) = qry_discovery::cached_home_snapshot(&catalog).await else {
+                return Ok(None);
+            };
+            rewrite_home_feed_covers(&loopback, &mut snapshot.feed);
+            for entry in &mut snapshot.rankings {
+                entry.series.cover_url = loopback.cover_proxy_url(&entry.series.cover_url);
+            }
+            Ok(Some(snapshot))
+        })
+    }
+
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
         let catalog = self.contexts.catalog.clone();
         let loopback = self.runtime.loopback().clone();

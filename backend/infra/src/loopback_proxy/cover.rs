@@ -10,7 +10,9 @@ use hyper::{Method, Response, StatusCode};
 use parking_lot::Mutex;
 use tokio::sync::Semaphore;
 
-use crate::cover_cache::{CoverCacheStore, build_cover_rel_path, optimize_cover_bytes};
+use crate::cover_cache::{
+    CoverCacheStore, build_cover_rel_path, normalize_cover_cache_key, optimize_cover_bytes,
+};
 use crate::edge_crypto::{DEFAULT_USER_AGENT, decrypt_cover_bytes, resolve_cover_url};
 use crate::storage::StorageLayout;
 
@@ -76,16 +78,13 @@ pub(super) async fn proxy_cover_request(
         return empty_status(StatusCode::BAD_GATEWAY);
     };
 
-    spawn_background_cover_store(&ctx, remote_url, decrypted.clone());
+    spawn_background_cover_store(&ctx, &remote_url, decrypted.clone());
     image_response(method, decrypted)
 }
 
-fn spawn_background_cover_store(
-    ctx: &CoverProxyContext<'_>,
-    remote_url: String,
-    decrypted: Vec<u8>,
-) {
-    if !ctx.in_flight.lock().insert(remote_url.clone()) {
+fn spawn_background_cover_store(ctx: &CoverProxyContext<'_>, remote_url: &str, decrypted: Vec<u8>) {
+    let dedup_key = normalize_cover_cache_key(remote_url);
+    if !ctx.in_flight.lock().insert(dedup_key.clone()) {
         return;
     }
     let cover_cache = ctx.cover_cache.cloned();
@@ -96,7 +95,7 @@ fn spawn_background_cover_store(
     tokio::spawn(async move {
         let _permit = limiter.acquire().await.ok();
         if let Some(cache) = cover_cache {
-            drop(cache.store_decrypted(&remote_url, &decrypted).await);
+            drop(cache.store_decrypted(&dedup_key, &decrypted).await);
         } else {
             let raw = decrypted.clone();
             let optimized = tokio::task::spawn_blocking(move || optimize_cover_bytes(&raw))
@@ -104,13 +103,13 @@ fn spawn_background_cover_store(
                 .unwrap_or(decrypted);
             let fallback_path = storage
                 .catalog_cache_dir()
-                .join(build_cover_rel_path(&remote_url));
+                .join(build_cover_rel_path(&dedup_key));
             if let Some(parent) = fallback_path.parent() {
                 drop(tokio::fs::create_dir_all(parent).await);
             }
             drop(tokio::fs::write(&fallback_path, &optimized).await);
         }
-        in_flight.lock().remove(&remote_url);
+        in_flight.lock().remove(&dedup_key);
     });
 }
 

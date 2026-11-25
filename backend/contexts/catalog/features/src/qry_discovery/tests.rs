@@ -667,3 +667,90 @@ async fn home_feed_fetches_and_parses_latest_shelf_from_api_home_latest() {
     assert!(latest_first.is_hot);
     assert!(latest_first.is_new);
 }
+
+#[tokio::test]
+async fn home_snapshot_persists_to_sqlite_and_survives_cold_memory_cache() {
+    let upstream = StubUpstream::default()
+        .with_route(
+            "/api/home",
+            json!({
+                "status": 1,
+                "data": {
+                    "banners": [],
+                    "featured": [{ "id": 100, "title": "快照精选", "cover": "/c/100.jpg" }],
+                    "cate_rec": []
+                }
+            }),
+        )
+        .with_route(
+            "/api/home/latest",
+            json!({
+                "status": 1,
+                "data": {
+                    "items": [{ "id": 101, "title": "快照更新剧", "cover": "/c/101.jpg" }],
+                    "total": 1,
+                    "page": 1,
+                    "size": 20
+                }
+            }),
+        )
+        .with_route(
+            "/api/site/categories/video",
+            json!({
+                "status": 1,
+                "data": [{ "id": 24, "name": "短剧", "route": "duanju" }]
+            }),
+        )
+        .with_route(
+            "/api/ranks/hot?page=1&size=20",
+            json!({
+                "status": 1,
+                "data": {
+                    "items": [{ "id": 101, "title": "快照榜首", "cover": "/c/101.jpg" }],
+                    "total": 1,
+                    "page": 1,
+                    "size": 20
+                }
+            }),
+        );
+    let env = TestEnv::new(upstream).await;
+    let _feed = super::handler::home_feed(&env.deps)
+        .await
+        .expect("home_feed");
+    let _cats = categories(&env.deps).await.expect("categories");
+    let _ranking = list_ranking(
+        &env.deps,
+        ListRankingRequest {
+            kind: RankingKind::Hot,
+            page: PageRequest::new(
+                NonZeroU32::new(1).unwrap_or(NonZeroU32::MIN),
+                NonZeroU16::new(20).unwrap_or(NonZeroU16::MIN),
+            ),
+        },
+    )
+    .await
+    .expect("ranking");
+
+    let cold_reentry_deps = CatalogDeps {
+        db: env.deps.db.clone(),
+        storage: Arc::clone(&env.deps.storage),
+        clock: Arc::clone(&env.deps.clock),
+        upstream: Arc::new(StubUpstream::default()),
+        cache: crate::cache::CatalogMemoryCache::default(),
+    };
+    let snapshot = super::handler::cached_home_snapshot(&cold_reentry_deps)
+        .await
+        .expect("persisted home snapshot must load without upstream");
+    assert_eq!(
+        snapshot.feed.latest.first().map(|s| s.title.as_str()),
+        Some("快照更新剧")
+    );
+    assert_eq!(
+        snapshot.categories.first().map(|c| c.name.as_str()),
+        Some("短剧")
+    );
+    assert_eq!(
+        snapshot.rankings.first().map(|r| r.series.title.as_str()),
+        Some("快照榜首")
+    );
+}

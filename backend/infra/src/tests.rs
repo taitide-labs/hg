@@ -549,3 +549,44 @@ async fn cover_cache_read_serves_existing_disk_file_even_without_sqlite_row() {
         Some(b"\xFF\xD8\xFFdisk-fast-path".as_slice())
     );
 }
+
+#[tokio::test]
+async fn cover_cache_hits_when_auth_key_rotates_and_preserves_other_queries() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let store = crate::cover_cache::CoverCacheStore::new(db, Arc::clone(&storage), clock);
+
+    let url_t0 = "https://pic.qnlycc.cn/upload_01/2026.jpg?auth_key=1795627353-0-0-aaa#frag";
+    let url_t1 = "https://pic.qnlycc.cn/upload_01/2026.jpg?auth_key=1795627999-0-0-bbb";
+    assert_eq!(
+        crate::cover_cache::build_cover_rel_path(url_t0),
+        crate::cover_cache::build_cover_rel_path(url_t1)
+    );
+    assert_ne!(
+        crate::cover_cache::build_cover_rel_path(
+            "https://pic.qnlycc.cn/upload_01/2026.jpg?w=300&auth_key=1"
+        ),
+        crate::cover_cache::build_cover_rel_path(
+            "https://pic.qnlycc.cn/upload_01/2026.jpg?w=600&auth_key=1"
+        )
+    );
+
+    store
+        .store_decrypted(url_t0, b"\xFF\xD8\xFFcached-cover-jpeg")
+        .await
+        .expect("store cover");
+    let hit = store
+        .read(url_t1)
+        .await
+        .expect("read with rotated auth_key");
+    assert_eq!(
+        hit.as_deref(),
+        Some(b"\xFF\xD8\xFFcached-cover-jpeg".as_slice()),
+        "rotating auth_key query param must still hit cached cover on disk"
+    );
+}

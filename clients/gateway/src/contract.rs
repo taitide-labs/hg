@@ -2,7 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
+    Category, CommentReply, EpisodeComment, HomeFeed, HomeSnapshot, HotKeyword, HotTag,
     ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
     PagedResult, RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesDetail, SeriesSummary,
     TagGroup,
@@ -23,6 +23,10 @@ pub type GatewayFuture<T> =
     Pin<Box<dyn Future<Output = Result<T, ContractError>> + Send + 'static>>;
 
 pub trait AppGateway: Send + Sync {
+    fn cached_home_snapshot(&self) -> GatewayFuture<Option<HomeSnapshot>> {
+        Box::pin(async { Ok(None) })
+    }
+
     fn home_feed(&self) -> GatewayFuture<HomeFeed>;
     fn categories(&self) -> GatewayFuture<Vec<Category>>;
     fn tag_groups(&self) -> GatewayFuture<Vec<TagGroup>>;

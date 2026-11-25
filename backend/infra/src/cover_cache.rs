@@ -69,7 +69,8 @@ impl CoverCacheStore {
     }
 
     pub async fn read(&self, cover_url: &str) -> Result<Option<Vec<u8>>, InfraError> {
-        let rel_path = build_cover_rel_path(cover_url);
+        let cache_key = normalize_cover_cache_key(cover_url);
+        let rel_path = build_cover_rel_path(&cache_key);
         let Ok(clean_rel) = sanitize_relative_path(&rel_path) else {
             return Ok(None);
         };
@@ -83,7 +84,7 @@ impl CoverCacheStore {
         };
 
         let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
-        if self.should_touch_db(cover_url, now) {
+        if self.should_touch_db(&cache_key, now) {
             drop(
                 sqlx::query(
                     "UPDATE catalog_cover_cache
@@ -91,7 +92,7 @@ impl CoverCacheStore {
                      WHERE cover_url = ?2",
                 )
                 .bind(now)
-                .bind(cover_url)
+                .bind(&cache_key)
                 .execute(self.db.pool())
                 .await,
             );
@@ -118,12 +119,13 @@ impl CoverCacheStore {
         cover_url: &str,
         decrypted: &[u8],
     ) -> Result<Vec<u8>, InfraError> {
+        let cache_key = normalize_cover_cache_key(cover_url);
         let raw = decrypted.to_vec();
         let optimized = tokio::task::spawn_blocking(move || optimize_cover_bytes(&raw))
             .await
             .unwrap_or_else(|_| decrypted.to_vec());
 
-        let rel_path = build_cover_rel_path(cover_url);
+        let rel_path = build_cover_rel_path(&cache_key);
         self.write_cover_file(&rel_path, &optimized).await?;
         let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
         {
@@ -131,9 +133,9 @@ impl CoverCacheStore {
             if guard.len() >= TOUCHED_MEMORY_CACHE_MAX {
                 guard.clear();
             }
-            guard.insert(cover_url.to_owned(), now);
+            guard.insert(cache_key.clone(), now);
         }
-        self.upsert_cover_index(cover_url, &rel_path, optimized.len())
+        self.upsert_cover_index(&cache_key, &rel_path, optimized.len())
             .await?;
 
         let has_override = self.limit_override_bytes.load(Ordering::Relaxed) > 0;
@@ -144,7 +146,7 @@ impl CoverCacheStore {
             .saturating_add(written);
         if has_override || accumulated >= EVICT_CHECK_BYTES_THRESHOLD {
             self.pending_evict_bytes.store(0, Ordering::Relaxed);
-            self.evict_lru_over_limit(cover_url).await;
+            self.evict_lru_over_limit(&cache_key).await;
         }
         Ok(optimized)
     }
@@ -258,9 +260,34 @@ impl CoverCacheStore {
 }
 
 #[must_use]
+pub fn normalize_cover_cache_key(cover_url: &str) -> String {
+    let trimmed = cover_url.trim();
+    let Ok(mut parsed) = url::Url::parse(trimmed) else {
+        return trimmed.to_owned();
+    };
+    parsed.set_fragment(None);
+    let kept_pairs: Vec<(String, String)> = parsed
+        .query_pairs()
+        .filter(|(key, _)| key.as_ref() != "auth_key")
+        .map(|(key, val)| (key.into_owned(), val.into_owned()))
+        .collect();
+    if kept_pairs.is_empty() {
+        parsed.set_query(None);
+    } else {
+        let mut pairs = parsed.query_pairs_mut();
+        pairs.clear();
+        for (key, val) in kept_pairs {
+            pairs.append_pair(&key, &val);
+        }
+    }
+    parsed.to_string()
+}
+
+#[must_use]
 pub fn build_cover_rel_path(cover_url: &str) -> String {
+    let normalized = normalize_cover_cache_key(cover_url);
     let mut hasher = Sha256::new();
-    hasher.update(cover_url.as_bytes());
+    hasher.update(normalized.as_bytes());
     let digest = hasher.finalize();
     let mut hex = String::with_capacity(64);
     for byte in digest {

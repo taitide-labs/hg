@@ -61,6 +61,13 @@ pub struct HomeFeed {
     pub category_recommendations: Vec<CategoryRecommendation>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HomeSnapshot {
+    pub feed: HomeFeed,
+    pub categories: Vec<Category>,
+    pub rankings: Vec<RankingEntry>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
     pub id: u32,
