@@ -521,3 +521,31 @@ async fn cover_cache_store_evicts_least_recently_used_entries_over_limit() {
             .is_some()
     );
 }
+
+#[tokio::test]
+async fn cover_cache_read_serves_existing_disk_file_even_without_sqlite_row() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let store = crate::cover_cache::CoverCacheStore::new(db, Arc::clone(&storage), clock);
+
+    let url = "https://img.example/disk-only.jpg";
+    let rel = crate::cover_cache::build_cover_rel_path(url);
+    let target = storage.catalog_cache_dir().join(rel);
+    tokio::fs::create_dir_all(target.parent().expect("parent"))
+        .await
+        .expect("mkdir");
+    tokio::fs::write(&target, b"\xFF\xD8\xFFdisk-fast-path")
+        .await
+        .expect("write");
+
+    let hit = store.read(url).await.expect("read");
+    assert_eq!(
+        hit.as_deref(),
+        Some(b"\xFF\xD8\xFFdisk-fast-path".as_slice())
+    );
+}

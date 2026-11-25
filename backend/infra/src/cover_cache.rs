@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::{self, Write as _};
 use std::io::{Cursor, ErrorKind};
 use std::path::{Component, Path, PathBuf};
@@ -7,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use image::codecs::jpeg::JpegEncoder;
 use image::imageops::FilterType;
 use image::{GenericImageView as _, ImageFormat};
+use parking_lot::Mutex;
 use sha2::{Digest as _, Sha256};
 use sqlx::FromRow;
 
@@ -20,6 +22,8 @@ const COVER_CACHE_SUBDIR: &str = "covers";
 const MAX_COVER_EDGE_PX: u32 = 600;
 const COVER_JPEG_QUALITY: u8 = 82;
 const ACCESS_TOUCH_INTERVAL_SECS: i64 = 3600;
+const EVICT_CHECK_BYTES_THRESHOLD: u64 = 4 * 1024 * 1024;
+const TOUCHED_MEMORY_CACHE_MAX: usize = 2048;
 
 #[derive(Clone)]
 pub struct CoverCacheStore {
@@ -27,6 +31,8 @@ pub struct CoverCacheStore {
     storage: Arc<StorageLayout>,
     clock: Arc<dyn Clock>,
     limit_override_bytes: Arc<AtomicU64>,
+    pending_evict_bytes: Arc<AtomicU64>,
+    touched_at: Arc<Mutex<HashMap<String, i64>>>,
 }
 
 impl fmt::Debug for CoverCacheStore {
@@ -52,6 +58,8 @@ impl CoverCacheStore {
             storage,
             clock,
             limit_override_bytes: Arc::new(AtomicU64::new(0)),
+            pending_evict_bytes: Arc::new(AtomicU64::new(0)),
+            touched_at: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -61,45 +69,48 @@ impl CoverCacheStore {
     }
 
     pub async fn read(&self, cover_url: &str) -> Result<Option<Vec<u8>>, InfraError> {
-        let row: Option<(String, i64)> = sqlx::query_as(
-            "SELECT local_rel_path, accessed_at_epoch_secs
-             FROM catalog_cover_cache
-             WHERE cover_url = ?1",
-        )
-        .bind(cover_url)
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        let Some((rel_path, last_accessed)) = row else {
-            return Ok(None);
-        };
+        let rel_path = build_cover_rel_path(cover_url);
         let Ok(clean_rel) = sanitize_relative_path(&rel_path) else {
             return Ok(None);
         };
         let full_path = self.storage.catalog_cache_dir().join(clean_rel);
 
-        match tokio::fs::read(&full_path).await {
-            Ok(bytes) if !bytes.is_empty() => {
-                let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
-                if now.saturating_sub(last_accessed) >= ACCESS_TOUCH_INTERVAL_SECS {
-                    drop(
-                        sqlx::query(
-                            "UPDATE catalog_cover_cache
-                             SET accessed_at_epoch_secs = ?1
-                             WHERE cover_url = ?2",
-                        )
-                        .bind(now)
-                        .bind(cover_url)
-                        .execute(self.db.pool())
-                        .await,
-                    );
-                }
-                Ok(Some(bytes))
-            }
-            Ok(_) => Ok(None),
-            Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
-            Err(err) => Err(InfraError::Io(err)),
+        let bytes = match tokio::fs::read(&full_path).await {
+            Ok(bytes) if !bytes.is_empty() => bytes,
+            Ok(_) => return Ok(None),
+            Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(err) => return Err(InfraError::Io(err)),
+        };
+
+        let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
+        if self.should_touch_db(cover_url, now) {
+            drop(
+                sqlx::query(
+                    "UPDATE catalog_cover_cache
+                     SET accessed_at_epoch_secs = ?1
+                     WHERE cover_url = ?2",
+                )
+                .bind(now)
+                .bind(cover_url)
+                .execute(self.db.pool())
+                .await,
+            );
         }
+        Ok(Some(bytes))
+    }
+
+    fn should_touch_db(&self, cover_url: &str, now: i64) -> bool {
+        let mut guard = self.touched_at.lock();
+        if let Some(&prev) = guard.get(cover_url)
+            && now.saturating_sub(prev) < ACCESS_TOUCH_INTERVAL_SECS
+        {
+            return false;
+        }
+        if guard.len() >= TOUCHED_MEMORY_CACHE_MAX {
+            guard.clear();
+        }
+        guard.insert(cover_url.to_owned(), now);
+        true
     }
 
     pub async fn store_decrypted(
@@ -114,9 +125,27 @@ impl CoverCacheStore {
 
         let rel_path = build_cover_rel_path(cover_url);
         self.write_cover_file(&rel_path, &optimized).await?;
+        let now = i64::try_from(self.clock.now_epoch_secs()).unwrap_or(i64::MAX);
+        {
+            let mut guard = self.touched_at.lock();
+            if guard.len() >= TOUCHED_MEMORY_CACHE_MAX {
+                guard.clear();
+            }
+            guard.insert(cover_url.to_owned(), now);
+        }
         self.upsert_cover_index(cover_url, &rel_path, optimized.len())
             .await?;
-        self.evict_lru_over_limit(cover_url).await;
+
+        let has_override = self.limit_override_bytes.load(Ordering::Relaxed) > 0;
+        let written = u64::try_from(optimized.len()).unwrap_or(0);
+        let accumulated = self
+            .pending_evict_bytes
+            .fetch_add(written, Ordering::Relaxed)
+            .saturating_add(written);
+        if has_override || accumulated >= EVICT_CHECK_BYTES_THRESHOLD {
+            self.pending_evict_bytes.store(0, Ordering::Relaxed);
+            self.evict_lru_over_limit(cover_url).await;
+        }
         Ok(optimized)
     }
 
