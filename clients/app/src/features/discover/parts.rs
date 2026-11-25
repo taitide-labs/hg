@@ -1,15 +1,15 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
 use hg_contracts::catalog::SeriesSummary;
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
-use super::store;
+use super::store::{self, SeriesWatchStatus, WatchedSeriesSnapshot};
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::poster::{SeriesCardProps, series_card};
+use crate::ui::poster::{PosterWatchStatus, SeriesCardProps, series_card};
 use crate::ui::surface::empty_state;
 use crate::ui::token;
 
@@ -75,7 +75,23 @@ pub fn min_items_to_fill_viewport(
 
 pub async fn sync_watched_series() {
     if let Ok(history) = crate::gateway::current().watch_history().await {
-        let watched: HashSet<SeriesId> = history.into_iter().map(|entry| entry.series_id).collect();
+        let watched: HashMap<SeriesId, WatchedSeriesSnapshot> = history
+            .into_iter()
+            .map(|entry| {
+                let over_80 = entry.episode_completed
+                    || (entry.duration_secs > 0
+                        && u64::from(entry.position_secs).saturating_mul(100)
+                            > u64::from(entry.duration_secs).saturating_mul(80));
+                (
+                    entry.series_id,
+                    WatchedSeriesSnapshot {
+                        last_episode: entry.last_episode.get(),
+                        recorded_total_episodes: entry.total_episodes,
+                        episode_over_80: over_80,
+                    },
+                )
+            })
+            .collect();
         store::set_watched_series(watched);
     }
 }
@@ -86,10 +102,21 @@ pub fn series_card_from_summary(
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let id = item.id;
-    let status = if item.is_finished {
-        format!("全 {} 集", item.episode_count)
-    } else {
-        format!("更新至 {} 集", item.episode_count)
+    let watch_status = match store::series_watch_status(id, item.episode_count) {
+        SeriesWatchStatus::Unwatched => PosterWatchStatus::Unwatched,
+        SeriesWatchStatus::AllWatched => PosterWatchStatus::AllWatched,
+        SeriesWatchStatus::UpdatedAfterWatching => PosterWatchStatus::UpdatedAfterWatching,
+    };
+    let status = match watch_status {
+        PosterWatchStatus::UpdatedAfterWatching => {
+            format!("有更新 · {} 集", item.episode_count)
+        }
+        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched if item.is_finished => {
+            format!("全 {} 集", item.episode_count)
+        }
+        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched => {
+            format!("更新至 {} 集", item.episode_count)
+        }
     };
     let subtitle = item.tags.join(" · ");
     series_card(
@@ -100,7 +127,7 @@ pub fn series_card_from_summary(
             subtitle,
             episode_label: status,
             badge_text: item.badge,
-            watched: store::is_series_watched(id),
+            watch_status,
             index,
         },
         move || on_open_series(id),

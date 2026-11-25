@@ -149,17 +149,21 @@ pub fn on_playback_progress(position_secs: u32, duration_secs: u32) {
     let progress = store::progress_untracked();
     let total_dur = progress.duration_secs.max(duration_secs);
     let completed = is_tail_completed(position_secs, total_dur);
+    let next_progress = WatchProgress {
+        key: EpisodeKey::new(detail.summary.id, ep_num),
+        position_secs,
+        duration_secs: total_dur,
+        completed,
+    };
     let should_report = progress
         .last_reported_secs
         .is_none_or(|prev| position_secs.abs_diff(prev) >= 5);
-    let was_completed = store::episode_progress_for_untracked(ep_num).is_some_and(|p| p.completed);
-    if should_report || (completed && !was_completed) {
-        store::record_episode_progress_local(WatchProgress {
-            key: EpisodeKey::new(detail.summary.id, ep_num),
-            position_secs,
-            duration_secs: total_dur,
-            completed,
-        });
+    let prev_progress = store::episode_progress_for_untracked(ep_num);
+    let was_completed = prev_progress.is_some_and(|p| p.completed);
+    let was_watched = prev_progress.is_some_and(store::is_progress_watched);
+    let now_watched = store::is_progress_watched(next_progress);
+    if should_report || (completed && !was_completed) || (now_watched && !was_watched) {
+        store::record_episode_progress_local(next_progress);
         store::mark_progress_reported(position_secs);
         report_progress_async(detail.summary.id, ep_num, position_secs, total_dur);
     }

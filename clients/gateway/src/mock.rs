@@ -85,6 +85,14 @@ impl MockGateway {
         self
     }
 
+    pub fn set_series_episode_count(&self, series_id: SeriesId, episode_count: u32) {
+        let mut state = self.state.lock();
+        if let Some(detail) = state.details.get_mut(&series_id) {
+            detail.summary.episode_count = episode_count;
+            detail.total_episodes = episode_count;
+        }
+    }
+
     pub fn set_download_task_state(&self, key: EpisodeKey, next_state: DownloadTaskState) {
         let mut state = self.state.lock();
         if let Some(task) = state.download_tasks.iter_mut().find(|t| t.key == key) {

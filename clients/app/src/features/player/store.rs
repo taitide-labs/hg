@@ -296,8 +296,16 @@ pub fn episode_progress_for_untracked(ep_num: EpisodeNumber) -> Option<WatchProg
 }
 
 #[must_use]
+pub fn is_progress_watched(progress: WatchProgress) -> bool {
+    progress.completed
+        || (progress.duration_secs > 0
+            && u64::from(progress.position_secs).saturating_mul(100)
+                > u64::from(progress.duration_secs).saturating_mul(80))
+}
+
+#[must_use]
 pub fn is_episode_watched(ep_num: EpisodeNumber) -> bool {
-    episode_progress_state().with(|m| m.0.contains_key(&ep_num))
+    episode_progress_state().with(|m| m.0.get(&ep_num).copied().is_some_and(is_progress_watched))
 }
 
 #[must_use]

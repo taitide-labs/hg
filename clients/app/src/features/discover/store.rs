@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use hg_contracts::catalog::{
     Category, HomeFeed, HotKeyword, RankingEntry, RankingKind, SeriesSort, SeriesSummary, TagGroup,
@@ -216,20 +216,52 @@ pub fn viewport_size_untracked() -> (f32, f32) {
     viewport_state().with_untracked(|v| (v.width, v.height))
 }
 
-#[derive(Debug, Clone, Default)]
-struct WatchedSeriesSet(HashSet<SeriesId>);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SeriesWatchStatus {
+    #[default]
+    Unwatched,
+    AllWatched,
+    UpdatedAfterWatching,
+}
 
-fn watched_series_state() -> Signal<WatchedSeriesSet> {
-    global::<WatchedSeriesSet>()
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchedSeriesSnapshot {
+    pub last_episode: u32,
+    pub recorded_total_episodes: u32,
+    pub episode_over_80: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct WatchedSeriesMap(HashMap<SeriesId, WatchedSeriesSnapshot>);
+
+fn watched_series_state() -> Signal<WatchedSeriesMap> {
+    global::<WatchedSeriesMap>()
 }
 
 #[must_use]
-pub fn is_series_watched(series_id: SeriesId) -> bool {
-    watched_series_state().with(|s| s.0.contains(&series_id))
+pub fn series_watch_status(series_id: SeriesId, current_episode_count: u32) -> SeriesWatchStatus {
+    watched_series_state().with(|map| {
+        let Some(entry) = map.0.get(&series_id).copied() else {
+            return SeriesWatchStatus::Unwatched;
+        };
+        if !entry.episode_over_80 || current_episode_count == 0 {
+            return SeriesWatchStatus::Unwatched;
+        }
+        if entry.last_episode >= current_episode_count {
+            return SeriesWatchStatus::AllWatched;
+        }
+        if entry.recorded_total_episodes > 0
+            && entry.last_episode >= entry.recorded_total_episodes
+            && current_episode_count > entry.last_episode
+        {
+            return SeriesWatchStatus::UpdatedAfterWatching;
+        }
+        SeriesWatchStatus::Unwatched
+    })
 }
 
-pub fn set_watched_series(ids: HashSet<SeriesId>) {
-    watched_series_state().set(WatchedSeriesSet(ids));
+pub fn set_watched_series(map: HashMap<SeriesId, WatchedSeriesSnapshot>) {
+    watched_series_state().set(WatchedSeriesMap(map));
 }
 
 pub fn set_home_loading() {

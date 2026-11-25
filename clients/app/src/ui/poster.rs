@@ -5,6 +5,14 @@ use crate::ui::icons::{IconKind, icon};
 use crate::ui::surface::{BadgeTone, badge};
 use crate::ui::token;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PosterWatchStatus {
+    #[default]
+    Unwatched,
+    AllWatched,
+    UpdatedAfterWatching,
+}
+
 pub struct SeriesCardProps {
     pub title: String,
     pub cover_url: String,
@@ -12,7 +20,7 @@ pub struct SeriesCardProps {
     pub subtitle: String,
     pub episode_label: String,
     pub badge_text: Option<String>,
-    pub watched: bool,
+    pub watch_status: PosterWatchStatus,
     pub index: usize,
 }
 
@@ -21,7 +29,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
     let score_text = format!("{:.1}", props.score);
     let badge_text = props.badge_text;
     let episode_label = props.episode_label;
-    let watched = props.watched;
+    let watch_status = props.watch_status;
     let title = props.title;
     let subtitle = props.subtitle;
 
@@ -52,7 +60,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
             badge_text,
             score_text,
             episode_label,
-            watched,
+            watch_status,
         ))
         .child(
             view()
@@ -131,7 +139,7 @@ fn poster_cover(
     badge_text: Option<String>,
     score_text: String,
     episode_label: String,
-    watched: bool,
+    watch_status: PosterWatchStatus,
 ) -> impl IntoElement {
     let image_layer = cover_image_layer(&cover_key);
     let cover_for_bg = cover_key;
@@ -179,20 +187,18 @@ fn poster_cover(
                         .px_2()
                         .py_0p5()
                         .rounded(token::radius_badge)
-                        .bg(move || {
-                            if watched {
-                                token::watched()
-                            } else {
-                                token::cinema_scrim()
-                            }
+                        .bg(move || match watch_status {
+                            PosterWatchStatus::AllWatched => token::watched(),
+                            PosterWatchStatus::UpdatedAfterWatching => token::warning_soft(),
+                            PosterWatchStatus::Unwatched => token::cinema_scrim(),
                         })
-                        .child(text(episode_label).text_xs().text_color(move || {
-                            if watched {
-                                token::watched_fg()
-                            } else {
-                                token::cinema_fg()
-                            }
-                        })),
+                        .child(text(episode_label).text_xs().text_color(
+                            move || match watch_status {
+                                PosterWatchStatus::AllWatched => token::watched_fg(),
+                                PosterWatchStatus::UpdatedAfterWatching => token::warning(),
+                                PosterWatchStatus::Unwatched => token::cinema_fg(),
+                            },
+                        )),
                 )
                 .child(
                     view()

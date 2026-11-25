@@ -1,7 +1,14 @@
+use std::future::Future;
+use std::num::{NonZeroU32, NonZeroU64};
+use std::pin::pin;
 use std::sync::Arc;
+use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use hg_contracts::error::ContractError;
+use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId};
+use hg_contracts::viewing::ReportWatchProgressRequest;
+use hg_gateway::contract::AppGateway as _;
 use hg_gateway::mock::MockGateway;
 use nsh_core::prelude::{Points, Size, signal, stored};
 use nsh_engine::ColorScheme;
@@ -230,22 +237,69 @@ fn discover_home_fullscreen_grows_visible_series() {
     );
 }
 
+fn block_ready<F: Future>(future: F) -> F::Output {
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    match pin!(future).poll(&mut cx) {
+        Poll::Ready(out) => out,
+        Poll::Pending => panic!("mock gateway future should resolve immediately"),
+    }
+}
+
 #[test]
 fn watched_series_cards_show_distinct_watched_color() {
     let gw = Arc::new(MockGateway::new());
+    let s1001 = SeriesId::new(NonZeroU64::new(1001).unwrap());
+    let s1003 = SeriesId::new(NonZeroU64::new(1003).unwrap());
+    let ep68 = EpisodeNumber::new(NonZeroU32::new(68).unwrap());
+    let ep72 = EpisodeNumber::new(NonZeroU32::new(72).unwrap());
+    block_ready(gw.report_watch_progress(ReportWatchProgressRequest {
+        key: EpisodeKey::new(s1001, ep68),
+        position_secs: 110,
+        duration_secs: 120,
+    }))
+    .unwrap();
+    block_ready(gw.report_watch_progress(ReportWatchProgressRequest {
+        key: EpisodeKey::new(s1003, ep72),
+        position_secs: 110,
+        duration_secs: 120,
+    }))
+    .unwrap();
+    gw.set_series_episode_count(s1003, 75);
+
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
     app.wait_for("全 68 集").unwrap();
-    app.wait_for("更新至 72 集").unwrap();
+    app.wait_for("全 80 集").unwrap();
+    app.wait_for("有更新 · 75 集").unwrap();
 
-    let watched_fg = app.screen().span_style("全 68 集 >> nth=0").unwrap().color;
-    let unwatched_fg = app
+    let all_watched_fg = app.screen().span_style("全 68 集 >> nth=0").unwrap().color;
+    let partial_unwatched_fg = app.screen().span_style("全 80 集 >> nth=0").unwrap().color;
+    let new_unwatched_fg = app
         .screen()
-        .span_style("更新至 72 集 >> nth=0")
+        .span_style("更新至 48 集 >> nth=0")
         .unwrap()
         .color;
+    let updated_fg = app
+        .screen()
+        .span_style("有更新 · 75 集 >> nth=0")
+        .unwrap()
+        .color;
+
+    assert_eq!(
+        partial_unwatched_fg, new_unwatched_fg,
+        "partially watched series must stay default poster badge color"
+    );
     assert_ne!(
-        watched_fg, unwatched_fg,
-        "watched series card must visually mark watched status with distinct color"
+        all_watched_fg, new_unwatched_fg,
+        "fully watched series card must mark watched green color"
+    );
+    assert_ne!(
+        updated_fg, new_unwatched_fg,
+        "updated-after-watching series must mark distinct alert color"
+    );
+    assert_ne!(
+        updated_fg, all_watched_fg,
+        "updated-after-watching alert color must differ from all-watched green"
     );
 }
 
