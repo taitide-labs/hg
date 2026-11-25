@@ -1,0 +1,9 @@
+id: no-app-root-in-page-tests
+language: rust
+severity: error
+message: "前端页面验收测试禁止挂载 AppRoot（root_with_gateway），全壳跨页集成测试必须放在 clients/app/tests/integration/"
+files:
+  - "clients/app/src/pages/**/*.rs"
+rule:
+  kind: identifier
+  regex: "^root_with_gateway$"

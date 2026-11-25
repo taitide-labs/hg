@@ -4,7 +4,7 @@ use super::start_on_watchlist;
 
 #[test]
 fn unbookmarking_series_updates_ui_and_gateway_until_empty() {
-    let (gw, mut app) = start_on_watchlist();
+    let (gw, mut app, _opened) = start_on_watchlist();
 
     app.wait_for("雾港七日").unwrap();
     app.press("取消追剧 雾港七日").unwrap();

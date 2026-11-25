@@ -2,20 +2,44 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use hg_contracts::error::ContractError;
-use hg_contracts::viewing::{AppAppearance, PlaybackPreference};
 use hg_gateway::mock::MockGateway;
-use nsh_core::prelude::{Points, Size, point, px};
+use nsh_core::prelude::{Points, Size, signal, stored};
 use nsh_engine::ColorScheme;
+use nsh_testing::Headless;
 
+use crate::features::discover::store::BrowseKind;
+use crate::pages::discover::page::discover_page;
 use crate::pages::tests::{
-    DESKTOP_VIEWPORT, MOBILE_VIEWPORT, assert_left_of, assert_visible_in_viewport,
-    count_first_row_cards, node_bounds, start_desktop, start_desktop_on_home, start_mobile,
+    DESKTOP_VIEWPORT, OpenSeriesSpy, assert_visible_in_viewport, count_first_row_cards,
+    mount_desktop_page, node_bounds,
 };
+
+fn mount_discover(gw: Arc<MockGateway>, scheme: ColorScheme) -> (Headless, OpenSeriesSpy) {
+    let opened = OpenSeriesSpy::default();
+    let opened_for_page = opened.clone();
+    let app = mount_desktop_page(gw, scheme, move || {
+        let active_browse = signal(None::<BrowseKind>);
+        let sink = stored(opened_for_page.clone());
+        discover_page(
+            move || active_browse.get(),
+            move |kind| active_browse.set(Some(kind)),
+            move || active_browse.set(None),
+            move |id| sink.with(|s| s.record(id, None)),
+        )
+    });
+    (app, opened)
+}
+
+fn mount_discover_ready(gw: Arc<MockGateway>, scheme: ColorScheme) -> (Headless, OpenSeriesSpy) {
+    let (mut app, opened) = mount_discover(gw, scheme);
+    app.wait_for("精选推荐").unwrap();
+    (app, opened)
+}
 
 #[test]
 fn discover_home_layout_invariants_and_no_embedded_search_or_hero() {
     let gw = Arc::new(MockGateway::new());
-    let app = start_desktop_on_home(gw, ColorScheme::Light);
+    let (mut app, opened) = mount_discover_ready(gw, ColorScheme::Light);
     let screen = app.screen();
 
     for expected in ["精选推荐", "排行榜", "热门短剧", "漫剧与悬疑"] {
@@ -24,7 +48,13 @@ fn discover_home_layout_invariants_and_no_embedded_search_or_hero() {
     }
     assert!(!screen.shows("今日焦点"));
     assert!(!screen.shows("搜索剧名、标签..."));
-    assert_left_of(&app, "发现", "精选推荐");
+
+    app.press("云端之上：千金归来 >> nth=0").unwrap();
+    let emitted = opened
+        .last()
+        .expect("pressing discover card must emit open intent");
+    assert_eq!(emitted.0.get(), 1001);
+    assert_eq!(emitted.1, None);
 }
 
 #[test]
@@ -36,7 +66,7 @@ fn discover_home_error_state_recovers_on_retry() {
             detail: "home down".to_owned(),
         }),
     );
-    let mut app = start_desktop(Arc::clone(&gw), ColorScheme::Light);
+    let (mut app, _opened) = mount_discover(Arc::clone(&gw), ColorScheme::Light);
     app.wait_for("重新加载").unwrap();
 
     gw.inject_method_error("home_feed", None);
@@ -48,7 +78,7 @@ fn discover_home_error_state_recovers_on_retry() {
 #[test]
 fn discover_featured_and_ranking_support_sort_and_back_without_search_chrome() {
     let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_on_home(gw, ColorScheme::Light);
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
 
     app.press("查看排行榜全部").unwrap();
     app.wait_for("热播榜").unwrap();
@@ -74,7 +104,7 @@ fn discover_featured_and_ranking_support_sort_and_back_without_search_chrome() {
 #[test]
 fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() {
     let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
-    let mut app = start_desktop_on_home(gw, ColorScheme::Light);
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
 
     app.press("查看精选推荐全部").unwrap();
     app.wait_for("分页剧目 01").unwrap();
@@ -104,7 +134,7 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.press("最热").unwrap();
     app.wait_for("分页剧目 01").unwrap();
 
-    app.scroll("分页剧目 01", px(5000.0)).unwrap();
+    app.scroll("分页剧目 01", Points(5000.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
     assert!(!app.screen().shows("加载更多"));
 
@@ -117,14 +147,14 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.press("查看排行榜全部").unwrap();
     app.wait_for("分页剧目 01").unwrap();
     assert!(!app.screen().shows("加载更多"));
-    app.scroll("分页剧目 01", px(5000.0)).unwrap();
+    app.scroll("分页剧目 01", Points(5000.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
 }
 
 #[test]
 fn discover_browse_ignores_stale_sort_response() {
     let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
-    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Light);
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
 
     let slow_hot_gate = gw.queue_method_gate("list_series");
     app.press("查看精选推荐全部").unwrap();
@@ -140,143 +170,13 @@ fn discover_browse_ignores_stale_sort_response() {
 }
 
 #[test]
-fn sidebar_navigation_covers_all_five_plus_one_tabs() {
-    let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_on_home(gw, ColorScheme::Light);
-
-    for tab in ["发现", "搜索", "追剧", "历史", "离线", "设置"] {
-        assert_visible_in_viewport(&app, tab, DESKTOP_VIEWPORT);
-    }
-
-    app.press("搜索").unwrap();
-    app.wait_for("热搜").unwrap();
-
-    app.press("追剧").unwrap();
-    app.wait_for("我的追剧").unwrap();
-    assert!(!app.screen().shows("最近观看"));
-
-    app.press("历史").unwrap();
-    app.wait_for("最近观看").unwrap();
-    assert!(!app.screen().shows("我的追剧"));
-
-    app.press("离线").unwrap();
-    app.wait_for("已下载").unwrap();
-    app.wait_for("下载中").unwrap();
-
-    app.press("设置").unwrap();
-    app.wait_for("外观").unwrap();
-    app.wait_for("存储空间").unwrap();
-
-    app.press("发现").unwrap();
-    app.wait_for("精选推荐").unwrap();
-}
-
-#[test]
-fn desktop_sidebar_collapse_and_drag_resize_update_layout_and_persist() {
-    let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Light);
-
-    let content_x_before = node_bounds(&app, "精选推荐").origin.x.0;
-    app.drag("label:调整侧边栏宽度", point(px(52.0), px(0.0)))
-        .unwrap();
-    let resized = gw.snapshot_preference();
-    assert_eq!(resized.sidebar_width, 260);
-    assert!(!resized.sidebar_collapsed);
-    let content_x_wider = node_bounds(&app, "精选推荐").origin.x.0;
-    assert!(
-        content_x_wider > content_x_before + 30.0,
-        "wider sidebar must shift main content right ({content_x_before} -> {content_x_wider})"
-    );
-
-    app.press("label:收起侧边栏").unwrap();
-    app.wait_for("label:展开侧边栏").unwrap();
-    app.wait(Duration::from_millis(50)).unwrap();
-    let collapsed = gw.snapshot_preference();
-    assert!(collapsed.sidebar_collapsed);
-    assert_eq!(collapsed.sidebar_width, 260);
-    let content_x_collapsed = node_bounds(&app, "精选推荐").origin.x.0;
-    assert!(
-        content_x_collapsed < content_x_before - 100.0,
-        "collapsed icon rail must reclaim horizontal space ({content_x_before} -> {content_x_collapsed})"
-    );
-
-    app.press("label:展开侧边栏").unwrap();
-    app.wait_for("label:收起侧边栏").unwrap();
-    app.wait(Duration::from_millis(50)).unwrap();
-    assert!(!gw.snapshot_preference().sidebar_collapsed);
-}
-
-#[test]
-fn startup_hydrates_dark_appearance_and_collapsed_sidebar_from_gateway() {
-    let light_app = start_desktop_on_home(Arc::new(MockGateway::new()), ColorScheme::Light);
-    let light_fg = light_app.screen().span_style("精选推荐").unwrap().color;
-
-    let gw = Arc::new(
-        MockGateway::new().with_playback_preference(PlaybackPreference {
-            appearance: AppAppearance::Dark,
-            sidebar_collapsed: true,
-            sidebar_width: 280,
-            ..PlaybackPreference::default()
-        }),
-    );
-    let mut dark_app = start_desktop_on_home(gw, ColorScheme::Light);
-    dark_app.wait_for("label:展开侧边栏").unwrap();
-    let dark_fg = dark_app.screen().span_style("精选推荐").unwrap().color;
-    assert_ne!(
-        dark_fg, light_fg,
-        "hydrated dark preference must switch rendered text colors"
-    );
-}
-
-#[test]
-fn mobile_uses_slide_out_drawer_quick_search_and_android_back_without_bottom_bar() {
-    let gw = Arc::new(MockGateway::new());
-    let mut app = start_mobile(gw, ColorScheme::Light);
-    app.wait_for("精选推荐").unwrap();
-    assert_visible_in_viewport(&app, "label:打开导航菜单", MOBILE_VIEWPORT);
-    assert_visible_in_viewport(&app, "label:前往搜索", MOBILE_VIEWPORT);
-    assert!(!app.screen().shows("历史"));
-    assert!(!app.screen().shows("离线"));
-
-    app.press("label:打开导航菜单").unwrap();
-    app.wait_for("历史").unwrap();
-    app.wait_for("离线").unwrap();
-    app.wait_for("设置").unwrap();
-
-    app.back().unwrap();
-    app.wait_for_gone("label:导航菜单", Duration::from_secs(2))
-        .unwrap();
-
-    app.press("label:打开导航菜单").unwrap();
-    app.wait_for("历史").unwrap();
-    app.press("历史").unwrap();
-    app.wait_for("最近观看").unwrap();
-    app.wait_for_gone("label:导航菜单", Duration::from_secs(2))
-        .unwrap();
-
-    app.press("label:前往搜索").unwrap();
-    app.wait_for("热搜").unwrap();
-    assert!(!app.screen().shows("label:前往搜索"));
-
-    app.press("label:打开导航菜单").unwrap();
-    app.wait_for("发现").unwrap();
-    app.press("发现").unwrap();
-    app.wait_for("查看精选推荐全部").unwrap();
-
-    app.press("查看精选推荐全部").unwrap();
-    app.wait_for("春风十里不及卿").unwrap();
-    app.back().unwrap();
-    app.wait_for("查看精选推荐全部").unwrap();
-}
-
-#[test]
-fn discover_home_fullscreen_grows_visible_series_and_narrow_auto_collapses_sidebar() {
+fn discover_home_fullscreen_grows_visible_series() {
     let gw = Arc::new(
         MockGateway::new()
             .with_paged_catalog(20)
             .with_capped_home_feed(5),
     );
-    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Light);
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
     app.wait(Duration::from_millis(80)).unwrap();
 
     let all_titles: Vec<String> = (1..=20)
@@ -289,7 +189,7 @@ fn discover_home_fullscreen_grows_visible_series_and_narrow_auto_collapses_sideb
             "春风十里不及卿".to_owned(),
         ])
         .collect();
-    let count_visible_featured = |headless: &nsh_testing::Headless| -> usize {
+    let count_visible_featured = |headless: &Headless| -> usize {
         let rank_top = node_bounds(headless, "排行榜").origin.y.0;
         let nodes = headless.screen().layout_nodes();
         all_titles
@@ -325,26 +225,5 @@ fn discover_home_fullscreen_grows_visible_series_and_narrow_auto_collapses_sideb
     assert!(
         app.screen().shows("TOP 6"),
         "fullscreen ranking shelf must dynamically reveal more than 4 cards"
-    );
-
-    app.set_viewport(Size::new(Points(540.0), Points(800.0)))
-        .unwrap();
-    app.wait(Duration::from_millis(80)).unwrap();
-    let content_x_narrow = node_bounds(&app, "精选推荐").origin.x.0;
-    assert!(
-        content_x_narrow < 100.0,
-        "narrow desktop window must auto-collapse sidebar into icon rail (content_x={content_x_narrow})"
-    );
-    assert!(
-        !gw.snapshot_preference().sidebar_collapsed,
-        "responsive auto-collapse must not overwrite saved user sidebar preference"
-    );
-
-    app.set_viewport(DESKTOP_VIEWPORT).unwrap();
-    app.wait(Duration::from_millis(80)).unwrap();
-    let content_x_restored = node_bounds(&app, "精选推荐").origin.x.0;
-    assert!(
-        content_x_restored > 180.0,
-        "widening back to desktop viewport must restore expanded sidebar (content_x={content_x_restored})"
     );
 }

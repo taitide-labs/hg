@@ -8,13 +8,13 @@ use nsh_core::prelude::px;
 use nsh_engine::ColorScheme;
 use nsh_testing::DialogAnswer;
 
+use crate::pages::search::page::search_page;
 use crate::pages::tests::{
-    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, start_desktop_on_home,
+    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, mount_desktop_page,
 };
 
 fn start_on_search(gw: Arc<MockGateway>, scheme: ColorScheme) -> nsh_testing::Headless {
-    let mut app = start_desktop_on_home(gw, scheme);
-    app.press("搜索").unwrap();
+    let mut app = mount_desktop_page(gw, scheme, || search_page(|_| {}));
     app.wait_for("热搜").unwrap();
     app
 }

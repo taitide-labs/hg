@@ -1,38 +1,165 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use hg_contracts::ids::{EpisodeNumber, SeriesId};
 use hg_gateway::contract::AppGateway;
 use hg_gateway::mock::MockGateway;
 use nsh_core::geometry::Bounds;
+use nsh_core::prelude::*;
 use nsh_core::{EventKind, EventPayload, Points, Size, ViewKind};
 use nsh_engine::{Clock, ColorScheme, EngineConfig, Environment, Os};
 use nsh_testing::Headless;
-
-use crate::root_with_gateway;
+use parking_lot::Mutex;
 
 pub(crate) const DESKTOP_VIEWPORT: Size<Points> = Size::new(Points(1240.0), Points(800.0));
 pub(crate) const MOBILE_VIEWPORT: Size<Points> = Size::new(Points(390.0), Points(844.0));
 
-pub(crate) fn start_desktop(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
-    start_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, false)
+type PageBuilder = Arc<dyn Fn() -> AnyElement + Send + Sync>;
+
+#[derive(Clone)]
+struct PageHarnessProps {
+    gateway: Arc<dyn AppGateway>,
+    builder: PageBuilder,
 }
 
-pub(crate) fn start_desktop_manual_clock(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
-    start_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, true)
+impl PartialEq for PageHarnessProps {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.gateway, &other.gateway) && Arc::ptr_eq(&self.builder, &other.builder)
+    }
 }
 
-pub(crate) fn start_mobile(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
-    start_with_options(gw, Os::Android, scheme, MOBILE_VIEWPORT, false)
+impl nsh_core::element::Props for PageHarnessProps {
+    fn spec(_: &mut nsh_core::element::TsTypes) -> Vec<nsh_core::element::PropSpec> {
+        Vec::new()
+    }
+
+    fn initial() -> Self {
+        Self {
+            gateway: Arc::new(MockGateway::new()),
+            builder: Arc::new(|| view().into_element()),
+        }
+    }
+
+    fn set(
+        &mut self,
+        name: &str,
+        _: Option<nsh_core::element::AnyValue>,
+    ) -> Result<bool, nsh_core::element::PropError> {
+        Err(nsh_core::element::PropError(format!(
+            "unknown prop `{name}`"
+        )))
+    }
+
+    fn set_slot(&mut self, _: &str, _: Option<nsh_core::element::Slot>) -> bool {
+        false
+    }
+
+    fn set_children(&mut self, _: nsh_core::element::Children) -> bool {
+        false
+    }
 }
 
-pub(crate) fn start_with_options(
+struct PageHarness;
+
+impl nsh_core::element::Component for PageHarness {
+    type Props = PageHarnessProps;
+    type Event = nsh_core::element::NoEvent;
+
+    fn view(props: Self::Props, _cx: Scope<Self::Event>) -> impl IntoElement {
+        crate::app::init::initialize_with_gateway(props.gateway);
+        view()
+            .flex_1()
+            .bg(crate::ui::token::bg)
+            .child((props.builder)())
+    }
+}
+
+type OpenSeriesCall = (SeriesId, Option<EpisodeNumber>);
+
+#[derive(Clone, Default)]
+pub(crate) struct OpenSeriesSpy {
+    calls: Arc<Mutex<Vec<OpenSeriesCall>>>,
+}
+
+impl OpenSeriesSpy {
+    pub(crate) fn record(&self, series_id: SeriesId, ep: Option<EpisodeNumber>) {
+        self.calls.lock().push((series_id, ep));
+    }
+
+    pub(crate) fn last(&self) -> Option<(SeriesId, Option<EpisodeNumber>)> {
+        self.calls.lock().last().copied()
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct EventSpy<T> {
+    events: Arc<Mutex<Vec<T>>>,
+}
+
+impl<T: Clone> EventSpy<T> {
+    pub(crate) fn push(&self, value: T) {
+        self.events.lock().push(value);
+    }
+
+    pub(crate) fn snapshot(&self) -> Vec<T> {
+        self.events.lock().clone()
+    }
+}
+
+pub(crate) fn mount_desktop_page<E, F>(
+    gw: Arc<MockGateway>,
+    scheme: ColorScheme,
+    build: F,
+) -> Headless
+where
+    E: IntoElement,
+    F: Fn() -> E + Send + Sync + 'static,
+{
+    mount_page_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, false, build)
+}
+
+pub(crate) fn mount_desktop_page_manual_clock<E, F>(
+    gw: Arc<MockGateway>,
+    scheme: ColorScheme,
+    build: F,
+) -> Headless
+where
+    E: IntoElement,
+    F: Fn() -> E + Send + Sync + 'static,
+{
+    mount_page_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, true, build)
+}
+
+pub(crate) fn mount_mobile_page<E, F>(
+    gw: Arc<MockGateway>,
+    scheme: ColorScheme,
+    build: F,
+) -> Headless
+where
+    E: IntoElement,
+    F: Fn() -> E + Send + Sync + 'static,
+{
+    mount_page_with_options(gw, Os::Android, scheme, MOBILE_VIEWPORT, false, build)
+}
+
+pub(crate) fn mount_page_with_options<E, F>(
     gw: Arc<MockGateway>,
     os: Os,
     scheme: ColorScheme,
     viewport: Size<Points>,
     manual_clock: bool,
-) -> Headless {
-    let gw_trait: Arc<dyn AppGateway> = gw;
+    build: F,
+) -> Headless
+where
+    E: IntoElement,
+    F: Fn() -> E + Send + Sync + 'static,
+{
+    let gateway: Arc<dyn AppGateway> = gw;
+    let builder: PageBuilder = Arc::new(move || build().into_element());
+    let root = nsh_core::element::Root::new::<PageHarness>(move || PageHarnessProps {
+        gateway: Arc::clone(&gateway),
+        builder: Arc::clone(&builder),
+    });
     let environment = Environment {
         os,
         color_scheme: scheme,
@@ -41,18 +168,12 @@ pub(crate) fn start_with_options(
     let mut config = EngineConfig {
         viewport,
         environment,
-        ..EngineConfig::new(root_with_gateway(gw_trait))
+        ..EngineConfig::new(root)
     };
     if manual_clock {
         config.clock = Clock::manual(SystemTime::UNIX_EPOCH);
     }
     Headless::start(config).unwrap()
-}
-
-pub(crate) fn start_desktop_on_home(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
-    let mut app = start_desktop(gw, scheme);
-    app.wait_for("精选推荐").unwrap();
-    app
 }
 
 pub(crate) fn emit_video_progress(app: &mut Headless, position_secs: u32, duration_secs: u32) {
