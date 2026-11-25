@@ -1,10 +1,12 @@
 use std::future::Future;
-use std::num::{NonZeroU32, NonZeroU64};
+use std::num::{NonZeroU16, NonZeroU32, NonZeroU64};
 use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
-use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId};
-use hg_contracts::offline::EnqueueEpisodeDownloadsRequest;
+use hg_contracts::catalog::{ListSeriesRequest, SeriesFilter, SeriesSort};
+use hg_contracts::error::ContractError;
+use hg_contracts::ids::{EpisodeKey, EpisodeNumber, PageRequest, SeriesId};
+use hg_contracts::offline::{DownloadTaskState, EnqueueEpisodeDownloadsRequest};
 use hg_contracts::viewing::{PlaybackOrigin, ReportWatchProgressRequest};
 
 use crate::contract::AppGateway;
@@ -91,4 +93,42 @@ fn enqueue_downloads_deduplicates_offline_and_queued_episodes() {
     .unwrap();
     assert_eq!(res.skipped_already_present.len(), 2);
     assert_eq!(res.queued.len(), 2);
+}
+
+#[test]
+fn mock_gateway_supports_method_error_paged_catalog_failed_task_and_gates() {
+    let gw = MockGateway::new()
+        .with_paged_catalog(30)
+        .with_failed_download_task();
+    assert!(
+        gw.snapshot_download_tasks()
+            .iter()
+            .any(|t| matches!(t.state, DownloadTaskState::Failed { .. }))
+    );
+
+    let page1 = block_ready(gw.list_series(ListSeriesRequest {
+        filter: SeriesFilter::All { category_id: None },
+        sort: SeriesSort::Hot,
+        page: PageRequest::new(NonZeroU32::MIN, NonZeroU16::new(24).unwrap()),
+    }))
+    .unwrap();
+    assert!(page1.pagination.pages >= 2);
+    assert_eq!(page1.pagination.total, 36);
+
+    gw.inject_method_error(
+        "watch_history",
+        Some(ContractError::NetworkUnavailable {
+            detail: "targeted fault".to_owned(),
+        }),
+    );
+    assert!(block_ready(gw.watch_history()).is_err());
+    assert!(block_ready(gw.bookmarks()).is_ok());
+
+    let gate = gw.queue_method_gate("bookmarks");
+    let mut fut = gw.bookmarks();
+    let waker = Waker::noop();
+    let mut cx = Context::from_waker(waker);
+    assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Pending));
+    gate.release();
+    assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Ready(Ok(_))));
 }

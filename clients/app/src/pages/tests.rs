@@ -1,0 +1,204 @@
+use std::sync::Arc;
+use std::time::{Duration, SystemTime};
+
+use hg_gateway::contract::AppGateway;
+use hg_gateway::mock::MockGateway;
+use nsh_core::geometry::Bounds;
+use nsh_core::{EventKind, EventPayload, Points, Size, ViewKind};
+use nsh_engine::{Clock, ColorScheme, EngineConfig, Environment, Os};
+use nsh_testing::Headless;
+
+use crate::root_with_gateway;
+
+pub(crate) const DESKTOP_VIEWPORT: Size<Points> = Size::new(Points(1240.0), Points(800.0));
+pub(crate) const MOBILE_VIEWPORT: Size<Points> = Size::new(Points(390.0), Points(844.0));
+
+pub(crate) fn start_desktop(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
+    start_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, false)
+}
+
+pub(crate) fn start_desktop_manual_clock(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
+    start_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, true)
+}
+
+pub(crate) fn start_mobile(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
+    start_with_options(gw, Os::Android, scheme, MOBILE_VIEWPORT, false)
+}
+
+pub(crate) fn start_with_options(
+    gw: Arc<MockGateway>,
+    os: Os,
+    scheme: ColorScheme,
+    viewport: Size<Points>,
+    manual_clock: bool,
+) -> Headless {
+    let gw_trait: Arc<dyn AppGateway> = gw;
+    let environment = Environment {
+        os,
+        color_scheme: scheme,
+        ..Environment::default()
+    };
+    let mut config = EngineConfig {
+        viewport,
+        environment,
+        ..EngineConfig::new(root_with_gateway(gw_trait))
+    };
+    if manual_clock {
+        config.clock = Clock::manual(SystemTime::UNIX_EPOCH);
+    }
+    Headless::start(config).unwrap()
+}
+
+pub(crate) fn start_desktop_on_home(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
+    let mut app = start_desktop(gw, scheme);
+    app.wait_for("精选推荐").unwrap();
+    app
+}
+
+pub(crate) fn emit_video_progress(app: &mut Headless, position_secs: u32, duration_secs: u32) {
+    dispatch_native_video_event(
+        app,
+        "progress",
+        serde_json::json!({
+            "position_secs": position_secs,
+            "duration_secs": duration_secs,
+        }),
+    );
+}
+
+pub(crate) fn emit_video_ended(app: &mut Headless) {
+    dispatch_native_video_event(app, "ended", serde_json::json!({}));
+}
+
+pub(crate) fn emit_video_error(app: &mut Headless, message: &str) {
+    dispatch_native_video_event(app, "error", serde_json::json!({ "message": message }));
+}
+
+fn dispatch_native_video_event(app: &mut Headless, name: &str, data: serde_json::Value) {
+    let video_node = app
+        .screen()
+        .layout_nodes()
+        .into_iter()
+        .find(|node| node.kind == ViewKind::Native)
+        .map(|node| node.id)
+        .expect("native video node must be mounted");
+
+    app.engine().control().dispatch_event(
+        video_node,
+        EventKind::NativeEvent,
+        EventPayload::Native {
+            name: Arc::from(name),
+            data,
+        },
+    );
+    app.wait(Duration::from_millis(30)).unwrap();
+}
+
+pub(crate) fn node_bounds(app: &Headless, selector: &str) -> Bounds<Points> {
+    let id = app.screen().id(selector).unwrap_or_else(|err| {
+        panic!(
+            "selector `{selector}` not found ({err}); visible texts: {:?}",
+            app.screen().texts()
+        )
+    });
+    app.screen()
+        .layout_nodes()
+        .into_iter()
+        .find(|node| node.id == id)
+        .map(|node| node.bounds)
+        .unwrap_or_else(|| panic!("layout node for `{selector}` ({id:?}) missing"))
+}
+
+pub(crate) fn assert_visible_in_viewport(app: &Headless, selector: &str, viewport: Size<Points>) {
+    let bounds = node_bounds(app, selector);
+    assert!(
+        bounds.size.width.0 > 0.0 && bounds.size.height.0 > 0.0,
+        "`{selector}` must have non-zero size, got {:?}",
+        bounds.size
+    );
+    assert!(
+        bounds.origin.x.0 >= -2.0
+            && bounds.origin.y.0 >= -2.0
+            && bounds.origin.x.0 + bounds.size.width.0 <= viewport.width.0 + 2.0,
+        "`{selector}` bounds {bounds:?} exceed viewport {viewport:?}"
+    );
+}
+
+pub(crate) fn assert_left_aligned(app: &Headless, sel_a: &str, sel_b: &str, tolerance: f32) {
+    let a = node_bounds(app, sel_a);
+    let b = node_bounds(app, sel_b);
+    assert!(
+        (a.origin.x.0 - b.origin.x.0).abs() <= tolerance,
+        "`{sel_a}` (x={}) and `{sel_b}` (x={}) must be left-aligned within {tolerance}pt",
+        a.origin.x.0,
+        b.origin.x.0
+    );
+}
+
+pub(crate) fn assert_same_height(app: &Headless, sel_a: &str, sel_b: &str, tolerance: f32) {
+    let a = node_bounds(app, sel_a);
+    let b = node_bounds(app, sel_b);
+    assert!(
+        (a.size.height.0 - b.size.height.0).abs() <= tolerance,
+        "`{sel_a}` (h={}) and `{sel_b}` (h={}) must share height within {tolerance}pt",
+        a.size.height.0,
+        b.size.height.0
+    );
+}
+
+pub(crate) fn assert_above(app: &Headless, upper_sel: &str, lower_sel: &str) {
+    let upper = node_bounds(app, upper_sel);
+    let lower = node_bounds(app, lower_sel);
+    assert!(
+        upper.origin.y.0 + upper.size.height.0 <= lower.origin.y.0 + 2.0,
+        "`{upper_sel}` (bottom={}) must sit above `{lower_sel}` (top={})",
+        upper.origin.y.0 + upper.size.height.0,
+        lower.origin.y.0
+    );
+}
+
+pub(crate) fn assert_left_of(app: &Headless, left_sel: &str, right_sel: &str) {
+    let left = node_bounds(app, left_sel);
+    let right = node_bounds(app, right_sel);
+    assert!(
+        left.origin.x.0 + left.size.width.0 <= right.origin.x.0 + 2.0,
+        "`{left_sel}` (right={}) must sit left of `{right_sel}` (left={})",
+        left.origin.x.0 + left.size.width.0,
+        right.origin.x.0
+    );
+}
+
+pub(crate) fn count_first_row_cards(app: &Headless, selectors: &[String]) -> usize {
+    let nodes = app.screen().layout_nodes();
+    let mut ys = Vec::new();
+    for sel in selectors {
+        if let Ok(id) = app.screen().id(sel)
+            && let Some(node) = nodes.iter().find(|n| n.id == id)
+        {
+            ys.push(node.bounds.origin.y.0);
+        }
+    }
+    let Some(min_y) = ys.iter().copied().reduce(f32::min) else {
+        return 0;
+    };
+    ys.into_iter().filter(|y| (y - min_y).abs() <= 4.0).count()
+}
+
+pub(crate) fn assert_node_stable<F>(app: &mut Headless, selector: &str, action: F)
+where
+    F: FnOnce(&mut Headless),
+{
+    let before = app
+        .screen()
+        .id(selector)
+        .unwrap_or_else(|err| panic!("selector `{selector}` missing before action: {err}"));
+    action(app);
+    let after = app
+        .screen()
+        .id(selector)
+        .unwrap_or_else(|err| panic!("selector `{selector}` missing after action: {err}"));
+    assert_eq!(
+        after, before,
+        "`{selector}` remounted unexpectedly across state update"
+    );
+}

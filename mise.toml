@@ -38,6 +38,14 @@ run = "cargo nextest run -p hg-e2e --locked"
 description = "Run live upstream smoke test"
 run = "cargo nextest run -p hg-e2e --locked --run-ignored ignored-only live_"
 
+[tasks."visual:capture"]
+description = "Capture on-demand macOS screenshots of key screens into .visual-shots/"
+run = "mkdir -p .visual-shots && (cd clients/app && nsh test visual/capture.test.tsx --target macos)"
+
+[tasks."perf:trace"]
+description = "Trace NSH headless mount batches and commit timings"
+run = "nsh test clients/app/nsh.json --trace"
+
 [tasks.hooks]
 description = "Install quiet hk git hooks without progress bar spam"
 run = [

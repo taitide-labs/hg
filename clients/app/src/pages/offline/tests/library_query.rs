@@ -2,7 +2,7 @@ use super::start_on_offline;
 
 #[test]
 fn offline_library_displays_downloaded_series_and_opens_player() {
-    let mut app = start_on_offline();
+    let (_gw, mut app) = start_on_offline();
 
     app.wait_for("已下载").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();

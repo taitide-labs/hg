@@ -104,10 +104,6 @@ impl E2eHarness {
         )
     }
 
-    pub fn emit_video_ended(&mut self) -> Result<(), String> {
-        self.dispatch_native_video_event("ended", serde_json::json!({}))
-    }
-
     fn dispatch_native_video_event(
         &mut self,
         name: &str,

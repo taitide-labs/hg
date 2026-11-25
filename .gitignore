@@ -8,3 +8,4 @@ dist/
 target/
 mutants.out/
 .nsh/
+.visual-shots/

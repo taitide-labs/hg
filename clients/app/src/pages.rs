@@ -5,3 +5,6 @@ pub mod player;
 pub mod search;
 pub mod settings;
 pub mod watchlist;
+
+#[cfg(test)]
+pub(crate) mod tests;
