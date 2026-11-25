@@ -325,25 +325,6 @@ fn tag_filter_strip(groups: &[TagGroup]) -> impl IntoElement {
     container
 }
 
-fn format_ranking_metric(label: &str, value: u64) -> Option<String> {
-    let trimmed = label.trim();
-    if trimmed.is_empty() && value == 0 {
-        return None;
-    }
-    let formatted_value = if value >= 10_000 {
-        let whole = value / 10_000;
-        let tenths = (value % 10_000) / 1_000;
-        format!("{whole}.{tenths}万")
-    } else {
-        value.to_string()
-    };
-    if trimmed.is_empty() {
-        Some(formatted_value)
-    } else {
-        Some(format!("{trimmed} {formatted_value}"))
-    }
-}
-
 fn ranking_list(
     scroller: ElementRef,
     page_owner: Owner,
@@ -377,8 +358,6 @@ fn ranking_list(
                             entry.series.tags.join(" · "),
                             entry.series.episode_count
                         );
-                        let metric_text =
-                            format_ranking_metric(&entry.metric_label, entry.metric_value);
                         let description = (!entry.series.description.is_empty())
                             .then_some(entry.series.description);
                         ranking_list_row(
@@ -387,7 +366,6 @@ fn ranking_list(
                                 title: entry.series.title,
                                 cover_url: entry.series.cover_url,
                                 flags,
-                                metric_text,
                                 meta,
                                 description,
                             },

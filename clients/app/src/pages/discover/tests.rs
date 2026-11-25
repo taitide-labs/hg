@@ -327,7 +327,11 @@ fn ranking_list_uses_responsive_multicolumn_high_density_cards() {
     app.press("查看排行榜全部").unwrap();
     app.wait_for("#1").unwrap();
     app.wait_for("#2").unwrap();
-    app.wait_for("热度 98.4万").unwrap();
+    app.wait_for("9.4 分 · 都市 · 逆袭 · 女频 · 68 集").unwrap();
+    assert!(!app.screen().shows("热度 98.4万"));
+    assert!(!app.screen().shows("热力指数"));
+    assert!(!app.screen().shows("飙升指数"));
+    assert!(!app.screen().shows("口碑推荐"));
 
     let b1 = node_bounds(&app, "label:#1 云端之上：千金归来");
     let b2 = node_bounds(&app, "label:#2 长安暗夜行");

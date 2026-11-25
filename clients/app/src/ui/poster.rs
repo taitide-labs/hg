@@ -275,7 +275,6 @@ pub struct RankingCardProps {
     pub title: String,
     pub cover_url: String,
     pub flags: SeriesFlags,
-    pub metric_text: Option<String>,
     pub meta: String,
     pub description: Option<String>,
 }
@@ -352,11 +351,6 @@ pub fn ranking_list_row(
 ) -> impl IntoElement {
     let cover_key = props.cover_url;
     let rank_label = format!("#{}", props.rank);
-    let tone = if props.rank <= 3 {
-        BadgeTone::Brand
-    } else {
-        BadgeTone::Neutral
-    };
     let a11y = format!("{} {}", rank_label, props.title);
 
     let image_layer = cover_image_layer(&cover_key);
@@ -418,18 +412,10 @@ pub fn ranking_list_row(
                         .children(series_flag_capsule(props.flags)),
                 )
                 .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .flex_wrap()
-                        .gap_1p5()
-                        .children(props.metric_text.map(|m| badge(m, tone)))
-                        .child(
-                            text(props.meta)
-                                .text_xs()
-                                .text_color(token::muted_fg)
-                                .truncate(),
-                        ),
+                    text(props.meta)
+                        .text_xs()
+                        .text_color(token::muted_fg)
+                        .truncate(),
                 )
                 .children(props.description.map(|desc| {
                     text(desc)
