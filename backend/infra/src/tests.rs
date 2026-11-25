@@ -40,6 +40,30 @@ async fn sqlite_migration_creates_all_tables_and_seed_rows() {
     .expect("playback preference seed row should exist");
     assert_eq!(pref_row, ("hevc".to_owned(), 512, 100));
 
+    let redundant_idx: Option<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_offline_episodes_series'",
+    )
+    .fetch_optional(db.pool())
+    .await
+    .expect("query redundant index");
+    assert!(redundant_idx.is_none());
+
+    let new_table: Option<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'viewing_episode_progress'",
+    )
+    .fetch_optional(db.pool())
+    .await
+    .expect("query viewing_episode_progress");
+    assert!(new_table.is_some());
+
+    let offline_series_idx: Option<(String,)> = sqlx::query_as(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_offline_series_updated'",
+    )
+    .fetch_optional(db.pool())
+    .await
+    .expect("query offline series index");
+    assert!(offline_series_idx.is_some());
+
     db.close().await;
 }
 

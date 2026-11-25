@@ -8,6 +8,7 @@ use crate::ui::token;
 pub enum ButtonVariant {
     Primary,
     Secondary,
+    Watched,
     Ghost,
     Outline,
     BrandSoft,
@@ -54,6 +55,7 @@ fn text_color_for(variant: ButtonVariant) -> AdaptiveColor {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary | ButtonVariant::Danger => {
             token::primary_fg()
         }
+        ButtonVariant::Watched => token::watched_fg(),
         ButtonVariant::BrandSoft => token::brand_soft_fg(),
         ButtonVariant::CinemaBrand => token::cinema_brand_fg(),
         ButtonVariant::Secondary | ButtonVariant::Ghost | ButtonVariant::Outline => token::fg(),
@@ -64,6 +66,7 @@ fn text_color_for(variant: ButtonVariant) -> AdaptiveColor {
 fn bg_for(variant: ButtonVariant) -> Option<AdaptiveColor> {
     match variant {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary => Some(token::primary()),
+        ButtonVariant::Watched => Some(token::watched()),
         ButtonVariant::BrandSoft => Some(token::brand_soft()),
         ButtonVariant::CinemaBrand => Some(token::cinema_brand_bg()),
         ButtonVariant::Secondary => Some(token::secondary()),
@@ -76,6 +79,7 @@ fn bg_for(variant: ButtonVariant) -> Option<AdaptiveColor> {
 fn hover_bg_for(variant: ButtonVariant) -> AdaptiveColor {
     match variant {
         ButtonVariant::Primary | ButtonVariant::CinemaPrimary => token::primary().opacity(0.9),
+        ButtonVariant::Watched => token::watched().opacity(0.85),
         ButtonVariant::BrandSoft => token::brand_soft().opacity(0.85),
         ButtonVariant::CinemaBrand => token::cinema_brand_bg().opacity(0.85),
         ButtonVariant::Secondary | ButtonVariant::Ghost | ButtonVariant::Outline => token::accent(),
@@ -92,12 +96,22 @@ fn wrap_variant_button(
     size: ControlSize,
     square_label: Option<&'static str>,
 ) -> impl IntoElement {
+    wrap_reactive_variant_button(move || variant, on_press, content, size, square_label)
+}
+
+fn wrap_reactive_variant_button(
+    variant: impl Fn() -> ButtonVariant + Copy + 'static,
+    on_press: impl Fn() + 'static,
+    content: impl IntoElement,
+    size: ControlSize,
+    square_label: Option<&'static str>,
+) -> impl IntoElement {
     let base = button()
         .on_press(on_press)
         .rounded(token::radius_control)
         .transition_colors()
         .duration(token::INSTANT_MS)
-        .hover(move |s| s.bg(move || hover_bg_for(variant)))
+        .hover(move |s| s.bg(move || hover_bg_for(variant())))
         .active(move |s| {
             let s = s.opacity(0.88);
             if reduce_motion() {
@@ -124,26 +138,22 @@ fn wrap_variant_button(
             .gap_1p5(),
     };
 
-    let base = match bg_for(variant) {
-        Some(_) => base.bg(move || bg_for(variant).unwrap_or_else(token::secondary)),
-        None => base,
-    };
+    let base = base.bg(move || bg_for(variant()).unwrap_or_else(|| token::bg().opacity(0.0)));
 
-    let base = match variant {
-        ButtonVariant::Outline => base.border_1().border_color(token::border),
-        ButtonVariant::CinemaGlass | ButtonVariant::CinemaBrand => {
-            base.border_1().border_color(token::cinema_border)
-        }
-        ButtonVariant::Primary
-        | ButtonVariant::Secondary
-        | ButtonVariant::Ghost
-        | ButtonVariant::BrandSoft
-        | ButtonVariant::CinemaPrimary
-        | ButtonVariant::OverlayGhost
-        | ButtonVariant::Danger => base,
-    };
-
-    base.child(content)
+    base.border_1()
+        .border_color(move || match variant() {
+            ButtonVariant::Outline => token::border(),
+            ButtonVariant::CinemaGlass | ButtonVariant::CinemaBrand => token::cinema_border(),
+            ButtonVariant::Primary
+            | ButtonVariant::Secondary
+            | ButtonVariant::Watched
+            | ButtonVariant::Ghost
+            | ButtonVariant::BrandSoft
+            | ButtonVariant::CinemaPrimary
+            | ButtonVariant::OverlayGhost
+            | ButtonVariant::Danger => token::bg().opacity(0.0),
+        })
+        .child(content)
 }
 
 pub fn app_button(
@@ -152,11 +162,20 @@ pub fn app_button(
     size: ControlSize,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    app_reactive_button(label, move || variant, size, on_press)
+}
+
+pub fn app_reactive_button(
+    label: impl IntoReactive<SharedString>,
+    variant: impl Fn() -> ButtonVariant + Copy + 'static,
+    size: ControlSize,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
     let content = text(label)
         .text_sm()
         .font_weight(FontWeight::MEDIUM)
-        .text_color(move || text_color_for(variant));
-    wrap_variant_button(variant, on_press, content, size, None)
+        .text_color(move || text_color_for(variant()));
+    wrap_reactive_variant_button(variant, on_press, content, size, None)
 }
 
 pub fn episode_tile_button(

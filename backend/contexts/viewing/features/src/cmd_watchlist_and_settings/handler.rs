@@ -6,7 +6,7 @@ use crate::ViewingDeps;
 
 use super::workflow::{
     BookmarkWrite, appearance_as_str, check_playback_preference, normalize_search_keyword,
-    plan_bookmark_series, profile_as_str, search_history_limit,
+    plan_bookmark_series, profile_as_str, search_history_limit, window_mode_as_str,
 };
 
 pub async fn remove_watch_history(
@@ -24,6 +24,14 @@ pub async fn remove_watch_history(
             detail: format!("移除观看历史失败: {err}"),
         })?;
 
+    sqlx::query("DELETE FROM viewing_episode_progress WHERE series_id = ?1")
+        .bind(series_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("移除分集观看进度失败: {err}"),
+        })?;
+
     commit_write_tx(tx, "移除观看历史").await
 }
 
@@ -35,6 +43,13 @@ pub async fn clear_watch_history(deps: &ViewingDeps) -> Result<(), ContractError
         .await
         .map_err(|err| ContractError::Internal {
             detail: format!("清空观看历史失败: {err}"),
+        })?;
+
+    sqlx::query("DELETE FROM viewing_episode_progress")
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("清空分集观看进度失败: {err}"),
         })?;
 
     commit_write_tx(tx, "清空观看历史").await
@@ -79,6 +94,21 @@ pub async fn update_playback_preference(
     let profile = profile_as_str(preference.preferred_profile);
     let appearance = appearance_as_str(preference.appearance);
     let sidebar_collapsed = i64::from(preference.sidebar_collapsed);
+    let window_mode = preference
+        .window_placement
+        .map(|placement| window_mode_as_str(placement.mode));
+    let window_x = preference
+        .window_placement
+        .map(|placement| i64::from(placement.x));
+    let window_y = preference
+        .window_placement
+        .map(|placement| i64::from(placement.y));
+    let window_width = preference
+        .window_placement
+        .map(|placement| i64::from(placement.width));
+    let window_height = preference
+        .window_placement
+        .map(|placement| i64::from(placement.height));
     let mut tx = begin_write_tx(deps, "更新播放偏好").await?;
 
     sqlx::query(
@@ -89,15 +119,25 @@ pub async fn update_playback_preference(
             default_rate_hundredths,
             appearance,
             sidebar_collapsed,
-            sidebar_width
-        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)
+            sidebar_width,
+            window_mode,
+            window_x,
+            window_y,
+            window_width,
+            window_height
+        ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(id) DO UPDATE SET
             preferred_profile = excluded.preferred_profile,
             playback_cache_limit_mb = excluded.playback_cache_limit_mb,
             default_rate_hundredths = excluded.default_rate_hundredths,
             appearance = excluded.appearance,
             sidebar_collapsed = excluded.sidebar_collapsed,
-            sidebar_width = excluded.sidebar_width",
+            sidebar_width = excluded.sidebar_width,
+            window_mode = excluded.window_mode,
+            window_x = excluded.window_x,
+            window_y = excluded.window_y,
+            window_width = excluded.window_width,
+            window_height = excluded.window_height",
     )
     .bind(profile)
     .bind(i64::from(preference.playback_cache_limit_mb))
@@ -105,6 +145,11 @@ pub async fn update_playback_preference(
     .bind(appearance)
     .bind(sidebar_collapsed)
     .bind(i64::from(preference.sidebar_width))
+    .bind(window_mode)
+    .bind(window_x)
+    .bind(window_y)
+    .bind(window_width)
+    .bind(window_height)
     .execute(&mut *tx)
     .await
     .map_err(|err| ContractError::Internal {

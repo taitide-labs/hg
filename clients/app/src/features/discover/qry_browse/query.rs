@@ -7,22 +7,50 @@ use hg_contracts::catalog::{
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::dedup_append;
+use super::super::parts::{
+    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_watched_series,
+};
 use super::super::store::{self, BrowseKind, RankingTab};
 use crate::gateway;
 
-const BROWSE_PAGE_SIZE: u16 = 24;
-
-fn page_request(page: u32) -> PageRequest {
+fn page_request(page: u32, is_ranking: bool) -> PageRequest {
+    let (w, h) = store::viewport_size_untracked();
+    let size = adaptive_page_size(w, h, is_ranking);
     PageRequest::new(
         NonZeroU32::new(page.max(1)).unwrap_or(NonZeroU32::MIN),
-        NonZeroU16::new(BROWSE_PAGE_SIZE).unwrap_or(NonZeroU16::MIN),
+        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
     )
+}
+
+pub fn ensure_viewport_filled() {
+    let (w, h) = store::viewport_size_untracked();
+    let needs_more = store::browse_state().with_untracked(|s| {
+        if s.loading || s.loading_more || s.error.is_some() || s.load_more_error.is_some() {
+            return false;
+        }
+        let Some(page_info) = s.pagination else {
+            return false;
+        };
+        if page_info.page >= page_info.pages {
+            return false;
+        }
+        let is_ranking = matches!(s.kind, BrowseKind::Ranking(_));
+        let count = if is_ranking {
+            s.ranking_items.len()
+        } else {
+            s.items.len()
+        };
+        count < min_items_to_fill_viewport(w, h, is_ranking)
+    });
+    if needs_more {
+        load_next_browse_page();
+    }
 }
 
 pub fn load_meta() {
     let gw = gateway::current();
     spawn(async move {
+        sync_watched_series().await;
         let groups = gw.tag_groups().await.unwrap_or_default();
         let keywords = gw.hot_keywords().await.unwrap_or_default();
         store::set_browse_meta(groups, keywords);
@@ -33,7 +61,15 @@ pub fn load_browse(kind: BrowseKind) {
     if let BrowseKind::Search { ref query } = kind {
         store::search_input_signal().set(query.clone());
     }
-    load_browse_with_sort(kind, SeriesSort::Hot);
+    spawn(sync_watched_series());
+    let default_sort = match kind {
+        BrowseKind::Latest => SeriesSort::New,
+        BrowseKind::Ranking(_)
+        | BrowseKind::Category { .. }
+        | BrowseKind::Tag { .. }
+        | BrowseKind::Search { .. } => SeriesSort::Hot,
+    };
+    load_browse_with_sort(kind, default_sort);
 }
 
 pub fn switch_sort(sort: SeriesSort) {
@@ -98,11 +134,12 @@ pub fn load_next_browse_page() {
 
 fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64, initial: bool) {
     let gw = gateway::current();
-    let page = page_request(page_num);
+    let is_ranking = matches!(kind, BrowseKind::Ranking(_));
+    let page = page_request(page_num, is_ranking);
 
     spawn(async move {
         match kind {
-            BrowseKind::Featured => {
+            BrowseKind::Latest => {
                 let req = ListSeriesRequest {
                     filter: SeriesFilter::All { category_id: None },
                     sort,
@@ -130,6 +167,7 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
                             s.error = None;
                             s.load_more_error = None;
                         });
+                        ensure_viewport_filled();
                     }
                     Err(err) => apply_error(seq, initial, err.to_string()),
                 }
@@ -142,9 +180,9 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
                 };
                 apply_series_result(seq, initial, gw.list_series(req).await);
             }
-            BrowseKind::Tag { slug, .. } => {
+            BrowseKind::Tag { name, .. } => {
                 let req = ListSeriesRequest {
-                    filter: SeriesFilter::TagSlug { slug },
+                    filter: SeriesFilter::TagSlug { slug: name },
                     sort,
                     page,
                 };
@@ -197,6 +235,7 @@ fn apply_series_result(
                 s.error = None;
                 s.load_more_error = None;
             });
+            ensure_viewport_filled();
         }
         Err(err) => apply_error(seq, initial, err.to_string()),
     }

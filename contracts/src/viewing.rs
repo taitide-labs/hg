@@ -72,10 +72,27 @@ pub struct SeriesBookmark {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum AppAppearance {
-    #[default]
     System,
     Light,
+    #[default]
     Dark,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum WindowPlacementMode {
+    #[default]
+    Normal,
+    Maximized,
+    FullScreen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowPlacementPref {
+    pub mode: WindowPlacementMode,
+    pub x: i32,
+    pub y: i32,
+    pub width: u16,
+    pub height: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -86,6 +103,7 @@ pub struct PlaybackPreference {
     pub appearance: AppAppearance,
     pub sidebar_collapsed: bool,
     pub sidebar_width: u16,
+    pub window_placement: Option<WindowPlacementPref>,
 }
 
 impl Default for PlaybackPreference {
@@ -94,9 +112,10 @@ impl Default for PlaybackPreference {
             preferred_profile: StreamProfile::Hevc,
             playback_cache_limit_mb: 512,
             default_rate_hundredths: 100,
-            appearance: AppAppearance::System,
+            appearance: AppAppearance::Dark,
             sidebar_collapsed: false,
             sidebar_width: 208,
+            window_placement: None,
         }
     }
 }

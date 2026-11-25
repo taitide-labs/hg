@@ -26,10 +26,10 @@ fn dirty_upstream_total_episodes_fallback_sort_and_pagination_e2e() {
 
     harness
         .app
-        .press("查看精选推荐全部")
-        .expect("open featured browse");
-    harness.app.wait_for("最新").expect("sort tabs visible");
-    harness.app.press("最新").expect("sort by latest");
+        .press("查看热门短剧全部")
+        .expect("open category browse");
+    harness.app.wait_for("最近更新").expect("sort tabs visible");
+    harness.app.press("最近更新").expect("sort by latest");
     harness
         .app
         .wait(Duration::from_millis(150))
@@ -43,8 +43,8 @@ fn dirty_upstream_total_episodes_fallback_sort_and_pagination_e2e() {
     );
     harness
         .app
-        .scroll("精选推荐", Points(2400.0))
-        .expect("scroll featured browse list to bottom");
+        .scroll("热门短剧", Points(2400.0))
+        .expect("scroll category browse list to bottom");
     harness
         .app
         .wait_for("第2页剧目-25")
@@ -78,7 +78,7 @@ fn cross_process_restart_persists_preferences_history_bookmarks_and_resume_e2e()
 }
 
 fn seed_persistent_user_state(harness: &mut E2eHarness) {
-    harness.app.wait_for("精选推荐").expect("home loaded");
+    harness.app.wait_for("最近更新").expect("home loaded");
 
     harness.app.press("搜索").expect("open search page");
     harness.app.wait_for("热搜").expect("search meta loaded");
@@ -147,7 +147,7 @@ fn verify_hydrated_state_after_restart(harness: &mut E2eHarness) {
     harness.restart().expect("restart app on same sqlite");
     harness
         .app
-        .wait_for("精选推荐")
+        .wait_for("最近更新")
         .expect("restarted app rendered home");
     harness
         .app
@@ -210,7 +210,7 @@ fn mobile_android_drawer_and_system_back_exits_player_flow() {
             .expect("start android e2e harness");
     harness
         .app
-        .wait_for("精选推荐")
+        .wait_for("最近更新")
         .expect("android home loaded");
 
     harness
@@ -243,6 +243,6 @@ fn mobile_android_drawer_and_system_back_exits_player_flow() {
         .expect("android system back button exits player");
     harness
         .app
-        .wait_for("精选推荐")
+        .wait_for("最近更新")
         .expect("returned to discover home after android back");
 }

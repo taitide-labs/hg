@@ -73,6 +73,13 @@ async fn watchlist_settings_and_cache_clear_preserve_offline_library() {
         appearance: hg_contracts::viewing::AppAppearance::Dark,
         sidebar_collapsed: true,
         sidebar_width: 240,
+        window_placement: Some(hg_contracts::viewing::WindowPlacementPref {
+            mode: hg_contracts::viewing::WindowPlacementMode::FullScreen,
+            x: 120,
+            y: 80,
+            width: 1440,
+            height: 900,
+        }),
     };
     cmd_watchlist_and_settings::update_playback_preference(&harness.deps, pref)
         .await

@@ -30,7 +30,8 @@ fn sample_home_payload() -> Value {
                 "score": 9.4,
                 "tags": ["都市", "逆袭"],
                 "desc": "都市逆袭热播",
-                "badge": "热播",
+                "is_original": 1,
+                "is_hot": 1,
                 "episode_count": 60,
                 "is_finished": true
             }],
@@ -45,7 +46,8 @@ fn sample_home_payload() -> Value {
                     "score": 9.4,
                     "tags": ["都市"],
                     "desc": "都市逆袭热播",
-                    "badge": "",
+                    "is_original": 0,
+                    "is_hot": 1,
                     "episode_count": 60,
                     "is_finished": true
                 }]
@@ -81,6 +83,18 @@ fn sample_search_payload() -> Value {
 async fn discovery_caches_home_feed_and_routes_search_dynamically() {
     let upstream = FakeCatalogUpstream::default()
         .with_json("/api/home", sample_home_payload())
+        .with_json(
+            "/api/home/latest",
+            json!({
+                "status": 1,
+                "data": {
+                    "items": [],
+                    "total": 0,
+                    "page": 1,
+                    "size": 20
+                }
+            }),
+        )
         .with_json("/api/search", sample_search_payload());
     let harness = CatalogTestHarness::new(upstream).await;
 
@@ -97,7 +111,7 @@ async fn discovery_caches_home_feed_and_routes_search_dynamically() {
         .await
         .expect("cached home feed should succeed");
     assert_eq!(first_home, second_home);
-    assert_eq!(harness.upstream.recorded_calls().len(), 1);
+    assert_eq!(harness.upstream.recorded_calls().len(), 2);
     assert_eq!(
         harness
             .upstream

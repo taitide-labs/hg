@@ -28,7 +28,12 @@ pub struct SeriesSummary {
     pub episode_count: u32,
     pub is_finished: bool,
     pub hot: u64,
-    pub badge: Option<String>,
+    #[serde(default)]
+    pub is_original: bool,
+    #[serde(default)]
+    pub is_hot: bool,
+    #[serde(default)]
+    pub is_new: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,6 +56,8 @@ pub struct CategoryRecommendation {
 pub struct HomeFeed {
     pub banners: Vec<HomeBanner>,
     pub featured: Vec<SeriesSummary>,
+    #[serde(default)]
+    pub latest: Vec<SeriesSummary>,
     pub category_recommendations: Vec<CategoryRecommendation>,
 }
 

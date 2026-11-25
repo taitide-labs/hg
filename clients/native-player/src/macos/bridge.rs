@@ -168,8 +168,7 @@ impl PlaybackSession {
         self.item_ended.set(false);
         self.item_failed.set(false);
         self.sync_control_state(props);
-        self.pending_seek_secs
-            .set((props.seek_secs > 0).then_some(props.seek_secs));
+        self.pending_seek_secs.set(None);
 
         self.install_item_notifications(&item, context);
         self.install_load_timer(player, context);

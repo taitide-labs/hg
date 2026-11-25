@@ -145,6 +145,16 @@ pub fn warning_soft() -> AdaptiveColor {
 }
 
 #[must_use]
+pub fn watched() -> AdaptiveColor {
+    color_or("watched", theme().secondary)
+}
+
+#[must_use]
+pub fn watched_fg() -> AdaptiveColor {
+    color_or("watched-foreground", theme().chart_2)
+}
+
+#[must_use]
 pub fn surface_subtle() -> AdaptiveColor {
     color_or("surface-subtle", theme().muted)
 }
@@ -202,6 +212,36 @@ pub fn cinema_brand_bg() -> AdaptiveColor {
 #[must_use]
 pub fn cinema_brand_fg() -> AdaptiveColor {
     color_or("cinema-brand-fg", theme().primary)
+}
+
+#[must_use]
+pub fn badge_original() -> AdaptiveColor {
+    color_or("badge-original", theme().chart_4)
+}
+
+#[must_use]
+pub fn badge_original_fg() -> AdaptiveColor {
+    color_or("badge-original-foreground", theme().foreground)
+}
+
+#[must_use]
+pub fn badge_hot() -> AdaptiveColor {
+    color_or("badge-hot", theme().primary)
+}
+
+#[must_use]
+pub fn badge_hot_fg() -> AdaptiveColor {
+    color_or("badge-hot-foreground", theme().foreground)
+}
+
+#[must_use]
+pub fn badge_new() -> AdaptiveColor {
+    color_or("badge-new", theme().chart_2)
+}
+
+#[must_use]
+pub fn badge_new_fg() -> AdaptiveColor {
+    color_or("badge-new-foreground", theme().foreground)
 }
 
 #[must_use]

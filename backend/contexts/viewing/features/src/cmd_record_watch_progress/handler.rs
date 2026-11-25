@@ -83,6 +83,36 @@ async fn persist_watch_history(
         detail: format!("写入观看历史失败: {err}"),
     })?;
 
+    sqlx::query(
+        "INSERT INTO viewing_episode_progress (
+            series_id,
+            ep_num,
+            position_secs,
+            duration_secs,
+            completed,
+            watched_at_epoch_secs
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        ON CONFLICT(series_id, ep_num) DO UPDATE SET
+            position_secs = excluded.position_secs,
+            duration_secs = excluded.duration_secs,
+            completed = CASE
+                WHEN viewing_episode_progress.completed = 1 THEN 1
+                ELSE excluded.completed
+            END,
+            watched_at_epoch_secs = excluded.watched_at_epoch_secs",
+    )
+    .bind(series_id)
+    .bind(i64::from(row.last_episode.get()))
+    .bind(i64::from(row.position_secs))
+    .bind(i64::from(row.duration_secs))
+    .bind(completed_flag)
+    .bind(watched_at)
+    .execute(&mut *tx)
+    .await
+    .map_err(|err| ContractError::Internal {
+        detail: format!("写入分集观看进度失败: {err}"),
+    })?;
+
     tx.commit().await.map_err(|err| ContractError::Internal {
         detail: format!("提交观看历史事务失败: {err}"),
     })

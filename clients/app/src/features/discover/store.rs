@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use hg_contracts::catalog::{
     Category, HomeFeed, HotKeyword, RankingEntry, RankingKind, SeriesSort, SeriesSummary, TagGroup,
 };
-use hg_contracts::ids::PageInfo;
+use hg_contracts::ids::{PageInfo, SeriesId};
 use hg_contracts::viewing::SearchHistoryEntry;
 use nsh_core::prelude::*;
 
@@ -36,7 +38,7 @@ impl From<RankingTab> for RankingKind {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum BrowseKind {
     #[default]
-    Featured,
+    Latest,
     Ranking(RankingKind),
     Category {
         id: u32,
@@ -162,13 +164,8 @@ pub fn browse_meta_snapshot() -> BrowseMetaState {
 }
 
 #[must_use]
-pub fn browse_snapshot() -> DiscoverBrowseState {
-    browse_state().get()
-}
-
-#[must_use]
-pub fn search_snapshot() -> DiscoverSearchState {
-    search_state().get()
+pub fn browse_meta_untracked() -> BrowseMetaState {
+    browse_meta_state().with_untracked(Clone::clone)
 }
 
 #[must_use]
@@ -179,6 +176,97 @@ pub fn search_input_signal() -> Signal<String> {
 #[must_use]
 pub fn ranking_tab_signal() -> Signal<RankingTab> {
     global::<RankingTab>()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DiscoverViewport {
+    width: f32,
+    height: f32,
+}
+
+impl Default for DiscoverViewport {
+    fn default() -> Self {
+        if crate::ui::platform::is_desktop() {
+            Self {
+                width: 1240.0,
+                height: 720.0,
+            }
+        } else {
+            Self {
+                width: 390.0,
+                height: 844.0,
+            }
+        }
+    }
+}
+
+fn viewport_state() -> Signal<DiscoverViewport> {
+    global::<DiscoverViewport>()
+}
+
+pub fn set_viewport_size(width: f32, height: f32) -> bool {
+    if width <= 0.0 || height <= 0.0 {
+        return false;
+    }
+    let changed = viewport_state()
+        .with_untracked(|v| (v.width - width).abs() > 1.0 || (v.height - height).abs() > 1.0);
+    if changed {
+        viewport_state().set(DiscoverViewport { width, height });
+    }
+    changed
+}
+
+#[must_use]
+pub fn viewport_size_untracked() -> (f32, f32) {
+    viewport_state().with_untracked(|v| (v.width, v.height))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SeriesWatchStatus {
+    #[default]
+    Unwatched,
+    AllWatched,
+    UpdatedAfterWatching,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchedSeriesSnapshot {
+    pub last_episode: u32,
+    pub recorded_total_episodes: u32,
+    pub episode_over_80: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct WatchedSeriesMap(HashMap<SeriesId, WatchedSeriesSnapshot>);
+
+fn watched_series_state() -> Signal<WatchedSeriesMap> {
+    global::<WatchedSeriesMap>()
+}
+
+#[must_use]
+pub fn series_watch_status(series_id: SeriesId, current_episode_count: u32) -> SeriesWatchStatus {
+    watched_series_state().with(|map| {
+        let Some(entry) = map.0.get(&series_id).copied() else {
+            return SeriesWatchStatus::Unwatched;
+        };
+        if !entry.episode_over_80 || current_episode_count == 0 {
+            return SeriesWatchStatus::Unwatched;
+        }
+        if entry.last_episode >= current_episode_count {
+            return SeriesWatchStatus::AllWatched;
+        }
+        if entry.recorded_total_episodes > 0
+            && entry.last_episode >= entry.recorded_total_episodes
+            && current_episode_count > entry.last_episode
+        {
+            return SeriesWatchStatus::UpdatedAfterWatching;
+        }
+        SeriesWatchStatus::Unwatched
+    })
+}
+
+pub fn set_watched_series(map: HashMap<SeriesId, WatchedSeriesSnapshot>) {
+    watched_series_state().set(WatchedSeriesMap(map));
 }
 
 pub fn set_home_loading() {

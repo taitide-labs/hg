@@ -17,9 +17,10 @@ pub const fn default_playback_preference() -> PlaybackPreference {
         preferred_profile: StreamProfile::Hevc,
         playback_cache_limit_mb: 512,
         default_rate_hundredths: 100,
-        appearance: AppAppearance::System,
+        appearance: AppAppearance::Dark,
         sidebar_collapsed: false,
         sidebar_width: DEFAULT_SIDEBAR_WIDTH,
+        window_placement: None,
     }
 }
 
@@ -41,6 +42,13 @@ pub fn validate_playback_preference(pref: &PlaybackPreference) -> Result<(), Vie
     if !(MIN_SIDEBAR_WIDTH..=MAX_SIDEBAR_WIDTH).contains(&pref.sidebar_width) {
         return Err(ViewingError::InvalidPreference {
             message: format!("侧边栏宽度必须在 {MIN_SIDEBAR_WIDTH}..={MAX_SIDEBAR_WIDTH} 之间"),
+        });
+    }
+    if let Some(placement) = pref.window_placement
+        && (placement.width == 0 || placement.height == 0)
+    {
+        return Err(ViewingError::InvalidPreference {
+            message: "窗口尺寸宽高必须大于 0".to_owned(),
         });
     }
     Ok(())

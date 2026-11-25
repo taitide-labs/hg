@@ -6,11 +6,11 @@ use hg_contracts::catalog::{
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::dedup_append;
+use super::super::parts::{dedup_append, sync_watched_series};
 use super::super::store;
 use crate::gateway;
 
-const HOME_SHELF_TARGET_ITEMS: usize = 16;
+const HOME_SHELF_TARGET_ITEMS: usize = 12;
 const HOME_RANKING_FETCH_SIZE: u16 = 12;
 
 fn first_page(size: u16) -> PageRequest {
@@ -28,21 +28,24 @@ pub fn load_home() {
         page: first_page(HOME_RANKING_FETCH_SIZE),
     };
     spawn(async move {
-        let feed_res = gw.home_feed().await;
-        let cats_res = gw.categories().await;
-        let rank_res = gw.list_ranking(rank_req).await;
+        let (feed_res, cats_res, rank_res, ()) = (
+            gw.home_feed().await,
+            gw.categories().await,
+            gw.list_ranking(rank_req).await,
+            sync_watched_series().await,
+        );
         match (feed_res, cats_res, rank_res) {
             (Ok(mut feed), Ok(categories), Ok(rankings)) => {
-                if feed.featured.len() < HOME_SHELF_TARGET_ITEMS
+                if feed.latest.len() < HOME_SHELF_TARGET_ITEMS
                     && let Ok(extra) = gw
                         .list_series(ListSeriesRequest {
                             filter: SeriesFilter::All { category_id: None },
-                            sort: SeriesSort::Hot,
+                            sort: SeriesSort::New,
                             page: first_page(HOME_SHELF_TARGET_ITEMS as u16),
                         })
                         .await
                 {
-                    dedup_append(&mut feed.featured, extra.items, |item| item.id);
+                    dedup_append(&mut feed.latest, extra.items, |item| item.id);
                 }
 
                 for rec in &mut feed.category_recommendations {

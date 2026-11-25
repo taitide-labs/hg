@@ -66,3 +66,12 @@ pub const fn appearance_as_str(appearance: AppAppearance) -> &'static str {
         AppAppearance::Dark => "dark",
     }
 }
+
+#[must_use]
+pub const fn window_mode_as_str(mode: hg_contracts::viewing::WindowPlacementMode) -> &'static str {
+    match mode {
+        hg_contracts::viewing::WindowPlacementMode::Normal => "normal",
+        hg_contracts::viewing::WindowPlacementMode::Maximized => "maximized",
+        hg_contracts::viewing::WindowPlacementMode::FullScreen => "fullscreen",
+    }
+}

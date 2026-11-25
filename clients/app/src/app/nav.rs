@@ -20,7 +20,7 @@ pub enum PrimaryTab {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoverSubPage {
-    Featured,
+    Latest,
     Ranking,
     Category {
         id: u32,
@@ -35,12 +35,11 @@ pub struct PlayerRoute {
     pub initial_episode: Option<EpisodeNumber>,
 }
 
-#[derive(Debug, Clone, Default)]
-struct NavState {
-    tab: PrimaryTab,
-    discover_subpage: Option<DiscoverSubPage>,
-    player: Option<PlayerRoute>,
-}
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ActiveDiscoverSubPage(Option<DiscoverSubPage>);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct ActivePlayerRoute(Option<PlayerRoute>);
 
 #[derive(Debug, Clone, Copy)]
 struct SidebarState {
@@ -60,8 +59,16 @@ impl Default for SidebarState {
 #[derive(Debug, Clone, Copy, Default)]
 struct ChromeFullscreen(bool);
 
-fn state() -> Signal<NavState> {
-    global::<NavState>()
+fn tab_signal() -> Signal<PrimaryTab> {
+    global::<PrimaryTab>()
+}
+
+fn subpage_signal() -> Signal<ActiveDiscoverSubPage> {
+    global::<ActiveDiscoverSubPage>()
+}
+
+fn player_signal() -> Signal<ActivePlayerRoute> {
+    global::<ActivePlayerRoute>()
 }
 
 fn sidebar_state() -> Signal<SidebarState> {
@@ -74,17 +81,17 @@ fn fullscreen_signal() -> Signal<ChromeFullscreen> {
 
 #[must_use]
 pub fn current_tab() -> PrimaryTab {
-    state().with(|s| s.tab)
+    tab_signal().get()
 }
 
 #[must_use]
 pub fn active_discover_subpage() -> Option<DiscoverSubPage> {
-    state().with(|s| s.discover_subpage.clone())
+    subpage_signal().with(|s| s.0.clone())
 }
 
 #[must_use]
 pub fn active_player() -> Option<PlayerRoute> {
-    state().with(|s| s.player)
+    player_signal().with(|s| s.0)
 }
 
 #[must_use]
@@ -130,36 +137,47 @@ pub fn set_sidebar_width(width: f32) {
 
 pub fn select_tab(tab: PrimaryTab) {
     set_chrome_fullscreen(false);
-    state().update(|s| {
-        s.tab = tab;
-        s.discover_subpage = None;
-        s.player = None;
-    });
+    if tab_signal().with_untracked(|t| *t != tab) {
+        tab_signal().set(tab);
+    }
+    if subpage_signal().with_untracked(|s| s.0.is_some()) {
+        subpage_signal().set(ActiveDiscoverSubPage(None));
+    }
+    if player_signal().with_untracked(|p| p.0.is_some()) {
+        player_signal().set(ActivePlayerRoute(None));
+    }
 }
 
 pub fn open_discover_subpage(subpage: DiscoverSubPage) {
     set_chrome_fullscreen(false);
-    state().update(|s| {
-        s.tab = PrimaryTab::Discover;
-        s.discover_subpage = Some(subpage);
-        s.player = None;
-    });
+    if tab_signal().with_untracked(|t| *t != PrimaryTab::Discover) {
+        tab_signal().set(PrimaryTab::Discover);
+    }
+    let next_subpage = ActiveDiscoverSubPage(Some(subpage));
+    if subpage_signal().with_untracked(|s| *s != next_subpage) {
+        subpage_signal().set(next_subpage);
+    }
+    if player_signal().with_untracked(|p| p.0.is_some()) {
+        player_signal().set(ActivePlayerRoute(None));
+    }
 }
 
 pub fn close_discover_subpage() {
-    state().update(|s| {
-        s.discover_subpage = None;
-    });
+    if subpage_signal().with_untracked(|s| s.0.is_some()) {
+        subpage_signal().set(ActiveDiscoverSubPage(None));
+    }
 }
 
 pub fn open_player(series_id: SeriesId, initial_episode: Option<EpisodeNumber>) {
+    dismiss_keyboard();
     set_chrome_fullscreen(false);
-    state().update(|s| {
-        s.player = Some(PlayerRoute {
-            series_id,
-            initial_episode,
-        });
-    });
+    let next_route = ActivePlayerRoute(Some(PlayerRoute {
+        series_id,
+        initial_episode,
+    }));
+    if player_signal().with_untracked(|p| *p != next_route) {
+        player_signal().set(next_route);
+    }
 }
 
 pub fn set_chrome_fullscreen(fullscreen: bool) {
@@ -172,7 +190,7 @@ pub fn set_chrome_fullscreen(fullscreen: bool) {
 
 pub fn close_player() {
     set_chrome_fullscreen(false);
-    state().update(|s| {
-        s.player = None;
-    });
+    if player_signal().with_untracked(|p| p.0.is_some()) {
+        player_signal().set(ActivePlayerRoute(None));
+    }
 }

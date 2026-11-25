@@ -11,7 +11,7 @@ use crate::ui::button::{
 };
 use crate::ui::controls::{mobile_nav_drawer, sidebar_resize_handle, sidebar_toggle_button};
 use crate::ui::icons::IconKind;
-use crate::ui::platform::{desktop_title_bar, is_desktop};
+use crate::ui::platform::{desktop_title_bar, is_desktop, observe_window_placement};
 use crate::ui::surface::separator;
 use crate::ui::token;
 
@@ -37,9 +37,22 @@ fn tab_title(tab: PrimaryTab) -> &'static str {
     }
 }
 
+fn close_player_and_refresh() {
+    nav::close_player();
+    spawn(crate::features::discover::parts::sync_watched_series());
+}
+
+fn open_search_tag_from_player(shell_owner: Owner, tag_name: String) {
+    nav::select_tab(PrimaryTab::Search);
+    shell_owner.run(move || {
+        crate::features::discover::qry_search::query::activate_tag(tag_name);
+        spawn(crate::features::discover::parts::sync_watched_series());
+    });
+}
+
 fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
     match subpage {
-        DiscoverSubPage::Featured => BrowseKind::Featured,
+        DiscoverSubPage::Latest => BrowseKind::Latest,
         DiscoverSubPage::Ranking => BrowseKind::Ranking(RankingKind::Hot),
         DiscoverSubPage::Category { id, name, route } => BrowseKind::Category { id, name, route },
     }
@@ -47,7 +60,7 @@ fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
 
 fn open_browse_from_discover(kind: BrowseKind) {
     match kind {
-        BrowseKind::Featured => nav::open_discover_subpage(DiscoverSubPage::Featured),
+        BrowseKind::Latest => nav::open_discover_subpage(DiscoverSubPage::Latest),
         BrowseKind::Ranking(_) => nav::open_discover_subpage(DiscoverSubPage::Ranking),
         BrowseKind::Category { id, name, route } => {
             nav::open_discover_subpage(DiscoverSubPage::Category { id, name, route });
@@ -65,20 +78,23 @@ fn toggle_and_persist_sidebar(owner: Owner) {
 }
 
 pub fn app_shell() -> impl IntoElement {
+    observe_window_placement(
+        nav::is_chrome_fullscreen,
+        settings::cmd_playback_pref::handler::persist_window_placement,
+    );
     let shell_owner = Owner::current();
-    let window_width = signal(1240.0_f32);
+    let is_narrow = signal(false);
     let in_player = || nav::active_player().is_some();
     let show_title_bar = || is_desktop() && !nav::is_chrome_fullscreen();
-    let effective_collapsed =
-        move || nav::sidebar_collapsed() || window_width.get() < NARROW_SIDEBAR_BREAKPOINT;
+    let effective_collapsed = move || nav::sidebar_collapsed() || is_narrow.get();
 
     view()
         .flex_1()
         .bg(token::bg)
         .on_layout(move |bounds: &Bounds<Points>| {
             let w = bounds.size.width.0;
-            if w > 0.0 && (window_width.get_untracked() - w).abs() > 1.0 {
-                window_width.set(w);
+            if w > 0.0 {
+                is_narrow.set(w < NARROW_SIDEBAR_BREAKPOINT);
             }
         })
         .child(when(show_title_bar, move || {
@@ -89,7 +105,7 @@ pub fn app_shell() -> impl IntoElement {
                         "返回",
                         ButtonVariant::Ghost,
                         ControlSize::Sm,
-                        nav::close_player,
+                        close_player_and_refresh,
                     )
                 })
                 .otherwise(move || {
@@ -111,20 +127,25 @@ pub fn app_shell() -> impl IntoElement {
             )
         }))
         .child(
-            when(in_player, || {
-                dynamic(|| match nav::active_player() {
-                    Some(route) => pages::player::page::player_page(
-                        route.series_id,
-                        route.initial_episode,
-                        nav::close_player,
-                        nav::set_chrome_fullscreen,
-                    )
-                    .into_element(),
-                    None => view().into_element(),
-                })
-            })
-            .otherwise(move || main_chrome(effective_collapsed)),
+            view()
+                .flex_1()
+                .min_h_0()
+                .style_when(in_player, |s| s.hidden())
+                .child(main_chrome(effective_collapsed)),
         )
+        .child(when(in_player, move || {
+            dynamic(move || match nav::active_player() {
+                Some(route) => pages::player::page::player_page(
+                    route.series_id,
+                    route.initial_episode,
+                    close_player_and_refresh,
+                    nav::set_chrome_fullscreen,
+                    move |tag_name| open_search_tag_from_player(shell_owner, tag_name),
+                )
+                .into_element(),
+                None => view().into_element(),
+            })
+        }))
 }
 
 fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
@@ -139,6 +160,9 @@ fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl 
     } else {
         let drawer_open = signal(false);
         on_back_press(|| {
+            if nav::active_player().is_some() {
+                return false;
+            }
             if nav::active_discover_subpage().is_some() {
                 nav::close_discover_subpage();
                 true

@@ -61,6 +61,7 @@ fn mount_player_with_spies(
             initial_episode,
             move || back_sink.with(|s| s.push(())),
             move |full| fs_sink.with(|s| s.push(full)),
+            |_| {},
         )
     };
     let mut app = if manual_clock {
@@ -416,7 +417,13 @@ fn android_system_back_closes_drawer_before_emitting_back_intent() {
     let sid = series_1001();
     let mut app = mount_mobile_page(gw, ColorScheme::Light, move || {
         let back_sink = stored(back_for_page.clone());
-        player_page(sid, None, move || back_sink.with(|s| s.push(())), |_| {})
+        player_page(
+            sid,
+            None,
+            move || back_sink.with(|s| s.push(())),
+            |_| {},
+            |_| {},
+        )
     });
 
     app.wait_for("详情视图").unwrap();
@@ -433,4 +440,95 @@ fn android_system_back_closes_drawer_before_emitting_back_intent() {
 
     app.back().unwrap();
     assert_eq!(back_spy.snapshot().len(), 1);
+}
+
+#[test]
+fn watched_episodes_show_distinct_color_from_unwatched_and_current() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Light);
+
+    app.wait_for("选集 (1/68)").unwrap();
+    let current_bg = app.screen().view_style("role:button[1]").unwrap();
+    let unwatched_bg = app.screen().view_style("role:button[2]").unwrap();
+    let partial_ep3_bg = app.screen().view_style("role:button[3]").unwrap();
+    let unwatched_fg = app
+        .screen()
+        .span_style("role:button[2] >> 2")
+        .unwrap()
+        .color;
+    let partial_ep3_fg = app
+        .screen()
+        .span_style("role:button[3] >> 3")
+        .unwrap()
+        .color;
+
+    assert_ne!(current_bg, unwatched_bg);
+    assert_eq!(
+        partial_ep3_bg, unwatched_bg,
+        "episode 3 at 46% (<= 80%) must remain unwatched color"
+    );
+    assert_eq!(partial_ep3_fg, unwatched_fg);
+
+    app.press("2").unwrap();
+    app.wait_for("选集 (2/68)").unwrap();
+    emit_video_progress(&mut app, 96, 120);
+    app.press("4").unwrap();
+    app.wait_for("选集 (4/68)").unwrap();
+
+    let ep2_at_80_bg = app.screen().view_style("role:button[2]").unwrap();
+    let ep5_bg = app.screen().view_style("role:button[5]").unwrap();
+    let ep5_fg = app
+        .screen()
+        .span_style("role:button[5] >> 5")
+        .unwrap()
+        .color;
+    assert_eq!(
+        ep2_at_80_bg, ep5_bg,
+        "episode 2 at exact 80% must not yet turn watched green"
+    );
+
+    app.press("2").unwrap();
+    app.wait_for("选集 (2/68)").unwrap();
+    emit_video_progress(&mut app, 97, 120);
+    app.press("4").unwrap();
+    app.wait_for("选集 (4/68)").unwrap();
+
+    let ep2_after_bg = app.screen().view_style("role:button[2]").unwrap();
+    let ep2_after_fg = app
+        .screen()
+        .span_style("role:button[2] >> 2")
+        .unwrap()
+        .color;
+    assert!(
+        ep2_after_bg != ep5_bg || ep2_after_fg != ep5_fg,
+        "episode 2 must switch to watched color after exceeding 80% playback"
+    );
+}
+
+#[test]
+fn background_lifecycle_keeps_playback_running() {
+    let (_gw, mut app, _back, _fullscreen) = mount_player_with_spies(
+        Arc::new(MockGateway::new()),
+        ColorScheme::Dark,
+        Some(episode_num(1)),
+        true,
+    );
+
+    app.hover("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
+
+    app.set_environment("setLifecycle(background)", |e| {
+        e.lifecycle = nsh_core::platform::Lifecycle::Background;
+    })
+    .unwrap();
+    app.fast_forward(Duration::from_secs(5)).unwrap();
+    assert!(
+        !app.screen().shows("倍速"),
+        "entering background lifecycle must not force-pause playback and lock controls visible"
+    );
+
+    emit_video_progress(&mut app, 20, 120);
+    app.fast_forward(Duration::from_millis(50)).unwrap();
+    app.press("视频画面").unwrap();
+    app.press("视频画面").unwrap();
+    app.wait_for("text:/00:20 \\/ 02:00/").unwrap();
 }

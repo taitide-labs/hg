@@ -10,7 +10,7 @@ use nsh_testing::DialogAnswer;
 
 use crate::pages::search::page::search_page;
 use crate::pages::tests::{
-    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, mount_desktop_page,
+    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, mount_desktop_page, node_bounds,
 };
 
 fn start_on_search(gw: Arc<MockGateway>, scheme: ColorScheme) -> nsh_testing::Headless {
@@ -87,7 +87,7 @@ fn search_page_keyword_hot_word_history_crud_and_tag_toggle_matrix() {
 
     app.press("悬疑 >> nth=0").unwrap();
     app.wait_for("最热").unwrap();
-    app.wait_for("最新").unwrap();
+    app.wait_for("最近更新").unwrap();
     app.wait_for("全 80 集").unwrap();
 
     app.press("悬疑 >> nth=0").unwrap();
@@ -115,7 +115,7 @@ fn search_page_keyword_and_tag_paginate_via_infinite_scroll_without_load_more() 
     app.scroll("分页剧目 01", px(5000.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
 
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("分页剧目 30").unwrap();
     assert!(!app.screen().shows("分页剧目 01"));
 }
@@ -198,6 +198,24 @@ fn search_input_clear_icon_clears_query_and_results() {
 }
 
 #[test]
+fn search_selected_tag_shows_clear_icon_and_clears_active_filter() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_on_search(gw, ColorScheme::Dark);
+
+    assert!(!app.screen().shows("label:清除标签 悬疑"));
+
+    app.press("悬疑 >> nth=0").unwrap();
+    app.wait_for("全 80 集").unwrap();
+    app.wait_for("label:清除标签 悬疑").unwrap();
+
+    app.press("label:清除标签 悬疑").unwrap();
+    app.wait_for_gone("label:清除标签 悬疑", Duration::from_secs(2))
+        .unwrap();
+    app.wait_for_gone("全 80 集", Duration::from_secs(2))
+        .unwrap();
+}
+
+#[test]
 fn search_tags_hide_empty_groups_and_collapse_multiline_groups_behind_plus_icon() {
     let long_tags: Vec<TagItem> = (1..=24_u32)
         .map(|i| TagItem {
@@ -242,4 +260,89 @@ fn search_tags_hide_empty_groups_and_collapse_multiline_groups_behind_plus_icon(
     app.press("label:收起 长题材 标签").unwrap();
     app.wait_for_gone("长标签24", Duration::from_secs(2))
         .unwrap();
+}
+
+#[test]
+fn search_large_viewport_shows_exhausted_footer() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
+    let mut app = start_on_search(gw, ColorScheme::Light);
+    app.set_viewport(nsh_core::prelude::Size::new(
+        nsh_core::prelude::Points(2560.0),
+        nsh_core::prelude::Points(1440.0),
+    ))
+    .unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+
+    app.type_text("text:搜索剧名、标签...", "分页剧目").unwrap();
+    app.press("label:执行搜索").unwrap();
+    app.wait_for("分页剧目 30").unwrap();
+    app.wait_for("已全部加载").unwrap();
+}
+
+#[test]
+fn search_tags_filter_using_chinese_tag_name_not_pinyin_slug() {
+    let gw = Arc::new(MockGateway::new().with_tag_groups(vec![TagGroup {
+        id: 9,
+        code: "theme".to_owned(),
+        name: "题材".to_owned(),
+        tags: vec![TagItem {
+            id: 99,
+            name: "都市".to_owned(),
+            slug: "urban-unmapped-slug".to_owned(),
+            is_hot: true,
+        }],
+    }]));
+    let mut app = start_on_search(gw, ColorScheme::Light);
+
+    app.press("都市 >> nth=0").unwrap();
+    app.wait_for("最热").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.wait_for("春风十里不及卿").unwrap();
+    assert!(!app.screen().shows("全 80 集"));
+}
+
+#[test]
+fn search_hot_keywords_and_tag_chips_match_size_and_align_with_distinct_style() {
+    let gw = Arc::new(MockGateway::new().with_tag_groups(vec![TagGroup {
+        id: 28,
+        code: "djtc".to_owned(),
+        name: "短剧题材".to_owned(),
+        tags: vec![TagItem {
+            id: 58,
+            name: "都市".to_owned(),
+            slug: "dushi".to_owned(),
+            is_hot: false,
+        }],
+    }]));
+    let app = start_on_search(gw, ColorScheme::Dark);
+
+    let hot_chip = node_bounds(&app, "label:热搜 千金归来");
+    let tag_chip = node_bounds(&app, "label:标签 都市");
+    assert!(
+        (hot_chip.size.height.0 - tag_chip.size.height.0).abs() <= 0.5,
+        "hot keyword chip height ({}) must match tag chip height ({})",
+        hot_chip.size.height.0,
+        tag_chip.size.height.0
+    );
+    assert!(
+        (hot_chip.origin.x.0 - tag_chip.origin.x.0).abs() <= 1.0,
+        "hot keyword row x ({}) must align with multi-char group tag row x ({})",
+        hot_chip.origin.x.0,
+        tag_chip.origin.x.0
+    );
+
+    let hot_bg = app
+        .screen()
+        .view_style("label:热搜 千金归来")
+        .unwrap()
+        .map(|s| s.background_color);
+    let tag_bg = app
+        .screen()
+        .view_style("label:标签 都市")
+        .unwrap()
+        .map(|s| s.background_color);
+    assert_ne!(
+        hot_bg, tag_bg,
+        "hot keyword and category tag must differentiate by style/color instead of size"
+    );
 }

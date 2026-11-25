@@ -1,5 +1,5 @@
 use hg_contracts::ids::StreamProfile;
-use hg_contracts::viewing::PlaybackPreference;
+use hg_contracts::viewing::{PlaybackPreference, WindowPlacementPref};
 use nsh_core::prelude::*;
 
 use super::super::store;
@@ -29,6 +29,12 @@ pub fn selected_rate() -> u16 {
             command::normalize_rate_hundredths(p.default_rate_hundredths)
         })
     })
+}
+
+pub fn apply_default_appearance() {
+    let option = AppearanceOption::default();
+    appearance_signal().set(option);
+    set_color_scheme(option.into());
 }
 
 pub fn apply_loaded_preference(pref: PlaybackPreference) {
@@ -133,6 +139,16 @@ pub fn select_default_rate(rate_hundredths: u16) {
     };
     let next = command::with_default_rate(current, rate_hundredths);
     save_preference(current, next);
+}
+
+pub fn persist_window_placement(window_placement: WindowPlacementPref) {
+    let Some(current) = store::state().with_untracked(|s| s.playback_pref) else {
+        return;
+    };
+    let next = command::with_window_placement(current, Some(window_placement));
+    if next != current {
+        save_preference(current, next);
+    }
 }
 
 fn save_preference(previous: PlaybackPreference, next: PlaybackPreference) {

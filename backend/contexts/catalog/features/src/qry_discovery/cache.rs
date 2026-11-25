@@ -62,6 +62,14 @@ pub async fn write_cached_json<T: Serialize>(
         }
     })?;
 
+    sqlx::query("DELETE FROM catalog_cache_entries WHERE expires_at_epoch_secs <= ?1")
+        .bind(updated_at)
+        .execute(pool)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("清理过期目录缓存失败: {err}"),
+        })?;
+
     sqlx::query(
         "INSERT INTO catalog_cache_entries (
             cache_key,

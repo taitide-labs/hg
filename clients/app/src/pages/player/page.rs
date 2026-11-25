@@ -10,6 +10,7 @@ pub fn player_page(
     initial_episode: Option<EpisodeNumber>,
     on_back: impl Fn() + Copy + 'static,
     on_fullscreen_change: impl Fn(bool) + Copy + 'static,
+    on_select_tag: impl Fn(String) + Copy + 'static,
 ) -> impl IntoElement {
     view()
         .flex_1()
@@ -20,6 +21,7 @@ pub fn player_page(
             initial_episode,
             on_back,
             on_fullscreen_change,
+            on_select_tag,
         ))
         .child(comment_replies_drawer())
         .child(batch_download_drawer())

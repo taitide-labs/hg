@@ -2,13 +2,17 @@ use hg_contracts::catalog::{CategoryRecommendation, RankingEntry, SeriesSummary}
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
-use super::super::parts::series_grid;
+use super::super::parts::{
+    series_flags, series_grid_columns_for_width, series_horizontal_shelf, shelf_card_width,
+};
 use super::super::store::{self, BrowseKind};
 use super::query;
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::poster::{RankingCardProps, ranking_compact_card};
 use crate::ui::surface::{empty_state, shelf_header};
+
+const HOME_SHELF_MAX_ITEMS: usize = 12;
 
 pub fn home_feed_view(
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
@@ -17,6 +21,15 @@ pub fn home_feed_view(
     let page_owner = Owner::current();
     query::load_home();
     let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
+    let card_width = computed(move || {
+        let inner_w = (container_width.get() - 48.0).max(0.0);
+        let cols = series_grid_columns_for_width(inner_w);
+        shelf_card_width(inner_w, cols)
+    });
+    let rank_cols = computed(move || {
+        let inner_w = (container_width.get() - 48.0).max(0.0);
+        ((inner_w + 12.0) / 232.0).floor().clamp(2.0, 6.0) as usize
+    });
 
     scroll().flex_1().child(
         view()
@@ -26,6 +39,8 @@ pub fn home_feed_view(
             .pb_safe_area_plus(px(24.0))
             .on_layout(move |bounds: &Bounds<Points>| {
                 let w = bounds.size.width.0;
+                let h = bounds.size.height.0;
+                store::set_viewport_size(w, h);
                 if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
                     container_width.set(w);
                 }
@@ -49,19 +64,12 @@ pub fn home_feed_view(
                     return view().into_element();
                 };
 
-                let inner_w = (container_width.get() - 48.0).max(0.0);
-                let cols = ((inner_w + 16.0) / 172.0).floor().max(2.0) as usize;
-                let rank_cols = ((inner_w + 12.0) / 232.0).floor().max(2.0) as usize;
-
                 let mut body = view()
                     .w_full()
                     .gap_6()
-                    .child(featured_shelf(
-                        feed.featured,
-                        cols,
-                        on_open_browse,
-                        on_open_series,
-                    ))
+                    .children((!feed.latest.is_empty()).then(|| {
+                        latest_shelf(feed.latest, card_width, on_open_browse, on_open_series)
+                    }))
                     .child(ranking_shelf(
                         snap.rankings,
                         rank_cols,
@@ -78,7 +86,7 @@ pub fn home_feed_view(
                     body = body.child(category_shelf(
                         rec,
                         route,
-                        cols,
+                        card_width,
                         on_open_browse,
                         on_open_series,
                     ));
@@ -88,25 +96,43 @@ pub fn home_feed_view(
     )
 }
 
-fn featured_shelf(
+fn latest_shelf(
     items: Vec<SeriesSummary>,
-    cols: usize,
+    card_w: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
-    let preview: Vec<SeriesSummary> = items.into_iter().take(cols).collect();
+    series_shelf_block(
+        "最近更新",
+        BrowseKind::Latest,
+        items,
+        card_w,
+        on_open_browse,
+        on_open_series,
+    )
+}
+
+fn series_shelf_block(
+    title: &'static str,
+    browse_kind: BrowseKind,
+    items: Vec<SeriesSummary>,
+    card_w: Memo<f32>,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    let preview: Vec<SeriesSummary> = items.into_iter().take(HOME_SHELF_MAX_ITEMS).collect();
     view()
         .w_full()
         .gap_3()
-        .child(shelf_header("精选推荐", "全部", move || {
-            on_open_browse(BrowseKind::Featured);
+        .child(shelf_header(title, "全部", move || {
+            on_open_browse(browse_kind.clone());
         }))
-        .child(series_grid(preview, on_open_series))
+        .child(series_horizontal_shelf(preview, card_w, on_open_series))
 }
 
 fn ranking_shelf(
     entries: Vec<RankingEntry>,
-    cols: usize,
+    cols: Memo<usize>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
@@ -115,8 +141,12 @@ fn ranking_shelf(
         .grid()
         .grid_template_columns("repeat(auto-fill, minmax(220px, 1fr))")
         .gap_3();
-    for entry in entries.into_iter().take(cols) {
-        list = list.child(ranking_preview_card(entry, on_open_series));
+    for (idx, entry) in entries.into_iter().take(6).enumerate() {
+        list = list.child(
+            view()
+                .style_when(move || idx >= cols.get(), |s| s.hidden())
+                .child(ranking_preview_card(entry, on_open_series)),
+        );
     }
 
     view()
@@ -133,15 +163,18 @@ fn ranking_preview_card(
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let id = entry.series.id;
+    let flags = series_flags(&entry.series);
     let meta = format!(
         "{:.1} 分 · {} 集",
         entry.series.score, entry.series.episode_count
     );
     ranking_compact_card(
         RankingCardProps {
+            id: id.get(),
             rank: entry.rank,
             title: entry.series.title,
             cover_url: entry.series.cover_url,
+            flags,
             meta,
             description: None,
         },
@@ -152,14 +185,14 @@ fn ranking_preview_card(
 fn category_shelf(
     rec: CategoryRecommendation,
     route: String,
-    cols: usize,
+    card_w: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let cat_id = rec.category_id;
     let cat_name = rec.category_name.clone();
     let header_title = rec.category_name;
-    let preview: Vec<SeriesSummary> = rec.items.into_iter().take(cols).collect();
+    let preview: Vec<SeriesSummary> = rec.items.into_iter().take(HOME_SHELF_MAX_ITEMS).collect();
 
     view()
         .w_full()
@@ -171,5 +204,5 @@ fn category_shelf(
                 route: route.clone(),
             });
         }))
-        .child(series_grid(preview, on_open_series))
+        .child(series_horizontal_shelf(preview, card_w, on_open_series))
 }

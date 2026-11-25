@@ -125,6 +125,14 @@ async fn store_cached_series_detail(
     let ttl = i64::try_from(SERIES_DETAIL_CACHE_TTL_SECS).unwrap_or(300);
     let expires_at = now_epoch_secs.saturating_add(ttl);
 
+    sqlx::query("DELETE FROM catalog_cache_entries WHERE expires_at_epoch_secs <= ?1")
+        .bind(now_epoch_secs)
+        .execute(deps.pool())
+        .await
+        .map_err(|err| PortError::StorageFailure {
+            detail: format!("清理过期目录缓存失败: {err}"),
+        })?;
+
     sqlx::query(
         "INSERT INTO catalog_cache_entries (
             cache_key,

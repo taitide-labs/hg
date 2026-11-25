@@ -640,6 +640,10 @@ fn dispatch_api_route(method: &str, path_with_query: &str, base_url: &str) -> (u
 
     match (method, path) {
         ("GET", "/api/home") => (200, home_payload(base_url)),
+        ("GET", "/api/home/latest") => (
+            200,
+            paged_videos_payload(base_url, "sort=new&page=1&size=20", None),
+        ),
         ("GET", "/api/site/categories/video") => (200, categories_payload()),
         ("GET", "/api/tags") => (200, tags_payload()),
         ("GET", "/api/search/hot") => (200, hot_keywords_payload()),

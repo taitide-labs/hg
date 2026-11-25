@@ -6,7 +6,8 @@ use super::super::store::{self, EpisodeCommentsState, MobileDetailTab};
 use super::command::{episode_segment_ranges, folded_episode_window, nickname_initial};
 use super::handler;
 use crate::ui::button::{
-    ButtonVariant, ControlSize, app_button, app_icon_text_button, text_link_button,
+    ButtonVariant, ControlSize, app_button, app_icon_text_button, app_reactive_button,
+    text_link_button,
 };
 use crate::ui::icons::IconKind;
 use crate::ui::surface::{BadgeTone, avatar_circle, badge, separator};
@@ -48,7 +49,7 @@ pub fn desktop_action_row() -> impl IntoElement {
         ))
 }
 
-pub fn desktop_info_feed() -> impl IntoElement {
+pub fn desktop_info_feed(on_select_tag: impl Fn(String) + Copy + 'static) -> impl IntoElement {
     view()
         .w(px(356.0))
         .flex_shrink_0()
@@ -70,7 +71,7 @@ pub fn desktop_info_feed() -> impl IntoElement {
                     view()
                         .p_4()
                         .gap_4()
-                        .child(synopsis_block())
+                        .child(synopsis_block(on_select_tag))
                         .child(separator())
                         .child(episodes_block())
                         .child(separator())
@@ -79,7 +80,7 @@ pub fn desktop_info_feed() -> impl IntoElement {
         )
 }
 
-pub fn mobile_detail_sheet() -> impl IntoElement {
+pub fn mobile_detail_sheet(on_select_tag: impl Fn(String) + Copy + 'static) -> impl IntoElement {
     let tab_sig = store::mobile_tab_signal();
     let tabs = vec![
         (MobileDetailTab::Info, "简介"),
@@ -111,7 +112,7 @@ pub fn mobile_detail_sheet() -> impl IntoElement {
                 .child(dynamic(move || match tab_sig.get() {
                     MobileDetailTab::Info => view()
                         .gap_4()
-                        .child(synopsis_block())
+                        .child(synopsis_block(on_select_tag))
                         .child(desktop_action_row())
                         .child(separator())
                         .child(episodes_block())
@@ -126,10 +127,10 @@ fn should_load_more_on_scroll(e: &ScrollEvent) -> bool {
         && e.offset.y + e.size.height >= e.content_size.height - px(COMMENTS_SCROLL_THRESHOLD_PX)
 }
 
-fn synopsis_block() -> impl IntoElement {
+fn synopsis_block(on_select_tag: impl Fn(String) + Copy + 'static) -> impl IntoElement {
     let detail_sig = computed(|| store::snapshot().detail);
     dynamic(move || match detail_sig.get() {
-        Some(detail) => synopsis_section(&detail).into_element(),
+        Some(detail) => synopsis_section(&detail, on_select_tag).into_element(),
         None => view().into_element(),
     })
 }
@@ -157,7 +158,10 @@ fn comments_block() -> impl IntoElement {
     dynamic(move || comments_section(&comments_sig.get()).into_element())
 }
 
-fn synopsis_section(detail: &SeriesDetail) -> impl IntoElement {
+fn synopsis_section(
+    detail: &SeriesDetail,
+    on_select_tag: impl Fn(String) + Copy + 'static,
+) -> impl IntoElement {
     let status = if detail.summary.is_finished {
         format!("全 {} 集 · 已完结", detail.total_episodes)
     } else {
@@ -167,7 +171,14 @@ fn synopsis_section(detail: &SeriesDetail) -> impl IntoElement {
 
     let mut tag_row = view().flex_row().flex_wrap().gap_1p5();
     for tag in &detail.summary.tags {
-        tag_row = tag_row.child(badge(tag.clone(), BadgeTone::Neutral));
+        let label = tag.clone();
+        let target = tag.clone();
+        tag_row = tag_row.child(app_button(
+            label,
+            ButtonVariant::Secondary,
+            ControlSize::Sm,
+            move || on_select_tag(target.clone()),
+        ));
     }
 
     view()
@@ -219,14 +230,17 @@ fn episodes_section(
             continue;
         }
         let ep_num = ep.ep_num;
-        let variant = if current == num {
-            ButtonVariant::Primary
-        } else {
-            ButtonVariant::Secondary
-        };
-        grid = grid.child(view().w(px(72.0)).child(app_button(
+        grid = grid.child(view().w(px(72.0)).child(app_reactive_button(
             format!("{num}"),
-            variant,
+            move || {
+                if current == num {
+                    ButtonVariant::Primary
+                } else if store::is_episode_watched(ep_num) {
+                    ButtonVariant::Watched
+                } else {
+                    ButtonVariant::Secondary
+                }
+            },
             ControlSize::Sm,
             move || handler::switch_episode(ep_num),
         )));

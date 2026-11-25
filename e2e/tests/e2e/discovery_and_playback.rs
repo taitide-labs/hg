@@ -27,7 +27,26 @@ fn discovery_search_player_replies_seek_and_watchlist_persistence_flow() {
 }
 
 fn discover_and_search(harness: &mut E2eHarness) {
-    harness.app.wait_for("精选推荐").expect("home loaded");
+    harness.app.wait_for("最近更新").expect("home loaded");
+    let feed = harness
+        .block_on(harness.gateway.home_feed())
+        .expect("query home feed through local gateway");
+    assert!(
+        !feed.latest.is_empty(),
+        "home feed latest should not be empty"
+    );
+    for item in &feed.latest {
+        assert!(
+            item.cover_url.starts_with("http://127.0.0.1:") && item.cover_url.contains("/cover/"),
+            "latest cover_url must route through loopback proxy, got {}",
+            item.cover_url
+        );
+    }
+    let first_cover = &feed.latest.first().expect("latest non-empty").cover_url;
+    let cover_status = harness
+        .fetch_status(first_cover)
+        .expect("fetch proxied latest cover");
+    assert_eq!(cover_status.as_u16(), 200);
     harness
         .app
         .wait_for("夜雨长灯")

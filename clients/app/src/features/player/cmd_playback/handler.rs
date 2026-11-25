@@ -2,11 +2,16 @@ use std::num::{NonZeroU16, NonZeroU32};
 
 use hg_contracts::catalog::ListEpisodeCommentsRequest;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, PageRequest, SeriesId};
-use hg_contracts::viewing::{PlaybackMode, PlaybackOrigin, ReportWatchProgressRequest};
+use hg_contracts::viewing::{
+    PlaybackMode, PlaybackOrigin, ReportWatchProgressRequest, WatchProgress,
+};
 use nsh_core::prelude::*;
 
 use super::super::store;
-use super::command::{adjacent_episode, clamp_seek, resume_plan, step_rate, step_volume};
+use super::command::{
+    adjacent_episode, clamp_seek, episode_switch_resume_secs, is_tail_completed, resume_plan,
+    step_rate, step_volume,
+};
 use crate::gateway;
 
 const COMMENTS_PAGE_SIZE: u16 = 20;
@@ -31,6 +36,7 @@ pub fn open_series(
 
         let detail_res = gw.series_detail(series_id).await;
         let is_bookmarked = gw.is_bookmarked(series_id).await.unwrap_or(false);
+        let ep_progress = gw.episode_progress(series_id).await.unwrap_or_default();
         let last_watched = gw.watch_history().await.ok().and_then(|entries| {
             entries
                 .into_iter()
@@ -48,17 +54,12 @@ pub fn open_series(
         }
         match detail_res {
             Ok(detail) => {
+                store::hydrate_episode_progress(ep_progress);
                 let plan = resume_plan(initial_episode, last_watched, detail.total_episodes);
                 if !store::set_detail_if_seq(seq, detail, is_bookmarked) {
                     return;
                 }
-                load_episode_internal(series_id, plan.episode, seq).await;
-                if store::current_episode_seq() == seq
-                    && let Some(position) = plan.position_secs
-                {
-                    store::seek_to(position);
-                    store::mark_progress_reported(position);
-                }
+                load_episode_internal(series_id, plan.episode, seq, plan.position_secs).await;
             }
             Err(err) => store::set_error_if_seq(seq, err.to_string()),
         }
@@ -66,12 +67,37 @@ pub fn open_series(
 }
 
 pub fn switch_episode(ep_num: EpisodeNumber) {
-    let Some(series_id) = store::snapshot_untracked().detail.map(|d| d.summary.id) else {
+    let snap = store::snapshot_untracked();
+    let Some(detail) = snap.detail else {
         return;
     };
-    let seq = store::bump_episode_seq();
+    let series_id = detail.summary.id;
+    if let Some(prev_ep) = snap.current_episode
+        && prev_ep != ep_num
+        && store::is_playback_seq_active()
+    {
+        let progress = store::progress_untracked();
+        if progress.position_secs > 0 {
+            let completed = is_tail_completed(progress.position_secs, progress.duration_secs);
+            store::record_episode_progress_local(WatchProgress {
+                key: EpisodeKey::new(series_id, prev_ep),
+                position_secs: progress.position_secs,
+                duration_secs: progress.duration_secs,
+                completed,
+            });
+            report_progress_async(
+                series_id,
+                prev_ep,
+                progress.position_secs,
+                progress.duration_secs,
+            );
+        }
+    }
+    let resume_pos =
+        episode_switch_resume_secs(store::episode_progress_for_untracked(ep_num).as_ref());
+    let seq = store::begin_episode_switch();
     spawn(async move {
-        load_episode_internal(series_id, ep_num, seq).await;
+        load_episode_internal(series_id, ep_num, seq, resume_pos).await;
     });
 }
 
@@ -121,17 +147,25 @@ pub fn on_playback_progress(position_secs: u32, duration_secs: u32) {
         return;
     };
     let progress = store::progress_untracked();
+    let total_dur = progress.duration_secs.max(duration_secs);
+    let completed = is_tail_completed(position_secs, total_dur);
+    let next_progress = WatchProgress {
+        key: EpisodeKey::new(detail.summary.id, ep_num),
+        position_secs,
+        duration_secs: total_dur,
+        completed,
+    };
     let should_report = progress
         .last_reported_secs
         .is_none_or(|prev| position_secs.abs_diff(prev) >= 5);
-    if should_report {
+    let prev_progress = store::episode_progress_for_untracked(ep_num);
+    let was_completed = prev_progress.is_some_and(|p| p.completed);
+    let was_watched = prev_progress.is_some_and(store::is_progress_watched);
+    let now_watched = store::is_progress_watched(next_progress);
+    if should_report || (completed && !was_completed) || (now_watched && !was_watched) {
+        store::record_episode_progress_local(next_progress);
         store::mark_progress_reported(position_secs);
-        report_progress_async(
-            detail.summary.id,
-            ep_num,
-            position_secs,
-            progress.duration_secs.max(duration_secs),
-        );
+        report_progress_async(detail.summary.id, ep_num, position_secs, total_dur);
     }
 }
 
@@ -146,6 +180,12 @@ pub fn on_playback_ended() {
     let progress = store::progress_untracked();
     let final_pos = progress.duration_secs.max(progress.position_secs);
     let _ = store::update_playback_progress(final_pos, final_pos);
+    store::record_episode_progress_local(WatchProgress {
+        key: EpisodeKey::new(detail.summary.id, ep_num),
+        position_secs: final_pos,
+        duration_secs: final_pos,
+        completed: true,
+    });
     store::mark_progress_reported(final_pos);
     report_progress_async(detail.summary.id, ep_num, final_pos, final_pos);
 
@@ -154,9 +194,9 @@ pub fn on_playback_ended() {
     } else if snap.auto_advance
         && let Some(next_ep) = adjacent_episode(ep_num, detail.total_episodes, true)
     {
-        let next_seq = store::bump_episode_seq();
+        let next_seq = store::begin_episode_switch();
         spawn(async move {
-            load_episode_internal(detail.summary.id, next_ep, next_seq).await;
+            load_episode_internal(detail.summary.id, next_ep, next_seq, None).await;
         });
     }
 }
@@ -268,10 +308,6 @@ pub fn cleanup_on_exit() {
     store::pause_and_cancel_loads();
 }
 
-pub fn pause_on_background() {
-    store::set_paused(true);
-}
-
 fn report_progress_async(
     series_id: SeriesId,
     ep_num: EpisodeNumber,
@@ -289,7 +325,12 @@ fn report_progress_async(
     });
 }
 
-async fn load_episode_internal(series_id: SeriesId, ep_num: EpisodeNumber, seq: u64) {
+async fn load_episode_internal(
+    series_id: SeriesId,
+    ep_num: EpisodeNumber,
+    seq: u64,
+    resume_secs: Option<u32>,
+) {
     if store::current_episode_seq() != seq {
         return;
     }
@@ -306,6 +347,13 @@ async fn load_episode_internal(series_id: SeriesId, ep_num: EpisodeNumber, seq: 
         Ok(source) => {
             if !store::set_source_if_seq(seq, ep_num, source) {
                 return;
+            }
+            if store::current_episode_seq() == seq
+                && let Some(pos) = resume_secs
+                && pos > 0
+            {
+                store::seek_to(pos);
+                store::mark_progress_reported(pos);
             }
         }
         Err(err) => {

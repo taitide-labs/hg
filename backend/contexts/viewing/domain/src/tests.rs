@@ -123,6 +123,18 @@ fn validates_playback_preference_and_plans_lru_eviction() {
     };
     assert!(validate_playback_preference(&bad_sidebar).is_err());
 
+    let bad_window = PlaybackPreference {
+        window_placement: Some(hg_contracts::viewing::WindowPlacementPref {
+            mode: hg_contracts::viewing::WindowPlacementMode::FullScreen,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 900,
+        }),
+        ..PlaybackPreference::default()
+    };
+    assert!(validate_playback_preference(&bad_window).is_err());
+
     let segments = vec![
         CachedSegmentMeta {
             segment_key: "seg-1".to_owned(),

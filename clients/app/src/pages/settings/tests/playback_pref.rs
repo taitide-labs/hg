@@ -24,19 +24,20 @@ fn settings_playback_preference_layout_and_all_controls_persist_to_gateway() {
     assert_left_aligned(&app, "text:默认倍速", "text:在线播放缓存上限", 2.0);
     assert_same_height(&app, "text:清晰度优先档位", "text:默认倍速", 2.0);
 
-    let light_fg = app.screen().span_style("外观 >> nth=0").unwrap().color;
-    app.press("深色").unwrap();
-    app.wait(Duration::from_millis(50)).unwrap();
     assert_eq!(gw.snapshot_preference().appearance, AppAppearance::Dark);
     let dark_fg = app.screen().span_style("外观 >> nth=0").unwrap().color;
-    assert_ne!(
-        dark_fg, light_fg,
-        "switching to dark appearance must update rendered theme colors"
-    );
-
     app.press("浅色").unwrap();
     app.wait(Duration::from_millis(50)).unwrap();
     assert_eq!(gw.snapshot_preference().appearance, AppAppearance::Light);
+    let light_fg = app.screen().span_style("外观 >> nth=0").unwrap().color;
+    assert_ne!(
+        dark_fg, light_fg,
+        "switching between dark and light appearance must update rendered theme colors"
+    );
+
+    app.press("深色").unwrap();
+    app.wait(Duration::from_millis(50)).unwrap();
+    assert_eq!(gw.snapshot_preference().appearance, AppAppearance::Dark);
 
     app.press("标准兼容").unwrap();
     app.wait(Duration::from_millis(50)).unwrap();

@@ -26,6 +26,15 @@ pub fn home_feed_route() -> UpstreamRoute {
 }
 
 #[must_use]
+pub fn home_latest_route() -> UpstreamRoute {
+    UpstreamRoute {
+        path: "/api/home/latest".to_owned(),
+        scope: EdgeChannelScope::Public,
+        ttl_secs: Some(CATALOG_LIST_CACHE_TTL_SECS),
+    }
+}
+
+#[must_use]
 pub fn categories_route() -> UpstreamRoute {
     UpstreamRoute {
         path: "/api/site/categories/video".to_owned(),

@@ -1,15 +1,204 @@
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
+
 use hg_contracts::catalog::SeriesSummary;
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
+use super::store::{self, SeriesWatchStatus, WatchedSeriesSnapshot};
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
-use crate::ui::poster::{SeriesCardProps, series_card};
+use crate::ui::platform::is_desktop;
+use crate::ui::poster::{
+    PosterWatchStatus, RankingCardProps, SeriesCardProps, SeriesFlags, series_card,
+};
 use crate::ui::surface::empty_state;
 use crate::ui::token;
 
-pub fn series_grid(
+pub const DESKTOP_CARD_MIN_WIDTH: f32 = 236.0;
+pub const DESKTOP_MAX_COLUMNS: f32 = 6.0;
+pub const DESKTOP_GRID_GAP: f32 = 12.0;
+pub const MOBILE_CARD_MIN_WIDTH: f32 = 152.0;
+pub const MOBILE_GRID_GAP: f32 = 12.0;
+
+#[must_use]
+pub fn series_grid_columns_for_width(inner_width: f32) -> usize {
+    grid_columns_for(inner_width, is_desktop())
+}
+
+#[must_use]
+pub fn ranking_grid_columns_for_width(container_width: f32) -> usize {
+    if container_width >= 1360.0 {
+        3
+    } else if container_width >= 700.0 {
+        2
+    } else {
+        1
+    }
+}
+
+fn grid_columns_for(inner_width: f32, desktop_tracks: bool) -> usize {
+    let (min_w, gap, max_cols) = if desktop_tracks {
+        (
+            DESKTOP_CARD_MIN_WIDTH,
+            DESKTOP_GRID_GAP,
+            DESKTOP_MAX_COLUMNS,
+        )
+    } else {
+        (MOBILE_CARD_MIN_WIDTH, MOBILE_GRID_GAP, 4.0)
+    };
+    ((inner_width + gap) / (min_w + gap))
+        .floor()
+        .clamp(2.0, max_cols) as usize
+}
+
+#[must_use]
+pub fn shelf_card_width(inner_width: f32, cols: usize) -> f32 {
+    let gap = if is_desktop() {
+        DESKTOP_GRID_GAP
+    } else {
+        MOBILE_GRID_GAP
+    };
+    let count = cols.max(2) as f32;
+    ((inner_width - gap * (count - 1.0)) / count).max(MOBILE_CARD_MIN_WIDTH)
+}
+
+fn visible_grid_rows(viewport_width: f32, viewport_height: f32) -> (u32, u32) {
+    let desktop_tracks = viewport_width >= 760.0;
+    let inner_w = (viewport_width - 48.0).max(0.0);
+    let cols = (grid_columns_for(inner_w, desktop_tracks) as u32).max(2);
+    let gap = if desktop_tracks {
+        DESKTOP_GRID_GAP
+    } else {
+        MOBILE_GRID_GAP
+    };
+    let col_w = ((inner_w - gap * (cols.saturating_sub(1) as f32)) / (cols as f32)).max(152.0);
+    let card_h = col_w * 1.4 + 66.0 + gap;
+    let rows = (viewport_height / card_h).ceil().max(2.0) as u32;
+    (cols, rows)
+}
+
+#[must_use]
+pub fn adaptive_page_size(viewport_width: f32, viewport_height: f32, is_ranking: bool) -> u16 {
+    if is_ranking {
+        let cols = ranking_grid_columns_for_width(viewport_width.max(0.0)) as u32;
+        let visible_rows = (viewport_height / 132.0).ceil().max(4.0) as u32;
+        let aligned = cols.saturating_mul(visible_rows.saturating_mul(2));
+        return u16::try_from(aligned.clamp(24, 60)).unwrap_or(60);
+    }
+    let (cols, visible_rows) = visible_grid_rows(viewport_width, viewport_height);
+    let desired_rows = visible_rows.saturating_mul(2).max(4);
+    let aligned = cols.saturating_mul(desired_rows);
+    u16::try_from(aligned.clamp(24, 60)).unwrap_or(60)
+}
+
+#[must_use]
+pub fn min_items_to_fill_viewport(
+    viewport_width: f32,
+    viewport_height: f32,
+    is_ranking: bool,
+) -> usize {
+    if is_ranking {
+        let cols = ranking_grid_columns_for_width(viewport_width.max(0.0));
+        let visible_rows = (viewport_height / 132.0).ceil().max(2.0) as usize;
+        return cols.saturating_mul(visible_rows.saturating_add(1));
+    }
+    let (cols, visible_rows) = visible_grid_rows(viewport_width, viewport_height);
+    (cols as usize).saturating_mul((visible_rows as usize).saturating_add(1))
+}
+
+pub async fn sync_watched_series() {
+    if let Ok(history) = crate::gateway::current().watch_history().await {
+        let watched: HashMap<SeriesId, WatchedSeriesSnapshot> = history
+            .into_iter()
+            .map(|entry| {
+                let over_80 = entry.episode_completed
+                    || (entry.duration_secs > 0
+                        && u64::from(entry.position_secs).saturating_mul(100)
+                            > u64::from(entry.duration_secs).saturating_mul(80));
+                (
+                    entry.series_id,
+                    WatchedSeriesSnapshot {
+                        last_episode: entry.last_episode.get(),
+                        recorded_total_episodes: entry.total_episodes,
+                        episode_over_80: over_80,
+                    },
+                )
+            })
+            .collect();
+        store::set_watched_series(watched);
+    }
+}
+
+#[must_use]
+pub fn series_flags(item: &SeriesSummary) -> SeriesFlags {
+    SeriesFlags {
+        is_original: item.is_original,
+        is_hot: item.is_hot,
+        is_new: item.is_new,
+    }
+}
+
+#[must_use]
+pub fn series_card_props(item: &SeriesSummary) -> SeriesCardProps {
+    SeriesCardProps {
+        id: item.id.get(),
+        title: item.title.clone(),
+        cover_url: item.cover_url.clone(),
+        score: item.score,
+        tags: item.tags.clone(),
+        episode_count: item.episode_count,
+        is_finished: item.is_finished,
+        flags: series_flags(item),
+    }
+}
+
+#[must_use]
+pub fn ranking_card_props(entry: &hg_contracts::catalog::RankingEntry) -> RankingCardProps {
+    let meta = format!(
+        "{:.1} 分 · {} · {} 集",
+        entry.series.score,
+        entry.series.tags.join(" · "),
+        entry.series.episode_count
+    );
+    let description =
+        (!entry.series.description.is_empty()).then(|| entry.series.description.clone());
+    RankingCardProps {
+        id: entry.series.id.get(),
+        rank: entry.rank,
+        title: entry.series.title.clone(),
+        cover_url: entry.series.cover_url.clone(),
+        flags: series_flags(&entry.series),
+        meta,
+        description,
+    }
+}
+
+fn watch_status_for_raw_id(id: u64, episode_count: u32) -> PosterWatchStatus {
+    let Ok(series_id) = SeriesId::try_from(id) else {
+        return PosterWatchStatus::Unwatched;
+    };
+    match store::series_watch_status(series_id, episode_count) {
+        SeriesWatchStatus::Unwatched => PosterWatchStatus::Unwatched,
+        SeriesWatchStatus::AllWatched => PosterWatchStatus::AllWatched,
+        SeriesWatchStatus::UpdatedAfterWatching => PosterWatchStatus::UpdatedAfterWatching,
+    }
+}
+
+pub fn series_card_reactive(
+    item: Memo<Option<SeriesCardProps>>,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    series_card(item, watch_status_for_raw_id, move |raw_id| {
+        if let Ok(series_id) = SeriesId::try_from(raw_id) {
+            on_open_series(series_id);
+        }
+    })
+}
+
+pub fn series_horizontal_shelf(
     items: Vec<SeriesSummary>,
+    card_width: Memo<f32>,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     if items.is_empty() {
@@ -22,39 +211,70 @@ pub fn series_grid(
         .into_element();
     }
 
-    let mut grid = view()
-        .w_full()
-        .grid()
-        .grid_template_columns("repeat(auto-fill, minmax(156px, 1fr))")
-        .gap_4();
-    for (index, item) in items.into_iter().enumerate() {
-        let id = item.id;
-        let status = if item.is_finished {
-            format!("全 {} 集", item.episode_count)
-        } else {
-            format!("更新至 {} 集", item.episode_count)
-        };
-        let subtitle = item.tags.join(" · ");
-        grid = grid.child(series_card(
-            SeriesCardProps {
-                title: item.title,
-                cover_url: item.cover_url,
-                score: item.score,
-                subtitle,
-                episode_label: status,
-                badge_text: item.badge,
-                index,
-            },
-            move || on_open_series(id),
-        ));
+    let mut row = view().flex_row().items_start().gap_3();
+    for item in items {
+        let props = series_card_props(&item);
+        let item_memo = computed(move || Some(props.clone()));
+        row = row.child(
+            view()
+                .w(move || px(card_width.get()))
+                .flex_shrink_0()
+                .child(series_card_reactive(item_memo, on_open_series)),
+        );
     }
-    grid.into_element()
+    scroll()
+        .w_full()
+        .horizontal()
+        .scrollbar(false)
+        .child(row)
+        .into_element()
 }
 
-pub fn dedup_append<T, K: Eq>(existing: &mut Vec<T>, incoming: Vec<T>, key: impl Fn(&T) -> K) {
+pub fn virtual_series_grid(
+    count: impl Fn() -> usize + Copy + 'static,
+    keys: impl Fn() -> Vec<SeriesId> + Copy + 'static,
+    item_at: impl Fn(usize) -> Option<SeriesSummary> + Copy + 'static,
+    columns: impl Fn() -> u32 + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    on_load_more: impl Fn() + Copy + 'static,
+    empty_view: impl Fn() -> AnyElement + Copy + 'static,
+) -> VirtualList {
+    let gap = if is_desktop() {
+        DESKTOP_GRID_GAP
+    } else {
+        MOBILE_GRID_GAP
+    };
+    let estimated_h = if is_desktop() { 430.0 } else { 290.0 };
+    let cols_memo = computed(columns);
+    let keys_memo = computed(keys);
+
+    virtual_list(count, move |at: Position| {
+        let item = computed(move || item_at(at.index()).map(|s| series_card_props(&s)));
+        series_card_reactive(item, on_open_series)
+    })
+    .keys(move || keys_memo.get())
+    .columns(cols_memo)
+    .row_gap(px(gap))
+    .column_gap(px(gap))
+    .content_padding(px(24.0))
+    .estimated_item_size(px(estimated_h))
+    .load_more_threshold(1.0)
+    .on_load_more(on_load_more)
+    .empty(dynamic(empty_view))
+    .flex_1()
+    .w_full()
+    .min_h_0()
+}
+
+pub fn dedup_append<T, K: Eq + Hash>(
+    existing: &mut Vec<T>,
+    incoming: Vec<T>,
+    key: impl Fn(&T) -> K,
+) {
+    let mut seen: HashSet<K> = existing.iter().map(&key).collect();
     for item in incoming {
         let k = key(&item);
-        if !existing.iter().any(|cur| key(cur) == k) {
+        if seen.insert(k) {
             existing.push(item);
         }
     }
@@ -63,6 +283,7 @@ pub fn dedup_append<T, K: Eq>(existing: &mut Vec<T>, incoming: Vec<T>, key: impl
 pub fn pagination_footer(
     loading_more: bool,
     load_more_error: Option<String>,
+    all_loaded: bool,
     on_retry: impl Fn() + 'static,
 ) -> impl IntoElement {
     if loading_more {
@@ -93,6 +314,15 @@ pub fn pagination_footer(
                 ControlSize::Sm,
                 on_retry,
             ))
+            .into_element();
+    }
+
+    if all_loaded {
+        return view()
+            .w_full()
+            .py_4()
+            .items_center()
+            .child(text("已全部加载").text_xs().text_color(token::muted_fg))
             .into_element();
     }
 

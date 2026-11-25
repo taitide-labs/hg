@@ -7,22 +7,49 @@ use hg_contracts::error::ContractError;
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::dedup_append;
+use super::super::parts::{
+    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_watched_series,
+};
 use super::super::store::{self, SearchTarget};
 use crate::gateway;
 
-const SEARCH_PAGE_SIZE: u16 = 24;
-
 fn page_request(page: u32) -> PageRequest {
+    let (w, h) = store::viewport_size_untracked();
+    let size = adaptive_page_size(w, h, false);
     PageRequest::new(
         NonZeroU32::new(page.max(1)).unwrap_or(NonZeroU32::MIN),
-        NonZeroU16::new(SEARCH_PAGE_SIZE).unwrap_or(NonZeroU16::MIN),
+        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
     )
+}
+
+pub fn ensure_viewport_filled() {
+    let (w, h) = store::viewport_size_untracked();
+    let needs_more = store::search_state().with_untracked(|s| {
+        if s.loading
+            || s.loading_more
+            || s.error.is_some()
+            || s.load_more_error.is_some()
+            || s.target.is_none()
+        {
+            return false;
+        }
+        let Some(page_info) = s.pagination else {
+            return false;
+        };
+        if page_info.page >= page_info.pages {
+            return false;
+        }
+        s.items.len() < min_items_to_fill_viewport(w, h, false)
+    });
+    if needs_more {
+        load_next_search_page();
+    }
 }
 
 pub fn init_search_page() {
     let gw = gateway::current();
     spawn(async move {
+        sync_watched_series().await;
         let groups = gw.tag_groups().await.unwrap_or_default();
         let keywords = gw.hot_keywords().await.unwrap_or_default();
         store::set_browse_meta(groups, keywords);
@@ -35,9 +62,21 @@ pub fn init_search_page() {
 }
 
 pub fn clear_results() {
+    reset_search_state(false);
+}
+
+pub fn reset_on_leave() {
+    store::search_input_signal().set(String::new());
+    reset_search_state(true);
+}
+
+fn reset_search_state(reset_sort: bool) {
     store::search_state().update(|s| {
         s.request_seq = s.request_seq.wrapping_add(1);
         s.target = None;
+        if reset_sort {
+            s.sort = SeriesSort::Hot;
+        }
         s.items.clear();
         s.pagination = None;
         s.loading = false;
@@ -91,13 +130,22 @@ pub fn submit_keyword(raw: &str) {
 
 pub fn toggle_tag(slug: String, name: String) {
     let is_already_active = store::search_state().with_untracked(
-        |s| matches!(&s.target, Some(SearchTarget::Tag { slug: current, .. }) if *current == slug),
+        |s| matches!(&s.target, Some(SearchTarget::Tag { name: current, .. }) if *current == name),
     );
     if is_already_active {
         clear_results();
         return;
     }
 
+    select_tag_internal(slug, name);
+}
+
+pub fn activate_tag(name: String) {
+    store::search_input_signal().set(String::new());
+    select_tag_internal(name.clone(), name);
+}
+
+fn select_tag_internal(slug: String, name: String) {
     let mut seq = 0;
     let mut sort = SeriesSort::Hot;
     store::search_state().update(|s| {
@@ -223,9 +271,9 @@ fn fetch_search_page(
                 gw.search_series(SearchSeriesRequest { keyword, page })
                     .await
             }
-            SearchTarget::Tag { slug, .. } => {
+            SearchTarget::Tag { name, .. } => {
                 gw.list_series(ListSeriesRequest {
-                    filter: SeriesFilter::TagSlug { slug },
+                    filter: SeriesFilter::TagSlug { slug: name },
                     sort,
                     page,
                 })
@@ -258,6 +306,7 @@ fn apply_search_result(
                 s.error = None;
                 s.load_more_error = None;
             });
+            ensure_viewport_filled();
         }
         Err(err) => {
             store::search_state().update(|s| {

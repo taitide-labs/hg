@@ -16,7 +16,7 @@ use hg_contracts::offline::{
 };
 use hg_contracts::viewing::{
     PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry,
+    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry, WatchProgress,
 };
 use hg_runtime::catalog::upstream::{CatalogUpstream, EdgeCatalogUpstream};
 use hg_runtime::catalog::{cmd_playback_and_cache, qry_discovery, qry_series_detail};
@@ -443,6 +443,11 @@ impl AppGateway for LocalGateway {
         })
     }
 
+    fn episode_progress(&self, series_id: SeriesId) -> GatewayFuture<Vec<WatchProgress>> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move { qry_watch_history::episode_progress(&viewing, series_id).await })
+    }
+
     fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
         let viewing = self.contexts.viewing.clone();
         self.dispatch(async move {
@@ -625,6 +630,7 @@ fn rewrite_home_feed_covers(loopback: &LoopbackProxyHandle, feed: &mut HomeFeed)
     for banner in &mut feed.banners {
         banner.image_url = loopback.cover_proxy_url(&banner.image_url);
     }
+    rewrite_series_summaries(loopback, &mut feed.latest);
     rewrite_series_summaries(loopback, &mut feed.featured);
     for section in &mut feed.category_recommendations {
         rewrite_series_summaries(loopback, &mut section.items);
