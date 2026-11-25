@@ -35,6 +35,16 @@ pub fn card_fg() -> AdaptiveColor {
 }
 
 #[must_use]
+pub fn popover() -> AdaptiveColor {
+    theme().popover
+}
+
+#[must_use]
+pub fn popover_fg() -> AdaptiveColor {
+    theme().popover_foreground
+}
+
+#[must_use]
 pub fn primary() -> AdaptiveColor {
     theme().primary
 }

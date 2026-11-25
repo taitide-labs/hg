@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
+    Category, CommentReply, EpisodeComment, HomeFeed, HomeSnapshot, HotKeyword, HotTag,
     ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
     PagedResult, RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesDetail, SeriesSummary,
     TagGroup,
@@ -15,8 +15,9 @@ use hg_contracts::offline::{
     EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView,
 };
 use hg_contracts::viewing::{
-    PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry, WatchProgress,
+    DislikedSeriesEntry, PlaybackPreference, PlaybackSource, ReportWatchProgressRequest,
+    ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark, StorageOverview,
+    WatchHistoryEntry, WatchProgress,
 };
 use hg_runtime::catalog::upstream::{CatalogUpstream, EdgeCatalogUpstream};
 use hg_runtime::catalog::{cmd_playback_and_cache, qry_discovery, qry_series_detail};
@@ -301,6 +302,21 @@ impl Drop for LocalGateway {
 }
 
 impl AppGateway for LocalGateway {
+    fn cached_home_snapshot(&self) -> GatewayFuture<Option<HomeSnapshot>> {
+        let catalog = self.contexts.catalog.clone();
+        let loopback = self.runtime.loopback().clone();
+        self.dispatch(async move {
+            let Some(mut snapshot) = qry_discovery::cached_home_snapshot(&catalog).await else {
+                return Ok(None);
+            };
+            rewrite_home_feed_covers(&loopback, &mut snapshot.feed);
+            for entry in &mut snapshot.rankings {
+                entry.series.cover_url = loopback.cover_proxy_url(&entry.series.cover_url);
+            }
+            Ok(Some(snapshot))
+        })
+    }
+
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
         let catalog = self.contexts.catalog.clone();
         let loopback = self.runtime.loopback().clone();
@@ -493,6 +509,46 @@ impl AppGateway for LocalGateway {
         self.dispatch(async move {
             cmd_watchlist_and_settings::unbookmark_series(&viewing, series_id).await
         })
+    }
+
+    fn disliked_series(&self) -> GatewayFuture<Vec<DislikedSeriesEntry>> {
+        let viewing = self.contexts.viewing.clone();
+        let loopback = self.contexts.viewing.loopback.clone();
+        self.dispatch(async move {
+            let mut entries = qry_watchlist_and_settings::disliked_series(&viewing).await?;
+            for entry in &mut entries {
+                entry.cover_url = loopback.cover_proxy_url(&entry.cover_url);
+            }
+            Ok(entries)
+        })
+    }
+
+    fn is_disliked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { qry_watchlist_and_settings::is_disliked(&viewing, series_id).await },
+        )
+    }
+
+    fn dislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::dislike_series(&viewing, series_id).await
+        })
+    }
+
+    fn undislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(async move {
+            cmd_watchlist_and_settings::undislike_series(&viewing, series_id).await
+        })
+    }
+
+    fn clear_disliked_series(&self) -> GatewayFuture<()> {
+        let viewing = self.contexts.viewing.clone();
+        self.dispatch(
+            async move { cmd_watchlist_and_settings::clear_disliked_series(&viewing).await },
+        )
     }
 
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {

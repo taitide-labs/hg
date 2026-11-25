@@ -6,7 +6,6 @@ use hg_contracts::error::ContractError;
 use hg_gateway::mock::MockGateway;
 use nsh_core::prelude::px;
 use nsh_engine::ColorScheme;
-use nsh_testing::DialogAnswer;
 
 use crate::pages::search::page::search_page;
 use crate::pages::tests::{
@@ -60,17 +59,20 @@ fn search_page_keyword_hot_word_history_crud_and_tag_toggle_matrix() {
             .any(|entry| entry.keyword == "千金")
     );
 
-    app.on_dialog(|_| DialogAnswer::Press("取消".to_owned()));
     app.press("label:清空搜索历史").unwrap();
-    app.wait(Duration::from_millis(40)).unwrap();
+    app.wait_for("确认清空").unwrap();
+    app.press("取消").unwrap();
+    app.wait_for_gone("确认清空", Duration::from_secs(2))
+        .unwrap();
     assert!(
         app.screen().shows("搜索历史"),
-        "cancelling clear search history dialog must preserve history"
+        "cancelling clear search history popover must preserve history"
     );
     assert!(!gw.snapshot_search_history().is_empty());
 
-    app.on_dialog(|_| DialogAnswer::Press("清空".to_owned()));
     app.press("label:清空搜索历史").unwrap();
+    app.wait_for("确认清空").unwrap();
+    app.press("确认清空").unwrap();
     app.wait_for_gone("搜索历史", Duration::from_secs(2))
         .unwrap();
     assert!(gw.snapshot_search_history().is_empty());
@@ -167,7 +169,7 @@ fn search_page_ignores_stale_keyword_response() {
     let slow_first = gw.queue_method_gate("search_series");
     app.type_text("text:搜索剧名、标签...", "暗夜").unwrap();
     app.press("label:执行搜索").unwrap();
-    app.wait_for("正在搜索...").unwrap();
+    app.wait_for("label:搜索结果加载占位").unwrap();
 
     app.press("千金归来").unwrap();
     app.wait_for("云端之上：千金归来").unwrap();
@@ -345,4 +347,39 @@ fn search_hot_keywords_and_tag_chips_match_size_and_align_with_distinct_style() 
         hot_bg, tag_bg,
         "hot keyword and category tag must differentiate by style/color instead of size"
     );
+}
+
+#[test]
+fn search_pins_input_outside_scroll_list_for_smooth_scrolling() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(48));
+    let mut app = start_on_search(gw, ColorScheme::Light);
+
+    app.type_text("text:搜索剧名、标签...", "分页剧目").unwrap();
+    app.press("执行搜索").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+
+    let input_y_before = node_bounds(&app, "执行搜索").origin.y.0;
+    app.scroll("分页剧目 01", px(600.0)).unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    let input_y_after = node_bounds(&app, "执行搜索").origin.y.0;
+    assert!(
+        (input_y_before - input_y_after).abs() <= 1.0,
+        "search input must stay pinned outside scrollable virtual_list (before={input_y_before}, after={input_y_after})"
+    );
+}
+
+#[test]
+fn search_shows_skeleton_placeholders_while_loading() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_on_search(Arc::clone(&gw), ColorScheme::Dark);
+
+    let gate = gw.queue_method_gate("search_series");
+    app.type_text("text:搜索剧名、标签...", "暗夜").unwrap();
+    app.press("执行搜索").unwrap();
+    app.wait_for("label:搜索结果加载占位").unwrap();
+
+    gate.release();
+    app.wait_for("长安暗夜行").unwrap();
+    app.wait_for_gone("label:搜索结果加载占位", Duration::from_secs(2))
+        .unwrap();
 }

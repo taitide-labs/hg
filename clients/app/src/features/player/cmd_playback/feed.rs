@@ -10,18 +10,21 @@ use crate::ui::button::{
     text_link_button,
 };
 use crate::ui::icons::IconKind;
-use crate::ui::surface::{BadgeTone, avatar_circle, badge, separator};
+use crate::ui::surface::{BadgeTone, avatar_circle, badge, comment_skeleton_list, separator};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
 const COMMENTS_SCROLL_THRESHOLD_PX: f32 = 160.0;
+const EPISODE_FOLD_THRESHOLD: u32 = 8;
 
 pub fn desktop_action_row() -> impl IntoElement {
     let bookmarked_sig = computed(|| store::snapshot().bookmarked);
+    let disliked_sig = computed(|| store::snapshot().disliked);
     view()
         .w_full()
         .flex_shrink_0()
         .flex_row()
+        .flex_wrap()
         .items_center()
         .gap_2()
         .child(dynamic(move || {
@@ -37,6 +40,22 @@ pub fn desktop_action_row() -> impl IntoElement {
                 variant,
                 ControlSize::Md,
                 handler::toggle_bookmark,
+            )
+            .into_element()
+        }))
+        .child(dynamic(move || {
+            let disliked = disliked_sig.get();
+            let (label, variant) = if disliked {
+                ("已不喜欢", ButtonVariant::Danger)
+            } else {
+                ("不喜欢", ButtonVariant::Secondary)
+            };
+            app_icon_text_button(
+                IconKind::ThumbsDown,
+                label,
+                variant,
+                ControlSize::Md,
+                handler::toggle_dislike,
             )
             .into_element()
         }))
@@ -206,6 +225,8 @@ fn episodes_section(
 ) -> impl IntoElement {
     let current = current_episode.map_or(1, EpisodeNumber::get);
     let header_title = format!("选集 ({current}/{})", detail.total_episodes);
+    let can_fold = detail.total_episodes > EPISODE_FOLD_THRESHOLD;
+    let show_expanded = expanded || !can_fold;
     let (toggle_label, toggle_a11y, toggle_icon) = if expanded {
         ("收起", "收起选集", IconKind::ChevronUp)
     } else {
@@ -214,13 +235,13 @@ fn episodes_section(
 
     let ranges = episode_segment_ranges(detail.total_episodes, 50);
     let active_seg = segment_index.min(ranges.len().saturating_sub(1));
-    let (start, end) = if expanded {
+    let (start, end) = if show_expanded {
         ranges
             .get(active_seg)
             .copied()
             .unwrap_or((1, detail.total_episodes))
     } else {
-        folded_episode_window(current, detail.total_episodes, 8)
+        folded_episode_window(current, detail.total_episodes, EPISODE_FOLD_THRESHOLD)
     };
 
     let mut grid = view().flex_row().flex_wrap().gap_2();
@@ -246,7 +267,7 @@ fn episodes_section(
         )));
     }
 
-    let show_segments = expanded && ranges.len() > 1;
+    let show_segments = show_expanded && ranges.len() > 1;
     let mut seg_row = view().flex_row().flex_wrap().gap_1p5();
     if show_segments {
         for (idx, (seg_start, seg_end)) in ranges.iter().enumerate() {
@@ -277,12 +298,14 @@ fn episodes_section(
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(token::fg),
                 )
-                .child(text_link_button(
-                    toggle_label,
-                    toggle_a11y,
-                    Some(toggle_icon),
-                    store::toggle_episodes_expanded,
-                )),
+                .children(can_fold.then(|| {
+                    text_link_button(
+                        toggle_label,
+                        toggle_a11y,
+                        Some(toggle_icon),
+                        store::toggle_episodes_expanded,
+                    )
+                })),
         )
         .children(show_segments.then_some(seg_row))
         .child(grid)
@@ -298,11 +321,7 @@ fn comments_section(comments: &EpisodeCommentsState) -> impl IntoElement {
     );
 
     if comments.loading && comments.items.is_empty() {
-        return list.child(
-            text("正在加载评论...")
-                .text_xs()
-                .text_color(token::muted_fg),
-        );
+        return list.child(comment_skeleton_list(3));
     }
 
     if comments.items.is_empty() {

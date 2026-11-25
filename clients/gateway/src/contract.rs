@@ -2,7 +2,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
+    Category, CommentReply, EpisodeComment, HomeFeed, HomeSnapshot, HotKeyword, HotTag,
     ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
     PagedResult, RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesDetail, SeriesSummary,
     TagGroup,
@@ -14,14 +14,19 @@ use hg_contracts::offline::{
     EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView,
 };
 use hg_contracts::viewing::{
-    PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry, WatchProgress,
+    DislikedSeriesEntry, PlaybackPreference, PlaybackSource, ReportWatchProgressRequest,
+    ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark, StorageOverview,
+    WatchHistoryEntry, WatchProgress,
 };
 
 pub type GatewayFuture<T> =
     Pin<Box<dyn Future<Output = Result<T, ContractError>> + Send + 'static>>;
 
 pub trait AppGateway: Send + Sync {
+    fn cached_home_snapshot(&self) -> GatewayFuture<Option<HomeSnapshot>> {
+        Box::pin(async { Ok(None) })
+    }
+
     fn home_feed(&self) -> GatewayFuture<HomeFeed>;
     fn categories(&self) -> GatewayFuture<Vec<Category>>;
     fn tag_groups(&self) -> GatewayFuture<Vec<TagGroup>>;
@@ -60,6 +65,11 @@ pub trait AppGateway: Send + Sync {
     fn is_bookmarked(&self, series_id: SeriesId) -> GatewayFuture<bool>;
     fn bookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
     fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
+    fn disliked_series(&self) -> GatewayFuture<Vec<DislikedSeriesEntry>>;
+    fn is_disliked(&self, series_id: SeriesId) -> GatewayFuture<bool>;
+    fn dislike_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
+    fn undislike_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
+    fn clear_disliked_series(&self) -> GatewayFuture<()>;
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference>;
     fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()>;
     fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>>;

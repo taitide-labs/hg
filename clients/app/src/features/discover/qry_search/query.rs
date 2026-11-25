@@ -8,7 +8,8 @@ use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_watched_series,
+    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_poster_preferences,
+    sync_watched_series,
 };
 use super::super::store::{self, SearchTarget};
 use crate::gateway;
@@ -39,7 +40,12 @@ pub fn ensure_viewport_filled() {
         if page_info.page >= page_info.pages {
             return false;
         }
-        s.items.len() < min_items_to_fill_viewport(w, h, false)
+        let visible = s
+            .items
+            .iter()
+            .filter(|item| !store::is_disliked_untracked(item.id))
+            .count();
+        visible < min_items_to_fill_viewport(w, h, false)
     });
     if needs_more {
         load_next_search_page();
@@ -47,16 +53,29 @@ pub fn ensure_viewport_filled() {
 }
 
 pub fn init_search_page() {
-    let gw = gateway::current();
+    spawn(sync_watched_series());
+    spawn(sync_poster_preferences());
+
+    let gw_hist = gateway::current();
     spawn(async move {
-        sync_watched_series().await;
-        let groups = gw.tag_groups().await.unwrap_or_default();
-        let keywords = gw.hot_keywords().await.unwrap_or_default();
-        store::set_browse_meta(groups, keywords);
-        if let Ok(history) = gw.search_history().await {
+        if let Ok(history) = gw_hist.search_history().await {
             store::search_state().update(|s| {
                 s.history = history;
             });
+        }
+    });
+
+    let gw_groups = gateway::current();
+    spawn(async move {
+        if let Ok(groups) = gw_groups.tag_groups().await {
+            store::browse_meta_state().update(|s| s.tag_groups = groups);
+        }
+    });
+
+    let gw_kw = gateway::current();
+    spawn(async move {
+        if let Ok(keywords) = gw_kw.hot_keywords().await {
+            store::browse_meta_state().update(|s| s.hot_keywords = keywords);
         }
     });
 }

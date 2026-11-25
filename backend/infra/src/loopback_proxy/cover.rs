@@ -1,5 +1,5 @@
-use std::fmt::Write as _;
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as BASE64_URL_SAFE_NO_PAD;
@@ -7,10 +7,22 @@ use bytes::Bytes;
 use http_body_util::Full;
 use hyper::header::{CACHE_CONTROL, CONTENT_TYPE};
 use hyper::{Method, Response, StatusCode};
-use sha2::{Digest as _, Sha256};
+use parking_lot::Mutex;
+use tokio::sync::Semaphore;
 
+use crate::cover_cache::{
+    CoverCacheStore, build_cover_rel_path, normalize_cover_cache_key, optimize_cover_bytes,
+};
 use crate::edge_crypto::{DEFAULT_USER_AGENT, decrypt_cover_bytes, resolve_cover_url};
 use crate::storage::StorageLayout;
+
+pub(super) struct CoverProxyContext<'a> {
+    pub(super) http_client: &'a reqwest::Client,
+    pub(super) storage: &'a Arc<StorageLayout>,
+    pub(super) cover_cache: Option<&'a CoverCacheStore>,
+    pub(super) store_limiter: &'a Arc<Semaphore>,
+    pub(super) in_flight: &'a Arc<Mutex<HashSet<String>>>,
+}
 
 pub(super) fn build_cover_proxy_url(base_url: &str, raw_cover_url: &str) -> String {
     let trimmed = raw_cover_url.trim();
@@ -23,8 +35,7 @@ pub(super) fn build_cover_proxy_url(base_url: &str, raw_cover_url: &str) -> Stri
 }
 
 pub(super) async fn proxy_cover_request(
-    http_client: &reqwest::Client,
-    storage: &StorageLayout,
+    ctx: CoverProxyContext<'_>,
     method: &Method,
     encoded: &str,
 ) -> Response<Full<Bytes>> {
@@ -32,14 +43,24 @@ pub(super) async fn proxy_cover_request(
         return empty_status(StatusCode::BAD_REQUEST);
     };
 
-    let cache_path = cover_cache_path(storage, &remote_url);
-    if let Ok(cached) = tokio::fs::read(&cache_path).await
-        && !cached.is_empty()
-    {
-        return image_response(method, cached);
+    if let Some(cache) = ctx.cover_cache {
+        if let Ok(Some(cached)) = cache.read(&remote_url).await {
+            return image_response(method, cached);
+        }
+    } else {
+        let fallback_path = ctx
+            .storage
+            .catalog_cache_dir()
+            .join(build_cover_rel_path(&remote_url));
+        if let Ok(cached) = tokio::fs::read(&fallback_path).await
+            && !cached.is_empty()
+        {
+            return image_response(method, cached);
+        }
     }
 
-    let Ok(resp) = http_client
+    let Ok(resp) = ctx
+        .http_client
         .get(&remote_url)
         .header(reqwest::header::USER_AGENT, DEFAULT_USER_AGENT)
         .send()
@@ -57,8 +78,39 @@ pub(super) async fn proxy_cover_request(
         return empty_status(StatusCode::BAD_GATEWAY);
     };
 
-    persist_cover_cache(&cache_path, &decrypted).await;
+    spawn_background_cover_store(&ctx, &remote_url, decrypted.clone());
     image_response(method, decrypted)
+}
+
+fn spawn_background_cover_store(ctx: &CoverProxyContext<'_>, remote_url: &str, decrypted: Vec<u8>) {
+    let dedup_key = normalize_cover_cache_key(remote_url);
+    if !ctx.in_flight.lock().insert(dedup_key.clone()) {
+        return;
+    }
+    let cover_cache = ctx.cover_cache.cloned();
+    let storage = Arc::clone(ctx.storage);
+    let limiter = Arc::clone(ctx.store_limiter);
+    let in_flight = Arc::clone(ctx.in_flight);
+
+    tokio::spawn(async move {
+        let _permit = limiter.acquire().await.ok();
+        if let Some(cache) = cover_cache {
+            drop(cache.store_decrypted(&dedup_key, &decrypted).await);
+        } else {
+            let raw = decrypted.clone();
+            let optimized = tokio::task::spawn_blocking(move || optimize_cover_bytes(&raw))
+                .await
+                .unwrap_or(decrypted);
+            let fallback_path = storage
+                .catalog_cache_dir()
+                .join(build_cover_rel_path(&dedup_key));
+            if let Some(parent) = fallback_path.parent() {
+                drop(tokio::fs::create_dir_all(parent).await);
+            }
+            drop(tokio::fs::write(&fallback_path, &optimized).await);
+        }
+        in_flight.lock().remove(&dedup_key);
+    });
 }
 
 fn decode_remote_url(encoded: &str) -> Option<String> {
@@ -68,33 +120,6 @@ fn decode_remote_url(encoded: &str) -> Option<String> {
         Some(url)
     } else {
         None
-    }
-}
-
-fn cover_cache_path(storage: &StorageLayout, remote_url: &str) -> PathBuf {
-    let mut hasher = Sha256::new();
-    hasher.update(remote_url.as_bytes());
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(64);
-    for byte in digest {
-        let _written = write!(&mut hex, "{byte:02x}");
-    }
-    storage
-        .catalog_cache_dir()
-        .join("covers")
-        .join(format!("{hex}.bin"))
-}
-
-async fn persist_cover_cache(cache_path: &PathBuf, bytes: &[u8]) {
-    let Some(parent) = cache_path.parent() else {
-        return;
-    };
-    if tokio::fs::create_dir_all(parent).await.is_err() {
-        return;
-    }
-    let tmp_path = cache_path.with_extension("tmp");
-    if tokio::fs::write(&tmp_path, bytes).await.is_ok() {
-        drop(tokio::fs::rename(&tmp_path, cache_path).await);
     }
 }
 
@@ -120,7 +145,7 @@ fn image_response(method: &Method, bytes: Vec<u8>) -> Response<Full<Bytes>> {
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, content_type)
-        .header(CACHE_CONTROL, "public, max-age=86400")
+        .header(CACHE_CONTROL, "public, max-age=604800")
         .body(Full::new(body))
         .unwrap_or_else(|_| empty_status(StatusCode::INTERNAL_SERVER_ERROR))
 }

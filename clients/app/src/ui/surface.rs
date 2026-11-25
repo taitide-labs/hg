@@ -242,3 +242,190 @@ pub fn empty_state(
             })
         }))
 }
+
+pub fn poster_grid_skeleton(card_count: usize, label: &'static str) -> impl IntoElement {
+    let mut grid = view()
+        .label(label)
+        .w_full()
+        .p_6()
+        .flex_row()
+        .flex_wrap()
+        .gap_4();
+    for _ in 0..card_count {
+        grid = grid.child(
+            view()
+                .w(px(172.0))
+                .flex_shrink_0()
+                .gap_1p5()
+                .p_0p5()
+                .child(
+                    view()
+                        .w_full()
+                        .aspect_ratio(160.0 / 224.0)
+                        .rounded(token::radius)
+                        .bg(token::surface_subtle),
+                )
+                .child(
+                    view()
+                        .w(px(110.0))
+                        .h(px(14.0))
+                        .rounded(token::radius_badge)
+                        .bg(token::surface_subtle),
+                )
+                .child(
+                    view()
+                        .w(px(72.0))
+                        .h(px(10.0))
+                        .rounded(token::radius_badge)
+                        .bg(token::muted),
+                ),
+        );
+    }
+    grid
+}
+
+pub fn list_row_skeleton(row_count: usize, label: &'static str) -> impl IntoElement {
+    let mut stack = view().label(label).w_full().gap_2p5();
+    for _ in 0..row_count {
+        stack = stack.child(
+            view()
+                .w_full()
+                .rounded(token::radius_card)
+                .bg(token::card)
+                .border_1()
+                .border_color(token::border)
+                .p_3()
+                .flex_row()
+                .items_center()
+                .gap_3p5()
+                .child(
+                    view()
+                        .w(px(52.0))
+                        .h(px(70.0))
+                        .flex_shrink_0()
+                        .rounded(token::radius)
+                        .bg(token::surface_subtle),
+                )
+                .child(
+                    view()
+                        .flex_1()
+                        .min_w_0()
+                        .gap_2()
+                        .child(
+                            view()
+                                .w(px(160.0))
+                                .h(px(14.0))
+                                .rounded(token::radius_badge)
+                                .bg(token::surface_subtle),
+                        )
+                        .child(
+                            view()
+                                .w(px(110.0))
+                                .h(px(10.0))
+                                .rounded(token::radius_badge)
+                                .bg(token::muted),
+                        ),
+                ),
+        );
+    }
+    stack
+}
+
+pub fn player_skeleton(label: &'static str) -> impl IntoElement {
+    let mut episodes = view().w_full().flex_row().flex_wrap().gap_2();
+    for _ in 0..8 {
+        episodes = episodes.child(
+            view()
+                .w(px(58.0))
+                .h(px(32.0))
+                .rounded(token::radius_control)
+                .bg(token::surface_subtle),
+        );
+    }
+    view()
+        .label(label)
+        .w_full()
+        .flex_1()
+        .min_h_0()
+        .p_4()
+        .gap_4()
+        .flex_row()
+        .child(
+            view()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .rounded(token::radius_card)
+                .bg(token::cinema_surface)
+                .p_4()
+                .justify_end()
+                .child(
+                    view()
+                        .w_full()
+                        .h(px(36.0))
+                        .rounded(token::radius)
+                        .bg(token::cinema_surface_elevated),
+                ),
+        )
+        .child(
+            view()
+                .w(px(320.0))
+                .flex_shrink_0()
+                .gap_4()
+                .child(
+                    view()
+                        .w(px(180.0))
+                        .h(px(20.0))
+                        .rounded(token::radius_badge)
+                        .bg(token::surface_subtle),
+                )
+                .child(
+                    view()
+                        .w(px(240.0))
+                        .h(px(14.0))
+                        .rounded(token::radius_badge)
+                        .bg(token::muted),
+                )
+                .child(episodes)
+                .child(comment_skeleton_list(3)),
+        )
+}
+
+pub fn comment_skeleton_list(row_count: usize) -> impl IntoElement {
+    let mut list = view().w_full().gap_2p5();
+    for _ in 0..row_count {
+        list = list.child(
+            view()
+                .w_full()
+                .flex_row()
+                .items_start()
+                .gap_2p5()
+                .child(
+                    view()
+                        .size(px(28.0))
+                        .rounded_full()
+                        .bg(token::surface_subtle),
+                )
+                .child(
+                    view()
+                        .flex_1()
+                        .gap_1p5()
+                        .child(
+                            view()
+                                .w(px(120.0))
+                                .h(px(12.0))
+                                .rounded(token::radius_badge)
+                                .bg(token::surface_subtle),
+                        )
+                        .child(
+                            view()
+                                .w(px(200.0))
+                                .h(px(10.0))
+                                .rounded(token::radius_badge)
+                                .bg(token::muted),
+                        ),
+                ),
+        );
+    }
+    list
+}

@@ -152,3 +152,40 @@ fn search_tag_resets_when_switching_tabs_but_persists_through_player_return() {
     assert!(!app.screen().shows("label:清除标签 悬疑"));
     assert!(!app.screen().shows("全 80 集"));
 }
+
+#[test]
+fn disliking_in_player_hides_series_across_discover_on_return_and_settings_restores_it() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(20));
+    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Dark);
+
+    app.press("云端之上：千金归来 >> nth=0").unwrap();
+    app.wait_for("选集 (3/68)").unwrap();
+
+    app.press("已追剧").unwrap();
+    app.wait_for("已取消追剧").unwrap();
+    app.press("追剧").unwrap();
+    app.wait_for("已加入追剧").unwrap();
+
+    app.press("不喜欢").unwrap();
+    app.wait_for("已不喜欢").unwrap();
+    app.press("返回").unwrap();
+    app.wait_for("最近更新").unwrap();
+    app.wait_for_gone("云端之上：千金归来", Duration::from_secs(2))
+        .unwrap();
+    app.scroll("TOP 1", nsh_core::prelude::Points(1800.0))
+        .unwrap();
+    app.wait_for("TOP 12").unwrap();
+
+    app.press("设置").unwrap();
+    app.wait_for("不喜欢的剧目").unwrap();
+    app.press("管理不喜欢").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.press("取消不喜欢 云端之上：千金归来").unwrap();
+    app.wait_for("确认移除").unwrap();
+    app.press("确认移除").unwrap();
+    app.wait_for_gone("云端之上：千金归来", Duration::from_secs(2))
+        .unwrap();
+
+    app.press("发现").unwrap();
+    app.wait_for("云端之上：千金归来").unwrap();
+}

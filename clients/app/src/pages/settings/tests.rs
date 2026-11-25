@@ -1,4 +1,5 @@
 mod cache_clear;
+mod disliked_manage;
 mod download_policy;
 mod playback_pref;
 mod storage_query;

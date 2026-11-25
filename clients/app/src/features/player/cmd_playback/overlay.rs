@@ -75,18 +75,23 @@ pub fn video_surface_box(
 
 fn video_picture_area(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
     view()
-        .label("视频画面")
         .size_full()
         .relative()
         .items_center()
         .justify_center()
-        .on_press(|e: &PressEvent| {
-            if e.clicks >= 2 {
-                store::toggle_paused();
-                store::reveal_controls();
-            }
-        })
         .child(aspect_frame_preview())
+        .child(
+            view()
+                .label("视频画面")
+                .absolute()
+                .inset_0()
+                .on_press(|e: &PressEvent| {
+                    if e.clicks >= 2 {
+                        store::toggle_paused();
+                        store::reveal_controls();
+                    }
+                }),
+        )
         .child(top_overlay_strip(on_back))
         .child(osd_hint_pill())
 }

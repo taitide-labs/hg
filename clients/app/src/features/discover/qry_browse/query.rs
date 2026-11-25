@@ -8,7 +8,8 @@ use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_watched_series,
+    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_poster_preferences,
+    sync_watched_series,
 };
 use super::super::store::{self, BrowseKind, RankingTab};
 use crate::gateway;
@@ -36,9 +37,15 @@ pub fn ensure_viewport_filled() {
         }
         let is_ranking = matches!(s.kind, BrowseKind::Ranking(_));
         let count = if is_ranking {
-            s.ranking_items.len()
+            s.ranking_items
+                .iter()
+                .filter(|r| !store::is_disliked_untracked(r.series.id))
+                .count()
         } else {
-            s.items.len()
+            s.items
+                .iter()
+                .filter(|item| !store::is_disliked_untracked(item.id))
+                .count()
         };
         count < min_items_to_fill_viewport(w, h, is_ranking)
     });
@@ -48,12 +55,19 @@ pub fn ensure_viewport_filled() {
 }
 
 pub fn load_meta() {
-    let gw = gateway::current();
+    spawn(sync_watched_series());
+    spawn(sync_poster_preferences());
+    let gw_groups = gateway::current();
     spawn(async move {
-        sync_watched_series().await;
-        let groups = gw.tag_groups().await.unwrap_or_default();
-        let keywords = gw.hot_keywords().await.unwrap_or_default();
-        store::set_browse_meta(groups, keywords);
+        if let Ok(groups) = gw_groups.tag_groups().await {
+            store::browse_meta_state().update(|s| s.tag_groups = groups);
+        }
+    });
+    let gw_kw = gateway::current();
+    spawn(async move {
+        if let Ok(keywords) = gw_kw.hot_keywords().await {
+            store::browse_meta_state().update(|s| s.hot_keywords = keywords);
+        }
     });
 }
 
@@ -61,7 +75,6 @@ pub fn load_browse(kind: BrowseKind) {
     if let BrowseKind::Search { ref query } = kind {
         store::search_input_signal().set(query.clone());
     }
-    spawn(sync_watched_series());
     let default_sort = match kind {
         BrowseKind::Latest => SeriesSort::New,
         BrowseKind::Ranking(_)

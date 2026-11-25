@@ -126,6 +126,7 @@ impl BackendRuntime {
             storage: Arc::clone(&self.storage),
             clock: Arc::clone(&self.clock),
             upstream,
+            cache: hg_catalog_features::cache::CatalogMemoryCache::default(),
         };
 
         let catalog_metadata = Arc::new(CatalogMetadataAdapter::new(catalog.clone()));

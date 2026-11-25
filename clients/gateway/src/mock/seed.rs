@@ -11,7 +11,8 @@ use hg_contracts::offline::{
     PauseReason,
 };
 use hg_contracts::viewing::{
-    PlaybackPreference, SearchHistoryEntry, SeriesBookmark, WatchHistoryEntry, WatchProgress,
+    DislikedSeriesEntry, PlaybackPreference, SearchHistoryEntry, SeriesBookmark, WatchHistoryEntry,
+    WatchProgress,
 };
 
 pub(super) struct MockState {
@@ -24,6 +25,7 @@ pub(super) struct MockState {
     pub(super) watch_history: Vec<WatchHistoryEntry>,
     pub(super) episode_progress: HashMap<EpisodeKey, WatchProgress>,
     pub(super) bookmarks: Vec<SeriesBookmark>,
+    pub(super) disliked: Vec<DislikedSeriesEntry>,
     pub(super) search_history: Vec<SearchHistoryEntry>,
     pub(super) offline_library: Vec<OfflineSeriesView>,
     pub(super) download_tasks: Vec<DownloadTaskView>,
@@ -519,6 +521,7 @@ pub(super) fn build_initial_state() -> MockState {
         watch_history: build_seed_watch_history(),
         episode_progress: build_seed_episode_progress(),
         bookmarks: build_seed_bookmarks(),
+        disliked: Vec::new(),
         search_history: vec![SearchHistoryEntry {
             keyword: "千金".to_owned(),
             searched_at_epoch_secs: 1_763_969_000,

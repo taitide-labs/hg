@@ -11,6 +11,7 @@ hg-backend-contracts.workspace = true
 hg-catalog-domain.workspace = true
 hg-contracts.workspace = true
 hg-infra.workspace = true
+moka.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true

@@ -10,7 +10,7 @@ use super::overlay::{current_video_surface_state, video_surface_box};
 use crate::ui::button::{ButtonVariant, ControlSize, app_icon_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::surface::empty_state;
+use crate::ui::surface::{empty_state, player_skeleton};
 use crate::ui::token;
 use crate::ui::video_surface::{scrub_slider, video_surface};
 
@@ -58,12 +58,7 @@ pub fn player_view(
                 Some(("返回", Box::new(on_back))),
             )
             .into_element(),
-            PlayerSurfaceKey::Loading => view()
-                .flex_1()
-                .items_center()
-                .justify_center()
-                .child(text("加载中...").text_sm().text_color(token::muted_fg))
-                .into_element(),
+            PlayerSurfaceKey::Loading => player_skeleton("播放器加载占位").into_element(),
             PlayerSurfaceKey::Regular { fullscreen } => {
                 regular_layout(fullscreen, on_back, toggle_fs, on_select_tag).into_element()
             }

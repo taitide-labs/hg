@@ -30,7 +30,7 @@ impl LocalDatabase {
             .foreign_keys(true);
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(4)
+            .max_connections(8)
             .connect_with(options)
             .await?;
 

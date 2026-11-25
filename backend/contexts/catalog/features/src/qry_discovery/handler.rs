@@ -1,6 +1,7 @@
 use hg_contracts::catalog::{
-    Category, HomeFeed, HotKeyword, HotTag, ListRankingRequest, ListSeriesRequest, PagedResult,
-    RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesSummary, TagGroup,
+    Category, HomeFeed, HomeSnapshot, HotKeyword, HotTag, ListRankingRequest, ListSeriesRequest,
+    PagedResult, RankingEntry, RankingKind, SearchSeriesRequest, SearchSuggestion, SeriesSummary,
+    TagGroup,
 };
 use hg_contracts::error::ContractError;
 use serde::Serialize;
@@ -9,7 +10,6 @@ use serde_json::Value;
 
 use crate::CatalogDeps;
 
-use super::cache::{read_cached_json, write_cached_json};
 use super::codec::{
     extract_data, parse_categories, parse_home_feed, parse_home_latest, parse_hot_keywords,
     parse_hot_tags, parse_paged_series, parse_ranking, parse_search_suggestions, parse_tag_groups,
@@ -34,7 +34,7 @@ where
 
     if cache_ttl.is_some() {
         let now = deps.clock.now_epoch_secs();
-        if let Some(cached) = read_cached_json::<T>(deps.pool(), &route.path, now).await? {
+        if let Some(cached) = deps.cache.read_json::<T>(&route.path, now).await {
             return Ok(cached);
         }
     }
@@ -49,10 +49,64 @@ where
 
     if let Some(ttl_secs) = cache_ttl {
         let now = deps.clock.now_epoch_secs();
-        write_cached_json(deps.pool(), &route.path, &parsed, now, ttl_secs).await?;
+        deps.cache
+            .write_json(&route.path, &parsed, now, ttl_secs)
+            .await
+            .map_err(|err| ContractError::Internal {
+                detail: format!("序列化目录缓存失败: {err}"),
+            })?;
     }
 
     Ok(parsed)
+}
+
+const SNAPSHOT_KEY_HOME_FEED: &str = "home_feed";
+const SNAPSHOT_KEY_CATEGORIES: &str = "categories";
+const SNAPSHOT_KEY_RANKING_HOT: &str = "ranking_hot";
+
+async fn save_snapshot_json<T: Serialize>(deps: &CatalogDeps, cache_key: &str, value: &T) {
+    let Ok(payload_json) = serde_json::to_string(value) else {
+        return;
+    };
+    let updated_at = i64::try_from(deps.clock.now_epoch_secs()).unwrap_or(i64::MAX);
+    drop(
+        sqlx::query(
+            "INSERT INTO catalog_snapshot_cache (cache_key, payload_json, updated_at_epoch_secs)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(cache_key) DO UPDATE SET
+                 payload_json = excluded.payload_json,
+                 updated_at_epoch_secs = excluded.updated_at_epoch_secs",
+        )
+        .bind(cache_key)
+        .bind(payload_json)
+        .bind(updated_at)
+        .execute(deps.pool())
+        .await,
+    );
+}
+
+async fn read_snapshot_json<T: DeserializeOwned>(deps: &CatalogDeps, cache_key: &str) -> Option<T> {
+    let payload_json = sqlx::query_scalar::<_, String>(
+        "SELECT payload_json FROM catalog_snapshot_cache WHERE cache_key = ?1",
+    )
+    .bind(cache_key)
+    .fetch_optional(deps.pool())
+    .await
+    .ok()??;
+    serde_json::from_str::<T>(&payload_json).ok()
+}
+
+pub async fn cached_home_snapshot(deps: &CatalogDeps) -> Option<HomeSnapshot> {
+    let (feed_opt, categories_opt, rankings_opt) = tokio::join!(
+        read_snapshot_json::<HomeFeed>(deps, SNAPSHOT_KEY_HOME_FEED),
+        read_snapshot_json::<Vec<Category>>(deps, SNAPSHOT_KEY_CATEGORIES),
+        read_snapshot_json::<Vec<RankingEntry>>(deps, SNAPSHOT_KEY_RANKING_HOT),
+    );
+    Some(HomeSnapshot {
+        feed: feed_opt?,
+        categories: categories_opt?,
+        rankings: rankings_opt.unwrap_or_default(),
+    })
 }
 
 pub async fn home_feed(deps: &CatalogDeps) -> Result<HomeFeed, ContractError> {
@@ -66,12 +120,15 @@ pub async fn home_feed(deps: &CatalogDeps) -> Result<HomeFeed, ContractError> {
     if let Ok(latest) = latest_res {
         feed.latest = latest;
     }
+    save_snapshot_json(deps, SNAPSHOT_KEY_HOME_FEED, &feed).await;
     Ok(feed)
 }
 
 pub async fn categories(deps: &CatalogDeps) -> Result<Vec<Category>, ContractError> {
     let route = categories_route();
-    execute_route(deps, &route, "频道分类", parse_categories).await
+    let cats = execute_route(deps, &route, "频道分类", parse_categories).await?;
+    save_snapshot_json(deps, SNAPSHOT_KEY_CATEGORIES, &cats).await;
+    Ok(cats)
 }
 
 pub async fn tag_groups(deps: &CatalogDeps) -> Result<Vec<TagGroup>, ContractError> {
@@ -98,10 +155,14 @@ pub async fn list_ranking(
     let kind = request.kind;
     let page_req = request.page;
     let route = list_ranking_route(request);
-    execute_route(deps, &route, "排行榜", move |data| {
+    let paged = execute_route(deps, &route, "排行榜", move |data| {
         parse_ranking(data, kind, page_req)
     })
-    .await
+    .await?;
+    if kind == RankingKind::Hot && page_req.page.get() == 1 {
+        save_snapshot_json(deps, SNAPSHOT_KEY_RANKING_HOT, &paged.items).await;
+    }
+    Ok(paged)
 }
 
 pub async fn search_series(

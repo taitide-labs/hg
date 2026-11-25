@@ -6,10 +6,10 @@ use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, EpisodeSummary, HomeFeed, HotKeyword, HotTag,
-    ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
-    PagedResult, RankingEntry, RankingKind, SearchSeriesRequest, SearchSuggestion, SeriesDetail,
-    SeriesFilter, SeriesSort, SeriesStats, SeriesSummary, TagGroup,
+    Category, CommentReply, EpisodeComment, EpisodeSummary, HomeFeed, HomeSnapshot, HotKeyword,
+    HotTag, ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest,
+    ListSeriesRequest, PagedResult, RankingEntry, RankingKind, SearchSeriesRequest,
+    SearchSuggestion, SeriesDetail, SeriesFilter, SeriesSort, SeriesStats, SeriesSummary, TagGroup,
 };
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{
@@ -22,7 +22,7 @@ use hg_contracts::offline::{
     OfflineSeriesView, PauseReason,
 };
 use hg_contracts::viewing::{
-    OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
+    DislikedSeriesEntry, OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
     ReportWatchProgressRequest, ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark,
     StorageOverview, WatchHistoryEntry, WatchProgress,
 };
@@ -52,7 +52,9 @@ pub struct MockGateway {
     injected_error: Arc<Mutex<Option<ContractError>>>,
     method_errors: Arc<Mutex<HashMap<&'static str, ContractError>>>,
     method_gates: Arc<Mutex<MethodGateMap>>,
+    method_counts: Arc<Mutex<HashMap<&'static str, usize>>>,
     home_feed_cap: Option<usize>,
+    cached_snapshot: Arc<Mutex<Option<HomeSnapshot>>>,
 }
 
 impl Default for MockGateway {
@@ -69,8 +71,16 @@ impl MockGateway {
             injected_error: Arc::new(Mutex::new(None)),
             method_errors: Arc::new(Mutex::new(HashMap::new())),
             method_gates: Arc::new(Mutex::new(HashMap::new())),
+            method_counts: Arc::new(Mutex::new(HashMap::new())),
             home_feed_cap: None,
+            cached_snapshot: Arc::new(Mutex::new(None)),
         }
+    }
+
+    #[must_use]
+    pub fn with_cached_home_snapshot(self, snapshot: HomeSnapshot) -> Self {
+        *self.cached_snapshot.lock() = Some(snapshot);
+        self
     }
 
     #[must_use]
@@ -90,6 +100,7 @@ impl MockGateway {
         if let Some(detail) = state.details.get_mut(&series_id) {
             detail.summary.episode_count = episode_count;
             detail.total_episodes = episode_count;
+            detail.episodes.truncate(episode_count as usize);
         }
     }
 
@@ -344,6 +355,11 @@ impl MockGateway {
     }
 
     #[must_use]
+    pub fn snapshot_disliked(&self) -> Vec<DislikedSeriesEntry> {
+        self.state.lock().disliked.clone()
+    }
+
+    #[must_use]
     pub fn snapshot_watch_history(&self) -> Vec<WatchHistoryEntry> {
         self.state.lock().watch_history.clone()
     }
@@ -388,11 +404,17 @@ impl MockGateway {
         Ok(())
     }
 
+    #[must_use]
+    pub fn method_call_count(&self, method: &'static str) -> usize {
+        self.method_counts.lock().get(method).copied().unwrap_or(0)
+    }
+
     fn finish<T: Send + 'static>(
         &self,
         method: &'static str,
         result: Result<T, ContractError>,
     ) -> GatewayFuture<T> {
+        *self.method_counts.lock().entry(method).or_insert(0) += 1;
         let gate = self
             .method_gates
             .lock()
@@ -452,6 +474,13 @@ impl MockGateway {
 }
 
 impl AppGateway for MockGateway {
+    fn cached_home_snapshot(&self) -> GatewayFuture<Option<HomeSnapshot>> {
+        let result = self
+            .check_error("cached_home_snapshot")
+            .map(|()| self.cached_snapshot.lock().clone());
+        self.finish("cached_home_snapshot", result)
+    }
+
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
         let cap = self.home_feed_cap;
         let result = self.check_error("home_feed").map(|()| {
@@ -914,6 +943,72 @@ impl AppGateway for MockGateway {
                 .retain(|b| b.series_id != series_id);
         });
         self.finish("unbookmark_series", result)
+    }
+
+    fn disliked_series(&self) -> GatewayFuture<Vec<DislikedSeriesEntry>> {
+        let result = self
+            .check_error("disliked_series")
+            .map(|()| self.state.lock().disliked.clone());
+        self.finish("disliked_series", result)
+    }
+
+    fn is_disliked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
+        let result = self.check_error("is_disliked").map(|()| {
+            self.state
+                .lock()
+                .disliked
+                .iter()
+                .any(|d| d.series_id == series_id)
+        });
+        self.finish("is_disliked", result)
+    }
+
+    fn dislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let result =
+            self.check_error("dislike_series").and_then(|()| {
+                let mut state = self.state.lock();
+                if state.disliked.iter().any(|d| d.series_id == series_id) {
+                    return Ok(());
+                }
+                let detail = state.details.get(&series_id).cloned().ok_or_else(|| {
+                    ContractError::NotFound {
+                        resource: format!("series/{series_id}"),
+                    }
+                })?;
+                state.next_timestamp += 1;
+                let ts = state.next_timestamp;
+                state.disliked.insert(
+                    0,
+                    DislikedSeriesEntry {
+                        series_id,
+                        title: detail.summary.title,
+                        cover_url: detail.summary.cover_url,
+                        episode_count: detail.summary.episode_count,
+                        is_finished: detail.summary.is_finished,
+                        score: detail.summary.score,
+                        disliked_at_epoch_secs: ts,
+                    },
+                );
+                Ok(())
+            });
+        self.finish("dislike_series", result)
+    }
+
+    fn undislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let result = self.check_error("undislike_series").map(|()| {
+            self.state
+                .lock()
+                .disliked
+                .retain(|d| d.series_id != series_id);
+        });
+        self.finish("undislike_series", result)
+    }
+
+    fn clear_disliked_series(&self) -> GatewayFuture<()> {
+        let result = self.check_error("clear_disliked_series").map(|()| {
+            self.state.lock().disliked.clear();
+        });
+        self.finish("clear_disliked_series", result)
     }
 
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {

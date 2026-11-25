@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -18,9 +18,10 @@ use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use parking_lot::Mutex;
 use tokio::net::TcpListener;
-use tokio::sync::oneshot;
+use tokio::sync::{Semaphore, oneshot};
 
 use crate::clock::Clock;
+use crate::cover_cache::CoverCacheStore;
 use crate::db::LocalDatabase;
 use crate::error::InfraError;
 use crate::storage::StorageLayout;
@@ -28,8 +29,10 @@ use crate::storage::StorageLayout;
 mod cover;
 mod online;
 
-use cover::{build_cover_proxy_url, proxy_cover_request};
+use cover::{CoverProxyContext, build_cover_proxy_url, proxy_cover_request};
 use online::{OnlineStreamSession, PlaybackCacheStore, build_online_session, proxy_online_request};
+
+const MAX_BG_COVER_OPT_TASKS: usize = 2;
 
 #[derive(Debug, Clone)]
 enum SessionTarget {
@@ -53,6 +56,9 @@ struct LoopbackInner {
     addr: SocketAddr,
     storage: Arc<StorageLayout>,
     playback_cache: Option<PlaybackCacheStore>,
+    cover_cache: Option<CoverCacheStore>,
+    cover_store_limiter: Arc<Semaphore>,
+    cover_in_flight: Arc<Mutex<HashSet<String>>>,
     http_client: reqwest::Client,
     registry: Mutex<SessionRegistry>,
     next_token: AtomicU64,
@@ -66,7 +72,7 @@ pub struct LoopbackProxyHandle {
 
 impl LoopbackProxyHandle {
     pub async fn start(storage: Arc<StorageLayout>) -> Result<Self, InfraError> {
-        Self::start_inner(storage, None).await
+        Self::start_inner(storage, None, None).await
     }
 
     pub async fn start_with_cache(
@@ -74,8 +80,10 @@ impl LoopbackProxyHandle {
         db: LocalDatabase,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, InfraError> {
-        let cache = PlaybackCacheStore::new(db, Arc::clone(&storage), clock);
-        Self::start_inner(storage, Some(cache)).await
+        let playback_cache =
+            PlaybackCacheStore::new(db.clone(), Arc::clone(&storage), Arc::clone(&clock));
+        let cover_cache = CoverCacheStore::new(db, Arc::clone(&storage), clock);
+        Self::start_inner(storage, Some(playback_cache), Some(cover_cache)).await
     }
 
     pub fn set_playback_cache_limit_override(&self, limit_bytes: Option<u64>) {
@@ -84,9 +92,16 @@ impl LoopbackProxyHandle {
         }
     }
 
+    pub fn set_cover_cache_limit_override(&self, limit_bytes: Option<u64>) {
+        if let Some(cache) = &self.inner.cover_cache {
+            cache.set_limit_override(limit_bytes);
+        }
+    }
+
     async fn start_inner(
         storage: Arc<StorageLayout>,
         playback_cache: Option<PlaybackCacheStore>,
+        cover_cache: Option<CoverCacheStore>,
     ) -> Result<Self, InfraError> {
         let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
         let addr = listener.local_addr()?;
@@ -94,6 +109,7 @@ impl LoopbackProxyHandle {
         let http_client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(30))
+            .pool_max_idle_per_host(12)
             .build()
             .map_err(|err| InfraError::Crypto {
                 detail: format!("初始化回环代理客户端失败: {err}"),
@@ -103,6 +119,9 @@ impl LoopbackProxyHandle {
             addr,
             storage,
             playback_cache,
+            cover_cache,
+            cover_store_limiter: Arc::new(Semaphore::new(MAX_BG_COVER_OPT_TASKS)),
+            cover_in_flight: Arc::new(Mutex::new(HashSet::new())),
             http_client,
             registry: Mutex::new(SessionRegistry::default()),
             next_token: AtomicU64::new(1),
@@ -256,8 +275,18 @@ async fn handle_request(req: Request<Incoming>, inner: &LoopbackInner) -> Respon
         && !encoded.is_empty()
         && !encoded.contains('/')
     {
-        return proxy_cover_request(&inner.http_client, &inner.storage, req.method(), encoded)
-            .await;
+        return proxy_cover_request(
+            CoverProxyContext {
+                http_client: &inner.http_client,
+                storage: &inner.storage,
+                cover_cache: inner.cover_cache.as_ref(),
+                store_limiter: &inner.cover_store_limiter,
+                in_flight: &inner.cover_in_flight,
+            },
+            req.method(),
+            encoded,
+        )
+        .await;
     }
 
     if let Some((token, rel_file)) = parse_scoped_path(req.uri().path(), "/offline/") {

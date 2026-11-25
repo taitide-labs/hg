@@ -1,11 +1,13 @@
+use std::rc::Rc;
+
 use hg_contracts::catalog::{HotKeyword, RankingKind, SeriesSort, TagGroup};
 use hg_contracts::ids::SeriesId;
 use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    pagination_footer, ranking_card_props, ranking_grid_columns_for_width,
-    series_grid_columns_for_width, virtual_series_grid,
+    VirtualGridCallbacks, pagination_footer, poster_context_actions, series_card_props,
+    series_card_props_with_rank, series_grid_columns_for_width, virtual_series_grid,
 };
 use super::super::store::{self, BrowseKind, RankingTab};
 use super::query;
@@ -13,8 +15,8 @@ use crate::ui::button::{ButtonVariant, ControlSize, app_button, app_icon_text_bu
 use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
 use crate::ui::platform::is_desktop;
-use crate::ui::poster::ranking_list_row;
-use crate::ui::surface::empty_state;
+use crate::ui::poster::{PosterContextActions, SeriesRank};
+use crate::ui::surface::{empty_state, poster_grid_skeleton};
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
@@ -22,6 +24,7 @@ pub fn browse_view(
     initial_kind: BrowseKind,
     on_back: impl Fn() + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    on_open_download: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let page_owner = Owner::current();
     let is_search_mode = matches!(
@@ -56,11 +59,16 @@ pub fn browse_view(
     });
     let scroller = element_ref();
 
+    let pinned_header = view().w_full().px_6().pt_5().pb_2().child(browse_header(
+        is_search_mode,
+        search_sig,
+        on_back,
+    ));
+
     let header_block = view()
         .w_full()
-        .gap_5()
-        .pb_5()
-        .child(browse_header(is_search_mode, search_sig, on_back))
+        .gap_4()
+        .pb_4()
         .children(is_search_mode.then(|| dynamic(browse_filters_panel)))
         .child(when(
             move || store::browse_state().with(|s| matches!(s.kind, BrowseKind::Ranking(_))),
@@ -79,28 +87,23 @@ pub fn browse_view(
             })
         }));
 
+    let context_actions = poster_context_actions(on_open_download, move || {
+        page_owner.run(query::ensure_viewport_filled);
+    });
+
+    let list_ctx = BrowseListContext {
+        scroller,
+        page_owner,
+        container_width,
+        on_back: Rc::new(on_back),
+        on_open_series: Rc::new(on_open_series),
+        context_actions,
+    };
+
     let list_element = if is_ranking_kind {
-        ranking_list(
-            scroller,
-            page_owner,
-            container_width,
-            on_back,
-            on_open_series,
-            header_block,
-            footer_block,
-        )
-        .into_element()
+        ranking_list(list_ctx, header_block, footer_block).into_element()
     } else {
-        series_browse_list(
-            scroller,
-            page_owner,
-            container_width,
-            on_back,
-            on_open_series,
-            header_block,
-            footer_block,
-        )
-        .into_element()
+        series_browse_list(list_ctx, header_block, footer_block).into_element()
     };
 
     view()
@@ -117,55 +120,86 @@ pub fn browse_view(
                 page_owner.run(query::ensure_viewport_filled);
             }
         })
+        .child(pinned_header)
         .child(list_element)
 }
 
-fn series_browse_list(
+struct BrowseListContext {
     scroller: ElementRef,
     page_owner: Owner,
     container_width: Signal<f32>,
-    on_back: impl Fn() + Copy + 'static,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    on_back: Rc<dyn Fn()>,
+    on_open_series: Rc<dyn Fn(SeriesId)>,
+    context_actions: PosterContextActions,
+}
+
+fn series_browse_list(
+    ctx: BrowseListContext,
     header_view: impl IntoElement,
     footer_view: impl IntoElement,
 ) -> impl IntoElement {
+    let visible = computed(|| {
+        store::browse_state().with(|s| {
+            if s.error.is_some() {
+                Vec::new()
+            } else {
+                s.items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| !store::is_disliked(item.id))
+                    .map(|(idx, item)| (idx, item.id))
+                    .collect::<Vec<_>>()
+            }
+        })
+    });
+    let container_width = ctx.container_width;
+    let page_owner = ctx.page_owner;
+    let on_back = ctx.on_back;
+
     virtual_series_grid(
-        || store::browse_state().with(|s| if s.error.is_some() { 0 } else { s.items.len() }),
-        || store::browse_state().with(|s| s.items.iter().map(|i| i.id).collect()),
-        |idx| store::browse_state().with(|s| s.items.get(idx).cloned()),
+        move || visible.with(Vec::len),
+        move || visible.with(|list| list.iter().map(|(_, id)| *id).collect()),
+        move |idx| {
+            let real_idx = visible.with_untracked(|list| list.get(idx).map(|(i, _)| *i))?;
+            store::browse_state().with_untracked(|s| s.items.get(real_idx).map(series_card_props))
+        },
         move || {
             let inner_w = (container_width.get() - 48.0).max(0.0);
             series_grid_columns_for_width(inner_w) as u32
         },
-        on_open_series,
-        move || page_owner.run(query::load_next_browse_page),
-        move || {
-            let (has_error, loading) =
-                store::browse_state().with(|s| (s.error.is_some(), s.loading));
-            if has_error {
-                empty_state(
-                    IconKind::Search,
-                    "列表加载失败",
-                    "请稍后重试或返回发现首页",
-                    Some(("返回发现", Box::new(on_back))),
-                )
-                .into_element()
-            } else if loading {
-                view().into_element()
-            } else {
-                empty_state(
-                    IconKind::Search,
-                    "暂无匹配剧目",
-                    "尝试更换关键词或筛选条件",
-                    None,
-                )
-                .into_element()
-            }
+        VirtualGridCallbacks {
+            on_open_series: ctx.on_open_series,
+            context_actions: ctx.context_actions,
+            on_load_more: Rc::new(move || page_owner.run(query::load_next_browse_page)),
+            empty_view: Rc::new(move || {
+                let (has_error, loading) =
+                    store::browse_state().with(|s| (s.error.is_some(), s.loading));
+                if has_error {
+                    let back = Rc::clone(&on_back);
+                    empty_state(
+                        IconKind::Search,
+                        "列表加载失败",
+                        "请稍后重试或返回发现首页",
+                        Some(("返回发现", Box::new(move || back()))),
+                    )
+                    .into_element()
+                } else if loading {
+                    poster_grid_skeleton(10, "浏览列表加载占位").into_element()
+                } else {
+                    empty_state(
+                        IconKind::Search,
+                        "暂无匹配剧目",
+                        "尝试更换关键词或筛选条件",
+                        None,
+                    )
+                    .into_element()
+                }
+            }),
         },
     )
     .header(header_view)
     .footer(footer_view)
-    .element_ref(&scroller)
+    .element_ref(&ctx.scroller)
 }
 
 fn browse_filters_panel() -> impl IntoElement {
@@ -328,76 +362,70 @@ fn tag_filter_strip(groups: &[TagGroup]) -> impl IntoElement {
 }
 
 fn ranking_list(
-    scroller: ElementRef,
-    page_owner: Owner,
-    container_width: Signal<f32>,
-    on_back: impl Fn() + Copy + 'static,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    ctx: BrowseListContext,
     header_view: impl IntoElement,
     footer_view: impl IntoElement,
 ) -> impl IntoElement {
-    let rank_cols = computed(move || {
-        u32::try_from(ranking_grid_columns_for_width(container_width.get())).unwrap_or(1)
-    });
-    let keys_memo = computed(|| {
+    let visible = computed(|| {
         store::browse_state().with(|s| {
-            s.ranking_items
-                .iter()
-                .map(|r| r.series.id)
-                .collect::<Vec<_>>()
+            if s.error.is_some() {
+                Vec::new()
+            } else {
+                s.ranking_items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, r)| !store::is_disliked(r.series.id))
+                    .map(|(idx, r)| (idx, r.series.id))
+                    .collect::<Vec<_>>()
+            }
         })
     });
+    let container_width = ctx.container_width;
+    let page_owner = ctx.page_owner;
+    let on_back = ctx.on_back;
 
-    virtual_list(
-        || {
-            store::browse_state().with(|s| {
-                if s.error.is_some() {
-                    0
-                } else {
-                    s.ranking_items.len()
-                }
+    virtual_series_grid(
+        move || visible.with(Vec::len),
+        move || visible.with(|list| list.iter().map(|(_, id)| *id).collect()),
+        move |idx| {
+            let real_idx = visible.with_untracked(|list| list.get(idx).map(|(i, _)| *i))?;
+            store::browse_state().with_untracked(|s| {
+                s.ranking_items.get(real_idx).map(|r| {
+                    let visible_rank = u32::try_from(idx + 1).unwrap_or(u32::MAX);
+                    series_card_props_with_rank(&r.series, Some(SeriesRank::hash(visible_rank)))
+                })
             })
         },
-        move |at: Position| {
-            let item = computed(move || {
-                store::browse_state()
-                    .with(|s| s.ranking_items.get(at.index()).map(ranking_card_props))
-            });
-            ranking_list_row(item, move |raw_id| {
-                if let Ok(series_id) = SeriesId::try_from(raw_id) {
-                    on_open_series(series_id);
+        move || {
+            let inner_w = (container_width.get() - 48.0).max(0.0);
+            series_grid_columns_for_width(inner_w) as u32
+        },
+        VirtualGridCallbacks {
+            on_open_series: ctx.on_open_series,
+            context_actions: ctx.context_actions,
+            on_load_more: Rc::new(move || page_owner.run(query::load_next_browse_page)),
+            empty_view: Rc::new(move || {
+                let (has_error, loading) =
+                    store::browse_state().with(|s| (s.error.is_some(), s.loading));
+                if has_error {
+                    let back = Rc::clone(&on_back);
+                    empty_state(
+                        IconKind::Search,
+                        "列表加载失败",
+                        "请稍后重试或返回发现首页",
+                        Some(("返回发现", Box::new(move || back()))),
+                    )
+                    .into_element()
+                } else if loading {
+                    poster_grid_skeleton(10, "浏览列表加载占位").into_element()
+                } else {
+                    empty_state(IconKind::Flame, "暂无榜单数据", "请切换其他榜单查看", None)
+                        .into_element()
                 }
-            })
+            }),
         },
     )
-    .keys(move || keys_memo.get())
-    .columns(rank_cols)
-    .column_gap(px(12.0))
-    .row_gap(px(12.0))
-    .content_padding(px(24.0))
-    .estimated_item_size(px(122.0))
-    .load_more_threshold(1.0)
-    .on_load_more(move || page_owner.run(query::load_next_browse_page))
     .header(header_view)
     .footer(footer_view)
-    .empty(dynamic(move || {
-        let (has_error, loading) = store::browse_state().with(|s| (s.error.is_some(), s.loading));
-        if has_error {
-            empty_state(
-                IconKind::Search,
-                "列表加载失败",
-                "请稍后重试或返回发现首页",
-                Some(("返回发现", Box::new(on_back))),
-            )
-            .into_element()
-        } else if loading {
-            view().into_element()
-        } else {
-            empty_state(IconKind::Flame, "暂无榜单数据", "请切换其他榜单查看", None).into_element()
-        }
-    }))
-    .element_ref(&scroller)
-    .flex_1()
-    .w_full()
-    .min_h_0()
+    .element_ref(&ctx.scroller)
 }

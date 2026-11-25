@@ -115,11 +115,16 @@ fn delete_offline_and_verify_halt(
         .expect("back on offline library");
     harness
         .app
-        .on_dialog(|_| nsh_testing::DialogAnswer::Press("删除".to_owned()));
+        .press("删除 夜雨长灯 离线剧目")
+        .expect("open delete confirmation popover");
     harness
         .app
-        .press("删除 夜雨长灯 离线剧目")
-        .expect("delete offline series");
+        .wait_for("确认删除")
+        .expect("delete confirmation popover visible");
+    harness
+        .app
+        .press("确认删除")
+        .expect("confirm delete offline series");
     harness
         .app
         .wait_for_gone("夜雨长灯", Duration::from_secs(2))

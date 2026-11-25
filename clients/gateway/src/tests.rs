@@ -132,3 +132,22 @@ fn mock_gateway_supports_method_error_paged_catalog_failed_task_and_gates() {
     gate.release();
     assert!(matches!(fut.as_mut().poll(&mut cx), Poll::Ready(Ok(_))));
 }
+
+#[test]
+fn disliked_series_crud_persists_and_clears_in_gateway() {
+    let gw = MockGateway::new();
+    let target = sid(1001);
+    assert!(!block_ready(gw.is_disliked(target)).unwrap());
+    assert!(block_ready(gw.disliked_series()).unwrap().is_empty());
+
+    block_ready(gw.dislike_series(target)).unwrap();
+    assert!(block_ready(gw.is_disliked(target)).unwrap());
+    assert_eq!(block_ready(gw.disliked_series()).unwrap().len(), 1);
+
+    block_ready(gw.undislike_series(target)).unwrap();
+    assert!(!block_ready(gw.is_disliked(target)).unwrap());
+
+    block_ready(gw.dislike_series(target)).unwrap();
+    block_ready(gw.clear_disliked_series()).unwrap();
+    assert!(block_ready(gw.disliked_series()).unwrap().is_empty());
+}

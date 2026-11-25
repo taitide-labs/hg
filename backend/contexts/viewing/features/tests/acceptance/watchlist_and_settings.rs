@@ -118,3 +118,48 @@ async fn watchlist_settings_and_cache_clear_preserve_offline_library() {
 
     harness.shutdown().await;
 }
+
+#[tokio::test]
+async fn disliked_series_crud_and_clear_persist_in_viewing() {
+    let s101 = SeriesId::try_from(101).expect("series 101");
+    let catalog = StubViewingCatalog::default().with_series([sample_series(101, "夜雨长灯", 20)]);
+    let harness = ViewingTestHarness::new(catalog, StubOfflineAssets::default()).await;
+
+    cmd_watchlist_and_settings::dislike_series(&harness.deps, s101)
+        .await
+        .expect("dislike series");
+    assert!(
+        qry_watchlist_and_settings::is_disliked(&harness.deps, s101)
+            .await
+            .expect("is_disliked")
+    );
+    assert_eq!(
+        qry_watchlist_and_settings::disliked_series(&harness.deps)
+            .await
+            .expect("list disliked")
+            .len(),
+        1
+    );
+    cmd_watchlist_and_settings::undislike_series(&harness.deps, s101)
+        .await
+        .expect("undislike");
+    assert!(
+        !qry_watchlist_and_settings::is_disliked(&harness.deps, s101)
+            .await
+            .expect("not disliked")
+    );
+    cmd_watchlist_and_settings::dislike_series(&harness.deps, s101)
+        .await
+        .expect("re-dislike");
+    cmd_watchlist_and_settings::clear_disliked_series(&harness.deps)
+        .await
+        .expect("clear disliked");
+    assert!(
+        qry_watchlist_and_settings::disliked_series(&harness.deps)
+            .await
+            .expect("empty disliked")
+            .is_empty()
+    );
+
+    harness.shutdown().await;
+}

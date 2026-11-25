@@ -37,16 +37,38 @@ fn tab_title(tab: PrimaryTab) -> &'static str {
     }
 }
 
-fn close_player_and_refresh() {
+fn refresh_discover_badges(shell_owner: Owner) {
+    shell_owner.run(|| {
+        spawn(async {
+            crate::gateway::join2(
+                crate::features::discover::parts::sync_poster_preferences(),
+                crate::features::discover::parts::sync_watched_series(),
+            )
+            .await;
+        });
+    });
+}
+
+fn select_primary_tab(shell_owner: Owner, tab: PrimaryTab) {
+    nav::select_tab(tab);
+    if tab == PrimaryTab::Discover {
+        refresh_discover_badges(shell_owner);
+    }
+}
+
+fn close_player_and_refresh(shell_owner: Owner) {
     nav::close_player();
-    spawn(crate::features::discover::parts::sync_watched_series());
+    refresh_discover_badges(shell_owner);
 }
 
 fn open_search_tag_from_player(shell_owner: Owner, tag_name: String) {
     nav::select_tab(PrimaryTab::Search);
     shell_owner.run(move || {
         crate::features::discover::qry_search::query::activate_tag(tag_name);
-        spawn(crate::features::discover::parts::sync_watched_series());
+        spawn(async {
+            crate::features::discover::parts::sync_watched_series().await;
+            crate::features::discover::parts::sync_poster_preferences().await;
+        });
     });
 }
 
@@ -99,13 +121,13 @@ pub fn app_shell() -> impl IntoElement {
         })
         .child(when(show_title_bar, move || {
             desktop_title_bar(
-                when(in_player, || {
+                when(in_player, move || {
                     app_icon_text_button(
                         IconKind::ChevronLeft,
                         "返回",
                         ButtonVariant::Ghost,
                         ControlSize::Sm,
-                        close_player_and_refresh,
+                        move || close_player_and_refresh(shell_owner),
                     )
                 })
                 .otherwise(move || {
@@ -131,14 +153,18 @@ pub fn app_shell() -> impl IntoElement {
                 .flex_1()
                 .min_h_0()
                 .style_when(in_player, |s| s.hidden())
-                .child(main_chrome(effective_collapsed)),
+                .child(main_chrome(shell_owner, effective_collapsed)),
         )
+        .child(when(
+            move || !in_player(),
+            crate::features::player::cmd_batch_download::view::batch_download_drawer,
+        ))
         .child(when(in_player, move || {
             dynamic(move || match nav::active_player() {
                 Some(route) => pages::player::page::player_page(
                     route.series_id,
                     route.initial_episode,
-                    close_player_and_refresh,
+                    move || close_player_and_refresh(shell_owner),
                     nav::set_chrome_fullscreen,
                     move |tag_name| open_search_tag_from_player(shell_owner, tag_name),
                 )
@@ -146,15 +172,19 @@ pub fn app_shell() -> impl IntoElement {
                 None => view().into_element(),
             })
         }))
+        .child(crate::ui::toast::toast_host())
 }
 
-fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
+fn main_chrome(
+    shell_owner: Owner,
+    effective_collapsed: impl Fn() -> bool + Copy + 'static,
+) -> impl IntoElement {
     if is_desktop() {
         view()
             .flex_1()
             .min_h_0()
             .flex_row()
-            .child(desktop_sidebar(effective_collapsed))
+            .child(desktop_sidebar(shell_owner, effective_collapsed))
             .child(active_tab_content())
             .into_element()
     } else {
@@ -181,7 +211,7 @@ fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl 
                 nav_menu_column(
                     || false,
                     move |tab| {
-                        nav::select_tab(tab);
+                        select_primary_tab(shell_owner, tab);
                         drawer_open.set(false);
                     },
                 ),
@@ -226,7 +256,10 @@ fn nav_menu_column(
         )
 }
 
-fn desktop_sidebar(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {
+fn desktop_sidebar(
+    shell_owner: Owner,
+    effective_collapsed: impl Fn() -> bool + Copy + 'static,
+) -> impl IntoElement {
     let drag_base = stored(None::<f32>);
 
     view()
@@ -244,7 +277,9 @@ fn desktop_sidebar(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> i
         .border_color(token::sidebar_border)
         .p_3()
         .style_when(effective_collapsed, |s| s.px_2())
-        .child(nav_menu_column(effective_collapsed, nav::select_tab))
+        .child(nav_menu_column(effective_collapsed, move |tab| {
+            select_primary_tab(shell_owner, tab);
+        }))
         .child(when(
             move || !effective_collapsed(),
             move || {
@@ -320,30 +355,51 @@ fn mobile_header(drawer_open: Signal<bool>) -> impl IntoElement {
 }
 
 fn active_tab_content() -> impl IntoElement {
+    let is_discover = || nav::current_tab() == PrimaryTab::Discover;
+
     view()
         .flex_1()
         .min_w_0()
         .min_h_0()
-        .child(dynamic(|| match nav::current_tab() {
-            PrimaryTab::Discover => pages::discover::page::discover_page(
-                || nav::active_discover_subpage().map(subpage_to_browse),
-                open_browse_from_discover,
-                nav::close_discover_subpage,
-                |id| nav::open_player(id, None),
-            )
-            .into_element(),
-            PrimaryTab::Search => {
-                pages::search::page::search_page(|id| nav::open_player(id, None)).into_element()
-            }
-            PrimaryTab::Watchlist => {
-                pages::watchlist::page::watchlist_page(nav::open_player).into_element()
-            }
-            PrimaryTab::History => {
-                pages::history::page::history_page(nav::open_player).into_element()
-            }
-            PrimaryTab::Offline => {
-                pages::offline::page::offline_page(nav::open_player).into_element()
-            }
-            PrimaryTab::Settings => pages::settings::page::settings_page().into_element(),
-        }))
+        .child(
+            view()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .style_when(move || !is_discover(), |s| s.hidden())
+                .child(pages::discover::page::discover_page(
+                    || nav::active_discover_subpage().map(subpage_to_browse),
+                    open_browse_from_discover,
+                    nav::close_discover_subpage,
+                    |id| nav::open_player(id, None),
+                )),
+        )
+        .child(when(
+            move || !is_discover(),
+            move || {
+                view()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .child(dynamic(|| match nav::current_tab() {
+                        PrimaryTab::Discover => view().into_element(),
+                        PrimaryTab::Search => {
+                            pages::search::page::search_page(|id| nav::open_player(id, None))
+                                .into_element()
+                        }
+                        PrimaryTab::Watchlist => {
+                            pages::watchlist::page::watchlist_page(nav::open_player).into_element()
+                        }
+                        PrimaryTab::History => {
+                            pages::history::page::history_page(nav::open_player).into_element()
+                        }
+                        PrimaryTab::Offline => {
+                            pages::offline::page::offline_page(nav::open_player).into_element()
+                        }
+                        PrimaryTab::Settings => {
+                            pages::settings::page::settings_page().into_element()
+                        }
+                    }))
+            },
+        ))
 }

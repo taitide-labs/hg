@@ -18,9 +18,9 @@ use hg_contracts::offline::{
     EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView,
 };
 use hg_contracts::viewing::{
-    PlaybackMode, PlaybackPreference, PlaybackSource, ReportWatchProgressRequest,
-    ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark, StorageOverview,
-    WatchHistoryEntry, WatchProgress,
+    DislikedSeriesEntry, PlaybackMode, PlaybackPreference, PlaybackSource,
+    ReportWatchProgressRequest, ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark,
+    StorageOverview, WatchHistoryEntry, WatchProgress,
 };
 use hg_gateway::contract::{AppGateway, GatewayFuture};
 use hg_gateway::mock::MockGateway;
@@ -265,6 +265,21 @@ impl AppGateway for TestGateway {
     }
     fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
         self.inner.unbookmark_series(series_id)
+    }
+    fn disliked_series(&self) -> GatewayFuture<Vec<DislikedSeriesEntry>> {
+        self.inner.disliked_series()
+    }
+    fn is_disliked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
+        self.inner.is_disliked(series_id)
+    }
+    fn dislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        self.inner.dislike_series(series_id)
+    }
+    fn undislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        self.inner.undislike_series(series_id)
+    }
+    fn clear_disliked_series(&self) -> GatewayFuture<()> {
+        self.inner.clear_disliked_series()
     }
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {
         let rate = self.default_rate.load(Ordering::SeqCst);

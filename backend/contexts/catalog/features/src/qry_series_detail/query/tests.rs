@@ -103,6 +103,7 @@ async fn make_deps(
         storage,
         clock: Arc::clone(&clock) as _,
         upstream,
+        cache: crate::cache::CatalogMemoryCache::default(),
     };
     (dir, clock, deps)
 }

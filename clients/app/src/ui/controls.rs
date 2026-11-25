@@ -2,10 +2,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use nsh_base::{HandleEdge, SheetEvent, alert_dialog, button, resize_handle, sheet, switch};
+use nsh_base::{
+    HandleEdge, PopoverEvent, SheetEvent, button, popover, resize_handle, sheet, switch,
+};
 use nsh_core::geometry::Axis;
 use nsh_core::prelude::*;
 
+use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::{IconKind, icon};
 use crate::ui::token;
 
@@ -406,26 +409,69 @@ pub fn tag_fold_button(
         .child(icon(kind, 13.0, token::muted_fg))
 }
 
-pub fn confirm_destructive(
-    title: impl Into<SharedString>,
-    description: impl Into<SharedString>,
+pub fn confirm_popover(
+    trigger: impl IntoElement,
+    prompt: impl Into<SharedString>,
     confirm_label: impl Into<SharedString>,
-    on_confirm: impl FnOnce() + 'static,
-) {
-    let answer = alert_dialog()
-        .title(title.into())
-        .description(description.into())
-        .cancel("cancel", "取消")
-        .destructive("confirm", confirm_label.into())
-        .show();
-    spawn(async move {
-        if answer
-            .await
-            .is_ok_and(|res| res.action.as_deref() == Some("confirm"))
-        {
-            on_confirm();
-        }
-    });
+    on_confirm: impl Fn() + 'static,
+) -> impl IntoElement {
+    let open = signal(false);
+    let prompt: SharedString = prompt.into();
+    let confirm_label: SharedString = confirm_label.into();
+    let on_confirm = Rc::new(on_confirm);
+
+    popover()
+        .open(Prop::bind(move || Some(open.get())))
+        .placement(Placement::Bottom)
+        .align(Align::End)
+        .offset(px(6.0))
+        .margin(px(12.0))
+        .trigger(trigger)
+        .on_open_change(move |ev: &PopoverEvent| {
+            if let PopoverEvent::OpenChange(next, _) = ev {
+                open.set(*next);
+            }
+        })
+        .popup_style(|s| {
+            s.min_w(px(164.0))
+                .p_2p5()
+                .rounded(token::radius_card)
+                .bg(token::popover())
+                .border_1()
+                .border_color(token::border)
+        })
+        .child(
+            view()
+                .gap_2()
+                .child(
+                    text(prompt)
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(token::popover_fg),
+                )
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .justify_end()
+                        .gap_1p5()
+                        .child(app_button(
+                            "取消",
+                            ButtonVariant::Ghost,
+                            ControlSize::Sm,
+                            move || open.set(false),
+                        ))
+                        .child(app_button(
+                            confirm_label,
+                            ButtonVariant::Danger,
+                            ControlSize::Sm,
+                            move || {
+                                open.set(false);
+                                on_confirm();
+                            },
+                        )),
+                ),
+        )
 }
 
 pub fn bind_interval(

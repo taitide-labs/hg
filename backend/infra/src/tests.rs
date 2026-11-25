@@ -405,6 +405,21 @@ async fn loopback_proxy_decrypts_and_disk_caches_cover_images() {
     );
     assert_eq!(first.bytes().await.expect("bytes").as_ref(), plain_png);
 
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let size = StorageLayout::dir_size_bytes(storage.catalog_cache_dir())
+            .await
+            .unwrap_or(0);
+        if size >= plain_png.len() as u64 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for background cover cache write, dir size={size}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
     drop(cdn_task);
 
     let second = client
@@ -417,12 +432,6 @@ async fn loopback_proxy_decrypts_and_disk_caches_cover_images() {
         second.bytes().await.expect("cached bytes").as_ref(),
         plain_png
     );
-    assert!(
-        StorageLayout::dir_size_bytes(storage.catalog_cache_dir())
-            .await
-            .expect("cache bytes")
-            >= plain_png.len() as u64
-    );
 
     proxy.shutdown();
 }
@@ -434,4 +443,150 @@ fn fixed_clock_advances_deterministically() {
     clock.advance_secs(60);
     assert_eq!(clock.now_epoch_secs(), 1_700_000_060);
     assert_eq!(clock.now_epoch_millis(), 1_700_000_060_000);
+}
+
+#[test]
+fn optimize_cover_bytes_downscales_oversized_images_and_shrinks_payload() {
+    let mut img = image::RgbImage::new(1200, 1800);
+    for (x, y, pixel) in img.enumerate_pixels_mut() {
+        *pixel = image::Rgb([
+            u8::try_from((x * 3) % 255).unwrap_or(0),
+            u8::try_from((y * 5) % 255).unwrap_or(0),
+            u8::try_from((x + y) % 255).unwrap_or(0),
+        ]);
+    }
+    let mut png_bytes = Vec::new();
+    image::DynamicImage::ImageRgb8(img)
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .expect("encode png");
+
+    let optimized = crate::cover_cache::optimize_cover_bytes(&png_bytes);
+    let decoded = image::load_from_memory(&optimized).expect("optimized image must decode");
+    assert!(decoded.width() <= 600 && decoded.height() <= 600);
+    assert!(optimized.len() < png_bytes.len());
+}
+
+#[tokio::test]
+async fn cover_cache_store_evicts_least_recently_used_entries_over_limit() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let store = crate::cover_cache::CoverCacheStore::new(
+        db.clone(),
+        Arc::clone(&storage),
+        Arc::clone(&clock) as _,
+    );
+    store.set_limit_override(Some(20));
+
+    store
+        .store_decrypted("https://img.example/1.jpg", b"\xFF\xD8\xFFcover-one-1234")
+        .await
+        .expect("store 1");
+    clock.advance_secs(10);
+    store
+        .store_decrypted("https://img.example/2.jpg", b"\xFF\xD8\xFFcover-two-1234")
+        .await
+        .expect("store 2");
+    clock.advance_secs(10);
+    let _hit = store
+        .read("https://img.example/1.jpg")
+        .await
+        .expect("touch 1");
+    clock.advance_secs(10);
+    store
+        .store_decrypted("https://img.example/3.jpg", b"\xFF\xD8\xFFcover-three-12")
+        .await
+        .expect("store 3");
+
+    assert!(
+        store
+            .read("https://img.example/2.jpg")
+            .await
+            .expect("read 2")
+            .is_none(),
+        "least recently used cover 2 must be evicted"
+    );
+    assert!(
+        store
+            .read("https://img.example/3.jpg")
+            .await
+            .expect("read 3")
+            .is_some()
+    );
+}
+
+#[tokio::test]
+async fn cover_cache_read_serves_existing_disk_file_even_without_sqlite_row() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let store = crate::cover_cache::CoverCacheStore::new(db, Arc::clone(&storage), clock);
+
+    let url = "https://img.example/disk-only.jpg";
+    let rel = crate::cover_cache::build_cover_rel_path(url);
+    let target = storage.catalog_cache_dir().join(rel);
+    tokio::fs::create_dir_all(target.parent().expect("parent"))
+        .await
+        .expect("mkdir");
+    tokio::fs::write(&target, b"\xFF\xD8\xFFdisk-fast-path")
+        .await
+        .expect("write");
+
+    let hit = store.read(url).await.expect("read");
+    assert_eq!(
+        hit.as_deref(),
+        Some(b"\xFF\xD8\xFFdisk-fast-path".as_slice())
+    );
+}
+
+#[tokio::test]
+async fn cover_cache_hits_when_auth_key_rotates_and_preserves_other_queries() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let clock = Arc::new(FixedClock::new(1_700_000_000));
+    let store = crate::cover_cache::CoverCacheStore::new(db, Arc::clone(&storage), clock);
+
+    let url_t0 = "https://pic.qnlycc.cn/upload_01/2026.jpg?auth_key=1795627353-0-0-aaa#frag";
+    let url_t1 = "https://pic.qnlycc.cn/upload_01/2026.jpg?auth_key=1795627999-0-0-bbb";
+    assert_eq!(
+        crate::cover_cache::build_cover_rel_path(url_t0),
+        crate::cover_cache::build_cover_rel_path(url_t1)
+    );
+    assert_ne!(
+        crate::cover_cache::build_cover_rel_path(
+            "https://pic.qnlycc.cn/upload_01/2026.jpg?w=300&auth_key=1"
+        ),
+        crate::cover_cache::build_cover_rel_path(
+            "https://pic.qnlycc.cn/upload_01/2026.jpg?w=600&auth_key=1"
+        )
+    );
+
+    store
+        .store_decrypted(url_t0, b"\xFF\xD8\xFFcached-cover-jpeg")
+        .await
+        .expect("store cover");
+    let hit = store
+        .read(url_t1)
+        .await
+        .expect("read with rotated auth_key");
+    assert_eq!(
+        hit.as_deref(),
+        Some(b"\xFF\xD8\xFFcached-cover-jpeg".as_slice()),
+        "rotating auth_key query param must still hit cached cover on disk"
+    );
 }

@@ -217,6 +217,88 @@ pub fn episode_tile_button(
     )
 }
 
+pub fn confirm_app_trigger(
+    label: impl IntoReactive<SharedString>,
+    variant: ButtonVariant,
+    size: ControlSize,
+) -> View {
+    let content = text(label)
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(move || text_color_for(variant));
+    view()
+        .role(AccessibilityRole::Button)
+        .focusable(true)
+        .h(height_for(size))
+        .px(px_for(size))
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_1p5()
+        .rounded(token::radius_control)
+        .bg(move || bg_for(variant).unwrap_or_else(|| token::bg().opacity(0.0)))
+        .border_1()
+        .border_color(move || {
+            if variant == ButtonVariant::Outline {
+                token::border()
+            } else {
+                token::bg().opacity(0.0)
+            }
+        })
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(move |s| s.bg(move || hover_bg_for(variant)))
+        .active(|s| {
+            let s = s.opacity(0.88);
+            if reduce_motion() {
+                s
+            } else {
+                s.scale(token::PRESS_SCALE)
+            }
+        })
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(content)
+}
+
+pub fn confirm_episode_tile_trigger(
+    label: impl IntoReactive<SharedString>,
+    a11y_label: impl Into<SharedString>,
+    variant: ButtonVariant,
+) -> View {
+    let base = view()
+        .role(AccessibilityRole::Button)
+        .focusable(true)
+        .label(a11y_label.into())
+        .w(px(64.0))
+        .h(px(30.0))
+        .items_center()
+        .justify_center()
+        .rounded(token::radius_control)
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(move |s| s.bg(move || hover_bg_for(variant)))
+        .active(|s| {
+            let s = s.opacity(0.88);
+            if reduce_motion() {
+                s
+            } else {
+                s.scale(token::PRESS_SCALE)
+            }
+        })
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring));
+    let base = match bg_for(variant) {
+        Some(_) => base.bg(move || bg_for(variant).unwrap_or_else(token::secondary)),
+        None => base,
+    };
+    base.child(
+        text(label)
+            .text_xs()
+            .tabular_nums()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(move || text_color_for(variant)),
+    )
+}
+
 pub fn app_icon_text_button(
     kind: IconKind,
     label: impl IntoReactive<SharedString>,
@@ -292,6 +374,34 @@ pub fn text_link_button(
     button()
         .on_press(on_press)
         .accessibility_label(a11y_label.into())
+        .h(px(26.0))
+        .px_2()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .rounded(token::radius_control)
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(|s| s.bg(token::accent))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(
+            text(label)
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(token::muted_fg),
+        )
+        .children(trailing_icon.map(|kind| icon(kind, 13.0, token::muted_fg)))
+}
+
+pub fn confirm_link_trigger(
+    label: impl IntoReactive<SharedString>,
+    a11y_label: impl Into<SharedString>,
+    trailing_icon: Option<IconKind>,
+) -> View {
+    view()
+        .role(AccessibilityRole::Button)
+        .focusable(true)
+        .label(a11y_label.into())
         .h(px(26.0))
         .px_2()
         .flex_row()
