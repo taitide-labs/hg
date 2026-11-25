@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/taitide-labs/hg/compare/v0.3.0...v0.4.0) (2026-11-25)
+
+
+### Features
+
+* **app:** 实现缓存与首屏流畅度优化、不喜欢闭环及播放器交互增强 ([#92](https://github.com/taitide-labs/hg/issues/92)) ([2f87a3f](https://github.com/taitide-labs/hg/commit/2f87a3f77df5882cd65e2bb2054bbfc0e68a8699))
+
 ## [0.3.0](https://github.com/taitide-labs/hg/compare/v0.2.1...v0.3.0) (2026-11-25)
 
 
