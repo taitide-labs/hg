@@ -6,7 +6,8 @@ use super::super::store::{self, EpisodeCommentsState, MobileDetailTab};
 use super::command::{episode_segment_ranges, folded_episode_window, nickname_initial};
 use super::handler;
 use crate::ui::button::{
-    ButtonVariant, ControlSize, app_button, app_icon_text_button, text_link_button,
+    ButtonVariant, ControlSize, app_button, app_icon_text_button, app_reactive_button,
+    text_link_button,
 };
 use crate::ui::icons::IconKind;
 use crate::ui::surface::{BadgeTone, avatar_circle, badge, separator};
@@ -219,14 +220,17 @@ fn episodes_section(
             continue;
         }
         let ep_num = ep.ep_num;
-        let variant = if current == num {
-            ButtonVariant::Primary
-        } else {
-            ButtonVariant::Secondary
-        };
-        grid = grid.child(view().w(px(72.0)).child(app_button(
+        grid = grid.child(view().w(px(72.0)).child(app_reactive_button(
             format!("{num}"),
-            variant,
+            move || {
+                if current == num {
+                    ButtonVariant::Primary
+                } else if store::is_episode_watched(ep_num) {
+                    ButtonVariant::Watched
+                } else {
+                    ButtonVariant::Secondary
+                }
+            },
             ControlSize::Sm,
             move || handler::switch_episode(ep_num),
         )));

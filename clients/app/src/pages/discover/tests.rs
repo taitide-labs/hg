@@ -227,3 +227,22 @@ fn discover_home_fullscreen_grows_visible_series() {
         "fullscreen ranking shelf must dynamically reveal more than 4 cards"
     );
 }
+
+#[test]
+fn watched_series_cards_show_distinct_watched_color() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+    app.wait_for("全 68 集").unwrap();
+    app.wait_for("更新至 72 集").unwrap();
+
+    let watched_fg = app.screen().span_style("全 68 集 >> nth=0").unwrap().color;
+    let unwatched_fg = app
+        .screen()
+        .span_style("更新至 72 集 >> nth=0")
+        .unwrap()
+        .color;
+    assert_ne!(
+        watched_fg, unwatched_fg,
+        "watched series card must visually mark watched status with distinct color"
+    );
+}

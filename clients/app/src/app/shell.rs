@@ -37,6 +37,11 @@ fn tab_title(tab: PrimaryTab) -> &'static str {
     }
 }
 
+fn close_player_and_refresh() {
+    nav::close_player();
+    spawn(crate::features::discover::parts::sync_watched_series());
+}
+
 fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
     match subpage {
         DiscoverSubPage::Featured => BrowseKind::Featured,
@@ -89,7 +94,7 @@ pub fn app_shell() -> impl IntoElement {
                         "返回",
                         ButtonVariant::Ghost,
                         ControlSize::Sm,
-                        nav::close_player,
+                        close_player_and_refresh,
                     )
                 })
                 .otherwise(move || {
@@ -116,7 +121,7 @@ pub fn app_shell() -> impl IntoElement {
                     Some(route) => pages::player::page::player_page(
                         route.series_id,
                         route.initial_episode,
-                        nav::close_player,
+                        close_player_and_refresh,
                         nav::set_chrome_fullscreen,
                     )
                     .into_element(),

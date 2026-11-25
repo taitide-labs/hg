@@ -12,6 +12,7 @@ pub struct SeriesCardProps {
     pub subtitle: String,
     pub episode_label: String,
     pub badge_text: Option<String>,
+    pub watched: bool,
     pub index: usize,
 }
 
@@ -20,6 +21,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
     let score_text = format!("{:.1}", props.score);
     let badge_text = props.badge_text;
     let episode_label = props.episode_label;
+    let watched = props.watched;
     let title = props.title;
     let subtitle = props.subtitle;
 
@@ -50,6 +52,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
             badge_text,
             score_text,
             episode_label,
+            watched,
         ))
         .child(
             view()
@@ -128,6 +131,7 @@ fn poster_cover(
     badge_text: Option<String>,
     score_text: String,
     episode_label: String,
+    watched: bool,
 ) -> impl IntoElement {
     let image_layer = cover_image_layer(&cover_key);
     let cover_for_bg = cover_key;
@@ -175,8 +179,20 @@ fn poster_cover(
                         .px_2()
                         .py_0p5()
                         .rounded(token::radius_badge)
-                        .bg(token::cinema_scrim)
-                        .child(text(episode_label).text_xs().text_color(token::cinema_fg)),
+                        .bg(move || {
+                            if watched {
+                                token::watched()
+                            } else {
+                                token::cinema_scrim()
+                            }
+                        })
+                        .child(text(episode_label).text_xs().text_color(move || {
+                            if watched {
+                                token::watched_fg()
+                            } else {
+                                token::cinema_fg()
+                            }
+                        })),
                 )
                 .child(
                     view()

@@ -6,7 +6,7 @@ use hg_contracts::catalog::{
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::dedup_append;
+use super::super::parts::{dedup_append, sync_watched_series};
 use super::super::store;
 use crate::gateway;
 
@@ -28,9 +28,12 @@ pub fn load_home() {
         page: first_page(HOME_RANKING_FETCH_SIZE),
     };
     spawn(async move {
-        let feed_res = gw.home_feed().await;
-        let cats_res = gw.categories().await;
-        let rank_res = gw.list_ranking(rank_req).await;
+        let (feed_res, cats_res, rank_res, ()) = (
+            gw.home_feed().await,
+            gw.categories().await,
+            gw.list_ranking(rank_req).await,
+            sync_watched_series().await,
+        );
         match (feed_res, cats_res, rank_res) {
             (Ok(mut feed), Ok(categories), Ok(rankings)) => {
                 if feed.featured.len() < HOME_SHELF_TARGET_ITEMS

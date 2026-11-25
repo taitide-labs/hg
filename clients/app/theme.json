@@ -62,6 +62,8 @@
       "success-soft": "#e8f8ee",
       "warning": "#b45309",
       "warning-soft": "#fef3c7",
+      "watched": "#dff3ef",
+      "watched-foreground": "#0f766e",
       "surface-subtle": "#f5f6f9"
     },
     "dark": {
@@ -102,6 +104,8 @@
       "success-soft": "#122b1e",
       "warning": "#fbbf24",
       "warning-soft": "#31230f",
+      "watched": "#14332f",
+      "watched-foreground": "#5eead4",
       "surface-subtle": "#17191f"
     }
   }

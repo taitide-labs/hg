@@ -7,7 +7,7 @@ use hg_contracts::error::ContractError;
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::dedup_append;
+use super::super::parts::{dedup_append, sync_watched_series};
 use super::super::store::{self, SearchTarget};
 use crate::gateway;
 
@@ -23,6 +23,7 @@ fn page_request(page: u32) -> PageRequest {
 pub fn init_search_page() {
     let gw = gateway::current();
     spawn(async move {
+        sync_watched_series().await;
         let groups = gw.tag_groups().await.unwrap_or_default();
         let keywords = gw.hot_keywords().await.unwrap_or_default();
         store::set_browse_meta(groups, keywords);

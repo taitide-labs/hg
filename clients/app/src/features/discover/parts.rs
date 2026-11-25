@@ -1,12 +1,22 @@
+use std::collections::HashSet;
+
 use hg_contracts::catalog::SeriesSummary;
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
+use super::store;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
 use crate::ui::poster::{SeriesCardProps, series_card};
 use crate::ui::surface::empty_state;
 use crate::ui::token;
+
+pub async fn sync_watched_series() {
+    if let Ok(history) = crate::gateway::current().watch_history().await {
+        let watched: HashSet<SeriesId> = history.into_iter().map(|entry| entry.series_id).collect();
+        store::set_watched_series(watched);
+    }
+}
 
 pub fn series_grid(
     items: Vec<SeriesSummary>,
@@ -43,6 +53,7 @@ pub fn series_grid(
                 subtitle,
                 episode_label: status,
                 badge_text: item.badge,
+                watched: store::is_series_watched(id),
                 index,
             },
             move || on_open_series(id),

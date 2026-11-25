@@ -296,6 +296,11 @@ pub fn episode_progress_for_untracked(ep_num: EpisodeNumber) -> Option<WatchProg
 }
 
 #[must_use]
+pub fn is_episode_watched(ep_num: EpisodeNumber) -> bool {
+    episode_progress_state().with(|m| m.0.contains_key(&ep_num))
+}
+
+#[must_use]
 pub fn current_episode_seq() -> u64 {
     state().with_untracked(|s| s.episode_seq)
 }

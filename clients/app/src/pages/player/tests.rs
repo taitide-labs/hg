@@ -434,3 +434,53 @@ fn android_system_back_closes_drawer_before_emitting_back_intent() {
     app.back().unwrap();
     assert_eq!(back_spy.snapshot().len(), 1);
 }
+
+#[test]
+fn watched_episodes_show_distinct_color_from_unwatched_and_current() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Light);
+
+    app.wait_for("选集 (1/68)").unwrap();
+    let current_bg = app.screen().view_style("role:button[1]").unwrap();
+    let unwatched_bg = app.screen().view_style("role:button[2]").unwrap();
+    let watched_bg = app.screen().view_style("role:button[3]").unwrap();
+    let unwatched_fg = app
+        .screen()
+        .span_style("role:button[2] >> 2")
+        .unwrap()
+        .color;
+    let watched_fg = app
+        .screen()
+        .span_style("role:button[3] >> 3")
+        .unwrap()
+        .color;
+
+    assert_ne!(current_bg, unwatched_bg);
+    assert_ne!(current_bg, watched_bg);
+    assert!(
+        watched_bg != unwatched_bg || watched_fg != unwatched_fg,
+        "watched episode 3 must be visually colored differently from unwatched episode 2"
+    );
+
+    app.press("2").unwrap();
+    app.wait_for("选集 (2/68)").unwrap();
+    emit_video_progress(&mut app, 35, 120);
+    app.press("4").unwrap();
+    app.wait_for("选集 (4/68)").unwrap();
+
+    let ep2_after_bg = app.screen().view_style("role:button[2]").unwrap();
+    let ep2_after_fg = app
+        .screen()
+        .span_style("role:button[2] >> 2")
+        .unwrap()
+        .color;
+    let ep5_bg = app.screen().view_style("role:button[5]").unwrap();
+    let ep5_fg = app
+        .screen()
+        .span_style("role:button[5] >> 5")
+        .unwrap()
+        .color;
+    assert!(
+        ep2_after_bg != ep5_bg || ep2_after_fg != ep5_fg,
+        "episode 2 must switch to watched color after playback"
+    );
+}

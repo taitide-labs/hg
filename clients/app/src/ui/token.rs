@@ -145,6 +145,16 @@ pub fn warning_soft() -> AdaptiveColor {
 }
 
 #[must_use]
+pub fn watched() -> AdaptiveColor {
+    color_or("watched", theme().secondary)
+}
+
+#[must_use]
+pub fn watched_fg() -> AdaptiveColor {
+    color_or("watched-foreground", theme().chart_2)
+}
+
+#[must_use]
 pub fn surface_subtle() -> AdaptiveColor {
     color_or("surface-subtle", theme().muted)
 }

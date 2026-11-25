@@ -1,7 +1,9 @@
+use std::collections::HashSet;
+
 use hg_contracts::catalog::{
     Category, HomeFeed, HotKeyword, RankingEntry, RankingKind, SeriesSort, SeriesSummary, TagGroup,
 };
-use hg_contracts::ids::PageInfo;
+use hg_contracts::ids::{PageInfo, SeriesId};
 use hg_contracts::viewing::SearchHistoryEntry;
 use nsh_core::prelude::*;
 
@@ -179,6 +181,22 @@ pub fn search_input_signal() -> Signal<String> {
 #[must_use]
 pub fn ranking_tab_signal() -> Signal<RankingTab> {
     global::<RankingTab>()
+}
+
+#[derive(Debug, Clone, Default)]
+struct WatchedSeriesSet(HashSet<SeriesId>);
+
+fn watched_series_state() -> Signal<WatchedSeriesSet> {
+    global::<WatchedSeriesSet>()
+}
+
+#[must_use]
+pub fn is_series_watched(series_id: SeriesId) -> bool {
+    watched_series_state().with(|s| s.0.contains(&series_id))
+}
+
+pub fn set_watched_series(ids: HashSet<SeriesId>) {
+    watched_series_state().set(WatchedSeriesSet(ids));
 }
 
 pub fn set_home_loading() {

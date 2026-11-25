@@ -7,7 +7,7 @@ use hg_contracts::catalog::{
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::dedup_append;
+use super::super::parts::{dedup_append, sync_watched_series};
 use super::super::store::{self, BrowseKind, RankingTab};
 use crate::gateway;
 
@@ -23,6 +23,7 @@ fn page_request(page: u32) -> PageRequest {
 pub fn load_meta() {
     let gw = gateway::current();
     spawn(async move {
+        sync_watched_series().await;
         let groups = gw.tag_groups().await.unwrap_or_default();
         let keywords = gw.hot_keywords().await.unwrap_or_default();
         store::set_browse_meta(groups, keywords);
@@ -33,6 +34,7 @@ pub fn load_browse(kind: BrowseKind) {
     if let BrowseKind::Search { ref query } = kind {
         store::search_input_signal().set(query.clone());
     }
+    spawn(sync_watched_series());
     load_browse_with_sort(kind, SeriesSort::Hot);
 }
 
