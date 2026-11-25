@@ -28,8 +28,8 @@ fn dirty_upstream_total_episodes_fallback_sort_and_pagination_e2e() {
         .app
         .press("查看精选推荐全部")
         .expect("open featured browse");
-    harness.app.wait_for("最新").expect("sort tabs visible");
-    harness.app.press("最新").expect("sort by latest");
+    harness.app.wait_for("最近更新").expect("sort tabs visible");
+    harness.app.press("最近更新").expect("sort by latest");
     harness
         .app
         .wait(Duration::from_millis(150))

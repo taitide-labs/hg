@@ -87,7 +87,7 @@ fn search_page_keyword_hot_word_history_crud_and_tag_toggle_matrix() {
 
     app.press("悬疑 >> nth=0").unwrap();
     app.wait_for("最热").unwrap();
-    app.wait_for("最新").unwrap();
+    app.wait_for("最近更新").unwrap();
     app.wait_for("全 80 集").unwrap();
 
     app.press("悬疑 >> nth=0").unwrap();
@@ -115,7 +115,7 @@ fn search_page_keyword_and_tag_paginate_via_infinite_scroll_without_load_more() 
     app.scroll("分页剧目 01", px(5000.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
 
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("分页剧目 30").unwrap();
     assert!(!app.screen().shows("分页剧目 01"));
 }

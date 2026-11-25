@@ -94,7 +94,7 @@ fn returning_from_player_preserves_browse_sort_and_category_context() {
     app.wait_for("分页剧目 01").unwrap();
     assert!(!app.screen().shows("分页剧目 30"));
 
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("分页剧目 30").unwrap();
     app.scroll("分页剧目 30", nsh_core::prelude::Points(2600.0))
         .unwrap();

@@ -304,8 +304,17 @@ pub fn parse_home_feed(data: Value) -> Result<HomeFeed, ContractError> {
     Ok(HomeFeed {
         banners,
         featured,
+        latest: Vec::new(),
         category_recommendations,
     })
+}
+
+pub fn parse_home_latest(data: Value) -> Result<Vec<SeriesSummary>, ContractError> {
+    let raw: RawPagedVideosData = decode_data(data, "首页最近更新")?;
+    raw.items
+        .into_iter()
+        .map(|item| item.into_summary("首页最近更新"))
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]

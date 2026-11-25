@@ -11,13 +11,13 @@ use crate::CatalogDeps;
 
 use super::cache::{read_cached_json, write_cached_json};
 use super::codec::{
-    extract_data, parse_categories, parse_home_feed, parse_hot_keywords, parse_hot_tags,
-    parse_paged_series, parse_ranking, parse_search_suggestions, parse_tag_groups,
+    extract_data, parse_categories, parse_home_feed, parse_home_latest, parse_hot_keywords,
+    parse_hot_tags, parse_paged_series, parse_ranking, parse_search_suggestions, parse_tag_groups,
 };
 use super::query::{
-    UpstreamRoute, categories_route, home_feed_route, hot_keywords_route, hot_tags_route,
-    list_ranking_route, list_series_route, search_series_route, search_suggestions_route,
-    tag_groups_route,
+    UpstreamRoute, categories_route, home_feed_route, home_latest_route, hot_keywords_route,
+    hot_tags_route, list_ranking_route, list_series_route, search_series_route,
+    search_suggestions_route, tag_groups_route,
 };
 
 async fn execute_route<T, F>(
@@ -57,7 +57,16 @@ where
 
 pub async fn home_feed(deps: &CatalogDeps) -> Result<HomeFeed, ContractError> {
     let route = home_feed_route();
-    execute_route(deps, &route, "首页聚合", parse_home_feed).await
+    let latest_route = home_latest_route();
+    let (feed_res, latest_res) = tokio::join!(
+        execute_route(deps, &route, "首页聚合", parse_home_feed),
+        execute_route(deps, &latest_route, "首页最近更新", parse_home_latest),
+    );
+    let mut feed = feed_res?;
+    if let Ok(latest) = latest_res {
+        feed.latest = latest;
+    }
+    Ok(feed)
 }
 
 pub async fn categories(deps: &CatalogDeps) -> Result<Vec<Category>, ContractError> {

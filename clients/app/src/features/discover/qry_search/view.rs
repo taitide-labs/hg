@@ -343,7 +343,7 @@ fn results_panel(
     let is_tag = matches!(target, SearchTarget::Tag { .. });
     let mut container = view().w_full().gap_4();
     if is_tag {
-        let sort_items = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最新")];
+        let sort_items = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
         container = container.child(segmented_tabs(
             sort_items,
             move || store::search_snapshot().sort,

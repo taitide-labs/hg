@@ -39,6 +39,7 @@ impl From<RankingTab> for RankingKind {
 pub enum BrowseKind {
     #[default]
     Featured,
+    Latest,
     Ranking(RankingKind),
     Category {
         id: u32,

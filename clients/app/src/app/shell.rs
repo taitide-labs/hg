@@ -45,6 +45,7 @@ fn close_player_and_refresh() {
 fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
     match subpage {
         DiscoverSubPage::Featured => BrowseKind::Featured,
+        DiscoverSubPage::Latest => BrowseKind::Latest,
         DiscoverSubPage::Ranking => BrowseKind::Ranking(RankingKind::Hot),
         DiscoverSubPage::Category { id, name, route } => BrowseKind::Category { id, name, route },
     }
@@ -53,6 +54,7 @@ fn subpage_to_browse(subpage: DiscoverSubPage) -> BrowseKind {
 fn open_browse_from_discover(kind: BrowseKind) {
     match kind {
         BrowseKind::Featured => nav::open_discover_subpage(DiscoverSubPage::Featured),
+        BrowseKind::Latest => nav::open_discover_subpage(DiscoverSubPage::Latest),
         BrowseKind::Ranking(_) => nav::open_discover_subpage(DiscoverSubPage::Ranking),
         BrowseKind::Category { id, name, route } => {
             nav::open_discover_subpage(DiscoverSubPage::Category { id, name, route });

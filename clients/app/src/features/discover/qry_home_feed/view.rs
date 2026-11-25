@@ -53,21 +53,25 @@ pub fn home_feed_view(
                 let cols = ((inner_w + 16.0) / 172.0).floor().max(2.0) as usize;
                 let rank_cols = ((inner_w + 12.0) / 232.0).floor().max(2.0) as usize;
 
-                let mut body = view()
-                    .w_full()
-                    .gap_6()
-                    .child(featured_shelf(
-                        feed.featured,
-                        cols,
-                        on_open_browse,
-                        on_open_series,
-                    ))
-                    .child(ranking_shelf(
-                        snap.rankings,
-                        rank_cols,
-                        on_open_browse,
-                        on_open_series,
-                    ));
+                let mut body =
+                    view()
+                        .w_full()
+                        .gap_6()
+                        .child(featured_shelf(
+                            feed.featured,
+                            cols,
+                            on_open_browse,
+                            on_open_series,
+                        ))
+                        .child(ranking_shelf(
+                            snap.rankings,
+                            rank_cols,
+                            on_open_browse,
+                            on_open_series,
+                        ))
+                        .children((!feed.latest.is_empty()).then(|| {
+                            latest_shelf(feed.latest, cols, on_open_browse, on_open_series)
+                        }));
 
                 for rec in feed.category_recommendations {
                     let route = snap
@@ -94,12 +98,46 @@ fn featured_shelf(
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
+    series_shelf_block(
+        "精选推荐",
+        BrowseKind::Featured,
+        items,
+        cols,
+        on_open_browse,
+        on_open_series,
+    )
+}
+
+fn latest_shelf(
+    items: Vec<SeriesSummary>,
+    cols: usize,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    series_shelf_block(
+        "最近更新",
+        BrowseKind::Latest,
+        items,
+        cols,
+        on_open_browse,
+        on_open_series,
+    )
+}
+
+fn series_shelf_block(
+    title: &'static str,
+    browse_kind: BrowseKind,
+    items: Vec<SeriesSummary>,
+    cols: usize,
+    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
     let preview: Vec<SeriesSummary> = items.into_iter().take(cols).collect();
     view()
         .w_full()
         .gap_3()
-        .child(shelf_header("精选推荐", "全部", move || {
-            on_open_browse(BrowseKind::Featured);
+        .child(shelf_header(title, "全部", move || {
+            on_open_browse(browse_kind.clone());
         }))
         .child(series_grid(preview, on_open_series))
 }

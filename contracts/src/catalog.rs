@@ -51,6 +51,8 @@ pub struct CategoryRecommendation {
 pub struct HomeFeed {
     pub banners: Vec<HomeBanner>,
     pub featured: Vec<SeriesSummary>,
+    #[serde(default)]
+    pub latest: Vec<SeriesSummary>,
     pub category_recommendations: Vec<CategoryRecommendation>,
 }
 

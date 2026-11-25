@@ -449,6 +449,7 @@ impl AppGateway for MockGateway {
             let mut feed = build_home_feed(&state);
             if let Some(limit) = cap {
                 feed.featured.truncate(limit);
+                feed.latest.truncate(limit);
                 for rec in &mut feed.category_recommendations {
                     rec.items.truncate(limit);
                 }

@@ -94,10 +94,10 @@ fn discover_featured_and_ranking_support_sort_and_back_without_search_chrome() {
     app.press("查看精选推荐全部").unwrap();
     app.wait_for("春风十里不及卿").unwrap();
     app.wait_for("最热").unwrap();
-    app.wait_for("最新").unwrap();
+    app.wait_for("最近更新").unwrap();
     assert!(!app.screen().shows("热搜"));
     assert!(!app.screen().shows("题材"));
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("春风十里不及卿").unwrap();
 }
 
@@ -111,7 +111,7 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     assert!(!app.screen().shows("加载更多"));
     assert!(!app.screen().shows("分页剧目 28"));
 
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("分页剧目 30").unwrap();
     let selectors: Vec<String> = (13..=30)
         .rev()
@@ -138,7 +138,7 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.wait_for("分页剧目 28").unwrap();
     assert!(!app.screen().shows("加载更多"));
 
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("分页剧目 30").unwrap();
     assert!(!app.screen().shows("分页剧目 01"));
 
@@ -158,9 +158,9 @@ fn discover_browse_ignores_stale_sort_response() {
 
     let slow_hot_gate = gw.queue_method_gate("list_series");
     app.press("查看精选推荐全部").unwrap();
-    app.wait_for("最新").unwrap();
+    app.wait_for("最近更新").unwrap();
 
-    app.press("最新").unwrap();
+    app.press("最近更新").unwrap();
     app.wait_for("分页剧目 30").unwrap();
 
     slow_hot_gate.release();
@@ -255,4 +255,18 @@ fn ranking_views_display_series_badge() {
     app.press("查看排行榜全部").unwrap();
     app.wait_for("#1").unwrap();
     app.wait_for("热播 Top 1").unwrap();
+}
+
+#[test]
+fn discover_home_shows_latest_updates_shelf_and_renames_new_sort_to_recently_updated() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+
+    assert!(app.screen().shows("最近更新"));
+    app.press("查看最近更新全部").unwrap();
+    app.wait_for("分页剧目 30").unwrap();
+    assert!(!app.screen().shows("最新"));
+    assert!(app.screen().shows("最近更新"));
+    app.press("最热").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
 }

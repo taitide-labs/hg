@@ -35,7 +35,15 @@ pub fn load_browse(kind: BrowseKind) {
         store::search_input_signal().set(query.clone());
     }
     spawn(sync_watched_series());
-    load_browse_with_sort(kind, SeriesSort::Hot);
+    let default_sort = match kind {
+        BrowseKind::Latest => SeriesSort::New,
+        BrowseKind::Featured
+        | BrowseKind::Ranking(_)
+        | BrowseKind::Category { .. }
+        | BrowseKind::Tag { .. }
+        | BrowseKind::Search { .. } => SeriesSort::Hot,
+    };
+    load_browse_with_sort(kind, default_sort);
 }
 
 pub fn switch_sort(sort: SeriesSort) {
@@ -104,7 +112,7 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
 
     spawn(async move {
         match kind {
-            BrowseKind::Featured => {
+            BrowseKind::Featured | BrowseKind::Latest => {
                 let req = ListSeriesRequest {
                     filter: SeriesFilter::All { category_id: None },
                     sort,

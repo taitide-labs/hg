@@ -547,9 +547,13 @@ pub(super) fn build_home_feed(state: &MockState) -> HomeFeed {
         .cloned()
         .collect();
 
+    let mut latest = all.clone();
+    latest.sort_by_key(|s| std::cmp::Reverse(s.id.get()));
+
     HomeFeed {
         banners,
         featured: all,
+        latest,
         category_recommendations: vec![
             CategoryRecommendation {
                 category_id: 24,

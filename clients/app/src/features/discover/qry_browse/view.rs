@@ -34,7 +34,10 @@ pub fn browse_view(
     let is_sortable = computed(|| {
         matches!(
             store::browse_snapshot().kind,
-            BrowseKind::Featured | BrowseKind::Category { .. } | BrowseKind::Tag { .. }
+            BrowseKind::Featured
+                | BrowseKind::Latest
+                | BrowseKind::Category { .. }
+                | BrowseKind::Tag { .. }
         )
     });
 
@@ -97,6 +100,7 @@ fn browse_results_panel(
     match snap.kind {
         BrowseKind::Ranking(_) => ranking_list(snap.ranking_items, on_open_series).into_element(),
         BrowseKind::Featured
+        | BrowseKind::Latest
         | BrowseKind::Category { .. }
         | BrowseKind::Tag { .. }
         | BrowseKind::Search { .. } => series_grid(snap.items, on_open_series).into_element(),
@@ -157,6 +161,7 @@ fn browse_header(
 fn title_bar() -> impl IntoElement {
     text(move || match store::browse_snapshot().kind {
         BrowseKind::Featured => "精选推荐".to_owned(),
+        BrowseKind::Latest => "最近更新".to_owned(),
         BrowseKind::Ranking(_) => "排行榜".to_owned(),
         BrowseKind::Category { name, .. } => name,
         BrowseKind::Tag { name, .. } => format!("标签 · {name}"),
@@ -170,7 +175,7 @@ fn title_bar() -> impl IntoElement {
 }
 
 fn sort_tabs() -> impl IntoElement {
-    let tabs = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最新")];
+    let tabs = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
     segmented_tabs(
         tabs,
         move || store::browse_snapshot().sort,

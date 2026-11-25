@@ -48,6 +48,18 @@ pub fn load_home() {
                     dedup_append(&mut feed.featured, extra.items, |item| item.id);
                 }
 
+                if feed.latest.len() < HOME_SHELF_TARGET_ITEMS
+                    && let Ok(extra) = gw
+                        .list_series(ListSeriesRequest {
+                            filter: SeriesFilter::All { category_id: None },
+                            sort: SeriesSort::New,
+                            page: first_page(HOME_SHELF_TARGET_ITEMS as u16),
+                        })
+                        .await
+                {
+                    dedup_append(&mut feed.latest, extra.items, |item| item.id);
+                }
+
                 for rec in &mut feed.category_recommendations {
                     if rec.items.len() >= HOME_SHELF_TARGET_ITEMS {
                         continue;

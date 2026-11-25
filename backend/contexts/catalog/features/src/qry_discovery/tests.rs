@@ -605,3 +605,48 @@ fn list_series_and_ranking_preserve_original_badge_from_is_original_flag() {
     assert_eq!(ranked_first.series.badge.as_deref(), Some("原创"));
     assert_eq!(ranked_first.series.episode_count, 30);
 }
+
+#[tokio::test]
+async fn home_feed_fetches_and_parses_latest_shelf_from_api_home_latest() {
+    let upstream = StubUpstream::default()
+        .with_route(
+            "/api/home",
+            json!({
+                "status": 1,
+                "data": {
+                    "banners": [],
+                    "featured": [{ "id": 100, "title": "精选剧", "cover": "/c/100.jpg" }],
+                    "cate_rec": []
+                }
+            }),
+        )
+        .with_route(
+            "/api/home/latest",
+            json!({
+                "status": 1,
+                "data": {
+                    "items": [
+                        {
+                            "id": 15941,
+                            "title": "刚刚更新剧",
+                            "cover": "/c/15941.jpg",
+                            "score": 8.7,
+                            "episode_count": 2,
+                            "total_episodes": 0,
+                            "badge": "黄果原创"
+                        }
+                    ],
+                    "total": 1,
+                    "page": 1,
+                    "size": 20
+                }
+            }),
+        );
+    let env = TestEnv::new(upstream).await;
+    let feed = super::handler::home_feed(&env.deps)
+        .await
+        .expect("home_feed");
+    assert_eq!(feed.featured.len(), 1);
+    assert_eq!(feed.latest.len(), 1);
+    assert_eq!(feed.latest.first().expect("latest").title, "刚刚更新剧");
+}
