@@ -24,6 +24,14 @@ pub async fn remove_watch_history(
             detail: format!("移除观看历史失败: {err}"),
         })?;
 
+    sqlx::query("DELETE FROM viewing_episode_progress WHERE series_id = ?1")
+        .bind(series_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("移除分集观看进度失败: {err}"),
+        })?;
+
     commit_write_tx(tx, "移除观看历史").await
 }
 
@@ -35,6 +43,13 @@ pub async fn clear_watch_history(deps: &ViewingDeps) -> Result<(), ContractError
         .await
         .map_err(|err| ContractError::Internal {
             detail: format!("清空观看历史失败: {err}"),
+        })?;
+
+    sqlx::query("DELETE FROM viewing_episode_progress")
+        .execute(&mut *tx)
+        .await
+        .map_err(|err| ContractError::Internal {
+            detail: format!("清空分集观看进度失败: {err}"),
         })?;
 
     commit_write_tx(tx, "清空观看历史").await

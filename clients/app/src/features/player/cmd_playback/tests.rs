@@ -20,7 +20,7 @@ use hg_contracts::offline::{
 use hg_contracts::viewing::{
     PlaybackMode, PlaybackPreference, PlaybackSource, ReportWatchProgressRequest,
     ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark, StorageOverview,
-    WatchHistoryEntry,
+    WatchHistoryEntry, WatchProgress,
 };
 use hg_gateway::contract::{AppGateway, GatewayFuture};
 use hg_gateway::mock::MockGateway;
@@ -243,6 +243,9 @@ impl AppGateway for TestGateway {
     }
     fn watch_history(&self) -> GatewayFuture<Vec<WatchHistoryEntry>> {
         self.inner.watch_history()
+    }
+    fn episode_progress(&self, series_id: SeriesId) -> GatewayFuture<Vec<WatchProgress>> {
+        self.inner.episode_progress(series_id)
     }
     fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
         self.inner.remove_watch_history(series_id)

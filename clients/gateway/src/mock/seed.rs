@@ -11,7 +11,7 @@ use hg_contracts::offline::{
     PauseReason,
 };
 use hg_contracts::viewing::{
-    PlaybackPreference, SearchHistoryEntry, SeriesBookmark, WatchHistoryEntry,
+    PlaybackPreference, SearchHistoryEntry, SeriesBookmark, WatchHistoryEntry, WatchProgress,
 };
 
 pub(super) struct MockState {
@@ -22,6 +22,7 @@ pub(super) struct MockState {
     pub(super) details: BTreeMap<SeriesId, SeriesDetail>,
     pub(super) comments: HashMap<EpisodeKey, Vec<EpisodeComment>>,
     pub(super) watch_history: Vec<WatchHistoryEntry>,
+    pub(super) episode_progress: HashMap<EpisodeKey, WatchProgress>,
     pub(super) bookmarks: Vec<SeriesBookmark>,
     pub(super) search_history: Vec<SearchHistoryEntry>,
     pub(super) offline_library: Vec<OfflineSeriesView>,
@@ -266,6 +267,23 @@ fn build_seed_watch_history() -> Vec<WatchHistoryEntry> {
     ]
 }
 
+fn build_seed_episode_progress() -> HashMap<EpisodeKey, WatchProgress> {
+    let mut map = HashMap::new();
+    for entry in build_seed_watch_history() {
+        let key = EpisodeKey::new(entry.series_id, entry.last_episode);
+        map.insert(
+            key,
+            WatchProgress {
+                key,
+                position_secs: entry.position_secs,
+                duration_secs: entry.duration_secs,
+                completed: entry.episode_completed,
+            },
+        );
+    }
+    map
+}
+
 fn build_seed_bookmarks() -> Vec<SeriesBookmark> {
     vec![
         SeriesBookmark {
@@ -483,6 +501,7 @@ pub(super) fn build_initial_state() -> MockState {
         details: build_seed_details(),
         comments: build_seed_comments(),
         watch_history: build_seed_watch_history(),
+        episode_progress: build_seed_episode_progress(),
         bookmarks: build_seed_bookmarks(),
         search_history: vec![SearchHistoryEntry {
             keyword: "千金".to_owned(),

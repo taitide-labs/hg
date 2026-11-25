@@ -777,13 +777,26 @@ impl AppGateway for MockGateway {
                 },
             );
 
-            Ok(ReportWatchProgressResult {
-                progress: WatchProgress {
-                    key: request.key,
-                    position_secs: request.position_secs,
-                    duration_secs: request.duration_secs,
-                    completed,
+            let progress = WatchProgress {
+                key: request.key,
+                position_secs: request.position_secs,
+                duration_secs: request.duration_secs,
+                completed,
+            };
+            let prev_completed = state
+                .episode_progress
+                .get(&request.key)
+                .is_some_and(|p| p.completed);
+            state.episode_progress.insert(
+                request.key,
+                WatchProgress {
+                    completed: completed || prev_completed,
+                    ..progress
                 },
+            );
+
+            Ok(ReportWatchProgressResult {
+                progress,
                 next_episode,
             })
         });
@@ -797,19 +810,38 @@ impl AppGateway for MockGateway {
         self.finish("watch_history", result)
     }
 
+    fn episode_progress(&self, series_id: SeriesId) -> GatewayFuture<Vec<WatchProgress>> {
+        let result = self.check_error("episode_progress").map(|()| {
+            let mut items: Vec<WatchProgress> = self
+                .state
+                .lock()
+                .episode_progress
+                .values()
+                .filter(|p| p.key.series_id == series_id)
+                .copied()
+                .collect();
+            items.sort_by_key(|p| p.key.ep_num.get());
+            items
+        });
+        self.finish("episode_progress", result)
+    }
+
     fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
         let result = self.check_error("remove_watch_history").map(|()| {
-            self.state
-                .lock()
-                .watch_history
-                .retain(|e| e.series_id != series_id);
+            let mut state = self.state.lock();
+            state.watch_history.retain(|e| e.series_id != series_id);
+            state
+                .episode_progress
+                .retain(|k, _| k.series_id != series_id);
         });
         self.finish("remove_watch_history", result)
     }
 
     fn clear_watch_history(&self) -> GatewayFuture<()> {
         let result = self.check_error("clear_watch_history").map(|()| {
-            self.state.lock().watch_history.clear();
+            let mut state = self.state.lock();
+            state.watch_history.clear();
+            state.episode_progress.clear();
         });
         self.finish("clear_watch_history", result)
     }

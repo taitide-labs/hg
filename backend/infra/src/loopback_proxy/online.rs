@@ -147,42 +147,57 @@ impl PlaybackCacheStore {
 
     async fn evict_lru_over_limit(&self, protected_key: &str) {
         let limit_bytes = self.resolve_limit_bytes().await;
-        let Ok(rows) = sqlx::query_as::<_, CachedSegmentRow>(
-            "SELECT segment_key, local_rel_path, size_bytes
-             FROM viewing_playback_cache_segments
-             ORDER BY accessed_at_epoch_secs ASC, segment_key ASC",
+        let Ok(raw_total) = sqlx::query_scalar::<_, i64>(
+            "SELECT COALESCE(SUM(size_bytes), 0) FROM viewing_playback_cache_segments",
         )
-        .fetch_all(self.db.pool())
+        .fetch_one(self.db.pool())
         .await
         else {
             return;
         };
 
-        let mut total_bytes = rows
-            .iter()
-            .map(|r| u64::try_from(r.size_bytes).unwrap_or(0))
-            .fold(0_u64, u64::saturating_add);
+        let mut total_bytes = u64::try_from(raw_total).unwrap_or(0);
         if total_bytes <= limit_bytes {
             return;
         }
 
         let cache_dir = self.storage.playback_cache_dir();
-        for row in rows {
+        loop {
             if total_bytes <= limit_bytes {
                 break;
             }
-            if row.segment_key == protected_key {
-                continue;
+            let Ok(rows) = sqlx::query_as::<_, CachedSegmentRow>(
+                "SELECT segment_key, local_rel_path, size_bytes
+                 FROM viewing_playback_cache_segments
+                 WHERE segment_key != ?1
+                 ORDER BY accessed_at_epoch_secs ASC, segment_key ASC
+                 LIMIT 32",
+            )
+            .bind(protected_key)
+            .fetch_all(self.db.pool())
+            .await
+            else {
+                break;
+            };
+            if rows.is_empty() {
+                break;
             }
-            let size = u64::try_from(row.size_bytes).unwrap_or(0);
-            total_bytes = total_bytes.saturating_sub(size);
-            drop(
-                sqlx::query("DELETE FROM viewing_playback_cache_segments WHERE segment_key = ?1")
+            for row in rows {
+                if total_bytes <= limit_bytes {
+                    break;
+                }
+                let size = u64::try_from(row.size_bytes).unwrap_or(0);
+                total_bytes = total_bytes.saturating_sub(size);
+                drop(
+                    sqlx::query(
+                        "DELETE FROM viewing_playback_cache_segments WHERE segment_key = ?1",
+                    )
                     .bind(&row.segment_key)
                     .execute(self.db.pool())
                     .await,
-            );
-            drop(tokio::fs::remove_file(cache_dir.join(&row.local_rel_path)).await);
+                );
+                drop(tokio::fs::remove_file(cache_dir.join(&row.local_rel_path)).await);
+            }
         }
     }
 }
