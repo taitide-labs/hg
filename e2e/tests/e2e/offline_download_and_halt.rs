@@ -97,6 +97,14 @@ fn offline_batch_download_offline_first_playback_and_delete_halt_flow() {
         .library_series_dir(series_id);
     assert!(series_dir.exists());
 
+    delete_offline_and_verify_halt(&mut harness, &offline_uri, &series_dir);
+}
+
+fn delete_offline_and_verify_halt(
+    harness: &mut E2eHarness,
+    offline_uri: &str,
+    series_dir: &std::path::Path,
+) {
     harness
         .app
         .press("返回")
@@ -107,6 +115,9 @@ fn offline_batch_download_offline_first_playback_and_delete_halt_flow() {
         .expect("back on offline library");
     harness
         .app
+        .on_dialog(|_| nsh_testing::DialogAnswer::Press("删除".to_owned()));
+    harness
+        .app
         .press("删除 夜雨长灯 离线剧目")
         .expect("delete offline series");
     harness
@@ -115,7 +126,7 @@ fn offline_batch_download_offline_first_playback_and_delete_halt_flow() {
         .expect("deleted series removed from offline library");
 
     let halted_status = harness
-        .fetch_status(&offline_uri)
+        .fetch_status(offline_uri)
         .expect("probe halted loopback uri");
     assert_eq!(halted_status, StatusCode::GONE);
     assert!(!series_dir.exists());

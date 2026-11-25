@@ -40,12 +40,12 @@ pub fn scrub_slider(
         .track_style(|s| s.w_full().h(px(18.0)).justify_center())
         .indicator_style(|s| {
             s.w_full()
-                .h(px(3.0))
+                .h(px(4.0))
                 .rounded_full()
                 .bg(token::cinema_border)
         })
         .range_style(|s| s.rounded_full().bg(token::primary))
-        .thumb_style(|s| s.size(px(10.0)).rounded_full().bg(token::cinema_fg))
+        .thumb_style(|s| s.size(px(12.0)).rounded_full().bg(token::cinema_fg))
         .on_change(move |val: &SliderValue| {
             on_scrub(f64_to_u32_secs(val.start()));
         })

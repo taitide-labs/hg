@@ -32,6 +32,8 @@ pub enum IconKind {
     Flame,
     Clock,
     Close,
+    Plus,
+    Minus,
 }
 
 fn polyline(p: Painter, pts: &[(f32, f32)]) -> Painter {
@@ -274,6 +276,11 @@ fn draw_glyph(kind: IconKind, p: Painter) -> Painter {
             let p = polyline(p, &[(5.5, 5.5), (14.5, 14.5)]);
             polyline(p, &[(14.5, 5.5), (5.5, 14.5)])
         }
+        IconKind::Plus => {
+            let p = polyline(p, &[(10.0, 5.0), (10.0, 15.0)]);
+            polyline(p, &[(5.0, 10.0), (15.0, 10.0)])
+        }
+        IconKind::Minus => polyline(p, &[(5.0, 10.0), (15.0, 10.0)]),
     }
 }
 

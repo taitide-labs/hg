@@ -204,16 +204,6 @@ pub fn format_rate_trigger(rate_hundredths: u16) -> String {
 }
 
 #[must_use]
-pub fn truncate_synopsis(text: &str, max_chars: usize) -> (String, bool) {
-    let count = text.chars().count();
-    if count <= max_chars {
-        return (text.to_owned(), false);
-    }
-    let prefix: String = text.chars().take(max_chars).collect();
-    (format!("{prefix}..."), true)
-}
-
-#[must_use]
 pub fn nickname_initial(nickname: &str) -> String {
     nickname
         .chars()

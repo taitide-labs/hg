@@ -38,6 +38,7 @@ fn classify_existing_episodes_marks_offline_and_active_tasks() {
         series_id: sid,
         title: "剧目".to_owned(),
         cover_local_uri: "file://cover".to_owned(),
+        total_episodes: 10,
         total_size_bytes: 1000,
         episodes: vec![OfflineEpisodeView {
             ep_num: ep_num(1),
@@ -87,6 +88,7 @@ fn segment_selection_skips_existing_and_unplayable_episodes() {
         series_id: sid,
         title: "剧目".to_owned(),
         cover_local_uri: "file://cover".to_owned(),
+        total_episodes: 10,
         total_size_bytes: 1000,
         episodes: vec![OfflineEpisodeView {
             ep_num: ep_num(1),

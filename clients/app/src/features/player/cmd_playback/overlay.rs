@@ -8,6 +8,7 @@ use super::command::{AspectPreset, format_rate_trigger, format_time};
 use super::handler;
 use crate::ui::button::{
     ButtonVariant, ControlSize, app_button, app_icon_button, app_icon_text_button,
+    overlay_icon_button, overlay_text_button,
 };
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
@@ -49,7 +50,6 @@ pub fn video_surface_box(
 
     let show_controls = computed(store::should_show_controls);
     let frame = view()
-        .label("视频画面")
         .w_full()
         .flex_1()
         .min_h_0()
@@ -75,10 +75,17 @@ pub fn video_surface_box(
 
 fn video_picture_area(on_back: impl Fn() + Copy + 'static) -> impl IntoElement {
     view()
+        .label("视频画面")
         .size_full()
         .relative()
         .items_center()
         .justify_center()
+        .on_press(|e: &PressEvent| {
+            if e.clicks >= 2 {
+                store::toggle_paused();
+                store::reveal_controls();
+            }
+        })
         .child(aspect_frame_preview())
         .child(top_overlay_strip(on_back))
         .child(osd_hint_pill())
@@ -296,14 +303,7 @@ fn left_transport_cluster() -> impl IntoElement {
             } else {
                 IconKind::Pause
             };
-            app_icon_button(
-                icon_kind,
-                "播放或暂停",
-                ButtonVariant::OverlayGhost,
-                ControlSize::Sm,
-                store::toggle_paused,
-            )
-            .into_element()
+            overlay_icon_button(icon_kind, "播放或暂停", store::toggle_paused).into_element()
         }))
         .child(
             text(move || {
@@ -326,11 +326,9 @@ fn right_controls_cluster(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> i
     view()
         .flex_row()
         .items_center()
-        .gap_1()
-        .child(app_button(
+        .gap_1p5()
+        .child(overlay_text_button(
             move || format_rate_trigger(rate_sig.get()),
-            ButtonVariant::OverlayGhost,
-            ControlSize::Sm,
             || store::toggle_popover(ActivePopover::Speed),
         ))
         .child(dynamic(move || {
@@ -339,34 +337,21 @@ fn right_controls_cluster(on_toggle_fullscreen: impl Fn() + Copy + 'static) -> i
             } else {
                 IconKind::Volume
             };
-            app_icon_button(
-                icon_kind,
-                "静音",
-                ButtonVariant::OverlayGhost,
-                ControlSize::Sm,
-                store::toggle_muted,
-            )
-            .into_element()
+            overlay_icon_button(icon_kind, "静音", store::toggle_muted).into_element()
         }))
-        .child(app_icon_button(
+        .child(overlay_icon_button(
             IconKind::Settings,
             "播放设置",
-            ButtonVariant::OverlayGhost,
-            ControlSize::Sm,
             || store::toggle_popover(ActivePopover::Settings),
         ))
-        .child(app_icon_button(
+        .child(overlay_icon_button(
             IconKind::Smartphone,
             "竖屏视图",
-            ButtonVariant::OverlayGhost,
-            ControlSize::Sm,
             || store::set_mode(PlaybackMode::ShortDrama),
         ))
-        .child(app_icon_button(
+        .child(overlay_icon_button(
             IconKind::Expand,
             "全屏",
-            ButtonVariant::OverlayGhost,
-            ControlSize::Sm,
             on_toggle_fullscreen,
         ))
 }

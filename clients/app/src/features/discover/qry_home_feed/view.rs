@@ -49,7 +49,9 @@ pub fn home_feed_view(
                     return view().into_element();
                 };
 
-                let cols = ((container_width.get() + 16.0) / 172.0).floor().max(2.0) as usize;
+                let inner_w = (container_width.get() - 48.0).max(0.0);
+                let cols = ((inner_w + 16.0) / 172.0).floor().max(2.0) as usize;
+                let rank_cols = ((inner_w + 12.0) / 232.0).floor().max(2.0) as usize;
 
                 let mut body = view()
                     .w_full()
@@ -60,7 +62,12 @@ pub fn home_feed_view(
                         on_open_browse,
                         on_open_series,
                     ))
-                    .child(ranking_shelf(snap.rankings, on_open_browse, on_open_series));
+                    .child(ranking_shelf(
+                        snap.rankings,
+                        rank_cols,
+                        on_open_browse,
+                        on_open_series,
+                    ));
 
                 for rec in feed.category_recommendations {
                     let route = snap
@@ -99,6 +106,7 @@ fn featured_shelf(
 
 fn ranking_shelf(
     entries: Vec<RankingEntry>,
+    cols: usize,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
@@ -107,7 +115,7 @@ fn ranking_shelf(
         .grid()
         .grid_template_columns("repeat(auto-fill, minmax(220px, 1fr))")
         .gap_3();
-    for entry in entries.into_iter().take(4) {
+    for entry in entries.into_iter().take(cols) {
         list = list.child(ranking_preview_card(entry, on_open_series));
     }
 

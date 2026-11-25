@@ -14,7 +14,7 @@ use crate::ui::token;
 
 pub fn offline_library_section<R>(
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    series_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
@@ -29,7 +29,7 @@ where
 fn library_body<R>(
     section_owner: Owner,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    series_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
@@ -149,7 +149,7 @@ fn section_header_row(summary: Option<String>) -> impl IntoElement {
 fn series_row<R>(
     series: OfflineSeriesView,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
+    series_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
@@ -197,7 +197,7 @@ where
         .flex_row()
         .items_center()
         .child(open_trigger)
-        .child(series_action(series_id, title))
+        .child(series_action(series_id, &title))
 }
 
 fn poster_thumb(cover_key: String) -> impl IntoElement {

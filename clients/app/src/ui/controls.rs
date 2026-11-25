@@ -1,6 +1,8 @@
+use std::cell::RefCell;
 use std::rc::Rc;
+use std::time::Duration;
 
-use nsh_base::{HandleEdge, SheetEvent, button, resize_handle, sheet, switch};
+use nsh_base::{HandleEdge, SheetEvent, alert_dialog, button, resize_handle, sheet, switch};
 use nsh_core::geometry::Axis;
 use nsh_core::prelude::*;
 
@@ -270,4 +272,79 @@ pub fn chip_remove_button(a11y_label: String, on_press: impl Fn() + 'static) -> 
         .hover(|s| s.bg(token::accent))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
         .child(icon(IconKind::Close, 11.0, token::muted_fg))
+}
+
+pub fn tag_fold_button(
+    expanded: bool,
+    a11y_label: String,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let kind = if expanded {
+        IconKind::Minus
+    } else {
+        IconKind::Plus
+    };
+    button()
+        .on_press(on_press)
+        .accessibility_label(a11y_label)
+        .size(px(28.0))
+        .items_center()
+        .justify_center()
+        .rounded(token::radius_control)
+        .border_1()
+        .border_color(token::border)
+        .bg(token::card)
+        .transition_colors()
+        .duration(token::INSTANT_MS)
+        .hover(|s| s.bg(token::accent))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(icon(kind, 13.0, token::muted_fg))
+}
+
+pub fn confirm_destructive(
+    title: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    confirm_label: impl Into<SharedString>,
+    on_confirm: impl FnOnce() + 'static,
+) {
+    let answer = alert_dialog()
+        .title(title.into())
+        .description(description.into())
+        .cancel("cancel", "取消")
+        .destructive("confirm", confirm_label.into())
+        .show();
+    spawn(async move {
+        if answer
+            .await
+            .is_ok_and(|res| res.action.as_deref() == Some("confirm"))
+        {
+            on_confirm();
+        }
+    });
+}
+
+pub fn bind_interval(
+    interval: Duration,
+    active: impl Fn() -> bool + 'static,
+    on_tick: impl Fn() + Copy + 'static,
+) {
+    let active_sig = computed(active);
+    let handle_slot: Rc<RefCell<Option<Spawned<()>>>> = Rc::new(RefCell::new(None));
+    let cleanup_slot = Rc::clone(&handle_slot);
+    cleanup(move || {
+        if let Some(handle) = cleanup_slot.borrow_mut().take() {
+            handle.cancel();
+        }
+    });
+    effect(move || {
+        let should_run = active_sig.get();
+        let mut slot = handle_slot.borrow_mut();
+        if should_run {
+            if slot.is_none() {
+                *slot = Some(set_interval(interval, on_tick));
+            }
+        } else if let Some(handle) = slot.take() {
+            handle.cancel();
+        }
+    });
 }

@@ -113,7 +113,9 @@ pub fn on_playback_progress(position_secs: u32, duration_secs: u32) {
     if !store::is_playback_seq_active() {
         return;
     }
-    store::update_playback_progress(position_secs, duration_secs);
+    if !store::update_playback_progress(position_secs, duration_secs) {
+        return;
+    }
     let snap = store::snapshot_untracked();
     let (Some(detail), Some(ep_num)) = (snap.detail, snap.current_episode) else {
         return;
@@ -143,7 +145,7 @@ pub fn on_playback_ended() {
     };
     let progress = store::progress_untracked();
     let final_pos = progress.duration_secs.max(progress.position_secs);
-    store::update_playback_progress(final_pos, final_pos);
+    let _ = store::update_playback_progress(final_pos, final_pos);
     store::mark_progress_reported(final_pos);
     report_progress_async(detail.summary.id, ep_num, final_pos, final_pos);
 

@@ -21,10 +21,17 @@ fn sample_episode(ep: u32, size_bytes: u64, downloaded_at: u64) -> OfflineEpisod
 
 fn sample_series(id: u64, episodes: Vec<OfflineEpisodeView>) -> OfflineSeriesView {
     let total_size_bytes = episodes.iter().map(|ep| ep.size_bytes).sum();
+    let total_episodes = episodes
+        .iter()
+        .map(|ep| ep.ep_num.get())
+        .max()
+        .unwrap_or(1)
+        .max(12);
     OfflineSeriesView {
         series_id: SeriesId::new(NonZeroU64::new(id).unwrap_or(NonZeroU64::MIN)),
         title: format!("剧目 {id}"),
         cover_local_uri: "poster://amber-noir".to_owned(),
+        total_episodes,
         total_size_bytes,
         episodes,
     }

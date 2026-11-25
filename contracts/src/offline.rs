@@ -66,6 +66,7 @@ pub struct OfflineSeriesView {
     pub series_id: SeriesId,
     pub title: String,
     pub cover_local_uri: String,
+    pub total_episodes: u32,
     pub total_size_bytes: u64,
     pub episodes: Vec<OfflineEpisodeView>,
 }

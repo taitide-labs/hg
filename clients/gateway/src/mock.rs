@@ -18,7 +18,8 @@ use hg_contracts::ids::{
 use hg_contracts::offline::{
     ControlAllDownloadsAction, ControlDownloadAction, ControlDownloadRequest,
     DownloadFailureReason, DownloadPolicy, DownloadTaskState, DownloadTaskView,
-    EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView, PauseReason,
+    EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineEpisodeView,
+    OfflineSeriesView, PauseReason,
 };
 use hg_contracts::viewing::{
     OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
@@ -51,6 +52,7 @@ pub struct MockGateway {
     injected_error: Arc<Mutex<Option<ContractError>>>,
     method_errors: Arc<Mutex<HashMap<&'static str, ContractError>>>,
     method_gates: Arc<Mutex<MethodGateMap>>,
+    home_feed_cap: Option<usize>,
 }
 
 impl Default for MockGateway {
@@ -67,6 +69,67 @@ impl MockGateway {
             injected_error: Arc::new(Mutex::new(None)),
             method_errors: Arc::new(Mutex::new(HashMap::new())),
             method_gates: Arc::new(Mutex::new(HashMap::new())),
+            home_feed_cap: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn with_capped_home_feed(mut self, cap: usize) -> Self {
+        self.home_feed_cap = Some(cap);
+        self
+    }
+
+    #[must_use]
+    pub fn with_tag_groups(self, groups: Vec<TagGroup>) -> Self {
+        self.state.lock().tag_groups = groups;
+        self
+    }
+
+    pub fn set_download_task_state(&self, key: EpisodeKey, next_state: DownloadTaskState) {
+        let mut state = self.state.lock();
+        if let Some(task) = state.download_tasks.iter_mut().find(|t| t.key == key) {
+            task.state = next_state;
+        }
+    }
+
+    pub fn complete_download_task(&self, key: EpisodeKey) {
+        let mut state = self.state.lock();
+        let Some(pos) = state.download_tasks.iter().position(|t| t.key == key) else {
+            return;
+        };
+        let task = state.download_tasks.remove(pos);
+        state.next_timestamp = state.next_timestamp.saturating_add(1);
+        let downloaded_at = state.next_timestamp;
+        let ep_view = OfflineEpisodeView {
+            ep_num: key.ep_num,
+            title: task.episode_title,
+            duration_secs: 120,
+            profile: task.profile,
+            size_bytes: 18_500_000,
+            downloaded_at_epoch_secs: downloaded_at,
+        };
+        if let Some(series) = state
+            .offline_library
+            .iter_mut()
+            .find(|s| s.series_id == key.series_id)
+        {
+            series.episodes.retain(|ep| ep.ep_num != key.ep_num);
+            series.episodes.push(ep_view);
+            series.episodes.sort_by_key(|ep| ep.ep_num.get());
+            series.total_size_bytes = series.episodes.iter().map(|ep| ep.size_bytes).sum();
+        } else {
+            let total_episodes = state
+                .details
+                .get(&key.series_id)
+                .map_or(key.ep_num.get(), |d| d.total_episodes.max(key.ep_num.get()));
+            state.offline_library.push(OfflineSeriesView {
+                series_id: key.series_id,
+                title: task.series_title,
+                cover_local_uri: task.cover_url,
+                total_episodes,
+                total_size_bytes: ep_view.size_bytes,
+                episodes: vec![ep_view],
+            });
         }
     }
 
@@ -380,9 +443,17 @@ impl MockGateway {
 
 impl AppGateway for MockGateway {
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
+        let cap = self.home_feed_cap;
         let result = self.check_error("home_feed").map(|()| {
             let state = self.state.lock();
-            build_home_feed(&state)
+            let mut feed = build_home_feed(&state);
+            if let Some(limit) = cap {
+                feed.featured.truncate(limit);
+                for rec in &mut feed.category_recommendations {
+                    rec.items.truncate(limit);
+                }
+            }
+            feed
         });
         self.finish("home_feed", result)
     }

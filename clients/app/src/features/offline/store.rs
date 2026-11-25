@@ -1,3 +1,4 @@
+use hg_contracts::ids::SeriesId;
 use hg_contracts::offline::{DownloadTaskState, DownloadTaskView, OfflineSeriesView};
 use nsh_core::prelude::*;
 
@@ -11,6 +12,9 @@ pub struct OfflineState {
     pub has_loaded_queue: bool,
     pub queue_error: Option<String>,
     pub library_error: Option<String>,
+    pub episodes_modal_series: Option<SeriesId>,
+    pub episodes_modal_delete_mode: bool,
+    pub episodes_modal_segment: usize,
 }
 
 #[must_use]
@@ -104,5 +108,47 @@ pub(crate) fn set_queue_loaded(mut tasks: Vec<DownloadTaskView>) {
         s.loading_queue = false;
         s.has_loaded_queue = true;
         s.queue_error = None;
+    });
+}
+
+#[must_use]
+pub(crate) fn has_running_tasks() -> bool {
+    state().with(|s| {
+        s.tasks.iter().any(|task| {
+            matches!(
+                task.state,
+                DownloadTaskState::Queued
+                    | DownloadTaskState::FetchingSource
+                    | DownloadTaskState::Downloading { .. }
+            )
+        })
+    })
+}
+
+pub(crate) fn open_episodes_modal(series_id: SeriesId) {
+    state().update(|s| {
+        s.episodes_modal_series = Some(series_id);
+        s.episodes_modal_delete_mode = false;
+        s.episodes_modal_segment = 0;
+    });
+}
+
+pub(crate) fn close_episodes_modal() {
+    state().update(|s| {
+        s.episodes_modal_series = None;
+        s.episodes_modal_delete_mode = false;
+        s.episodes_modal_segment = 0;
+    });
+}
+
+pub(crate) fn toggle_episodes_modal_delete_mode() {
+    state().update(|s| {
+        s.episodes_modal_delete_mode = !s.episodes_modal_delete_mode;
+    });
+}
+
+pub(crate) fn set_episodes_modal_segment(index: usize) {
+    state().update(|s| {
+        s.episodes_modal_segment = index;
     });
 }
