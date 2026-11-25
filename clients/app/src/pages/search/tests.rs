@@ -243,3 +243,20 @@ fn search_tags_hide_empty_groups_and_collapse_multiline_groups_behind_plus_icon(
     app.wait_for_gone("长标签24", Duration::from_secs(2))
         .unwrap();
 }
+
+#[test]
+fn search_large_viewport_shows_exhausted_footer() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
+    let mut app = start_on_search(gw, ColorScheme::Light);
+    app.set_viewport(nsh_core::prelude::Size::new(
+        nsh_core::prelude::Points(2560.0),
+        nsh_core::prelude::Points(1440.0),
+    ))
+    .unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+
+    app.type_text("text:搜索剧名、标签...", "分页剧目").unwrap();
+    app.press("label:执行搜索").unwrap();
+    app.wait_for("分页剧目 30").unwrap();
+    app.wait_for("已全部加载").unwrap();
+}

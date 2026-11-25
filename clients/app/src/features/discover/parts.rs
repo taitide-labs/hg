@@ -20,12 +20,57 @@ pub const MOBILE_GRID_GAP: f32 = 16.0;
 
 #[must_use]
 pub fn series_grid_columns_for_width(inner_width: f32) -> usize {
-    let (min_w, gap) = if is_desktop() {
+    grid_columns_for(inner_width, is_desktop())
+}
+
+fn grid_columns_for(inner_width: f32, desktop_tracks: bool) -> usize {
+    let (min_w, gap) = if desktop_tracks {
         (DESKTOP_CARD_MIN_WIDTH, DESKTOP_GRID_GAP)
     } else {
         (MOBILE_CARD_MIN_WIDTH, MOBILE_GRID_GAP)
     };
     ((inner_width + gap) / (min_w + gap)).floor().max(2.0) as usize
+}
+
+fn visible_grid_rows(viewport_width: f32, viewport_height: f32) -> (u32, u32) {
+    let desktop_tracks = viewport_width >= 760.0;
+    let inner_w = (viewport_width - 48.0).max(0.0);
+    let cols = (grid_columns_for(inner_w, desktop_tracks) as u32).max(2);
+    let gap = if desktop_tracks {
+        DESKTOP_GRID_GAP
+    } else {
+        MOBILE_GRID_GAP
+    };
+    let col_w = ((inner_w - gap * (cols.saturating_sub(1) as f32)) / (cols as f32)).max(152.0);
+    let card_h = col_w * 1.4 + 66.0 + gap;
+    let rows = (viewport_height / card_h).ceil().max(2.0) as u32;
+    (cols, rows)
+}
+
+#[must_use]
+pub fn adaptive_page_size(viewport_width: f32, viewport_height: f32, is_ranking: bool) -> u16 {
+    if is_ranking {
+        let visible_rows = (viewport_height / 102.0).ceil().max(4.0);
+        let target = (visible_rows * 2.5).ceil() as u16;
+        return target.clamp(24, 60);
+    }
+    let (cols, visible_rows) = visible_grid_rows(viewport_width, viewport_height);
+    let desired_rows = visible_rows.saturating_mul(2).max(4);
+    let aligned = cols.saturating_mul(desired_rows);
+    u16::try_from(aligned.clamp(24, 60)).unwrap_or(60)
+}
+
+#[must_use]
+pub fn min_items_to_fill_viewport(
+    viewport_width: f32,
+    viewport_height: f32,
+    is_ranking: bool,
+) -> usize {
+    if is_ranking {
+        return ((viewport_height / 102.0).ceil() as usize).saturating_add(2);
+    }
+    let (cols, visible_rows) = visible_grid_rows(viewport_width, viewport_height);
+    (cols as usize).saturating_mul((visible_rows as usize).saturating_add(1))
 }
 
 pub async fn sync_watched_series() {
@@ -146,6 +191,7 @@ pub fn dedup_append<T, K: Eq + Hash>(
 pub fn pagination_footer(
     loading_more: bool,
     load_more_error: Option<String>,
+    all_loaded: bool,
     on_retry: impl Fn() + 'static,
 ) -> impl IntoElement {
     if loading_more {
@@ -176,6 +222,15 @@ pub fn pagination_footer(
                 ControlSize::Sm,
                 on_retry,
             ))
+            .into_element();
+    }
+
+    if all_loaded {
+        return view()
+            .w_full()
+            .py_4()
+            .items_center()
+            .child(text("已全部加载").text_xs().text_color(token::muted_fg))
             .into_element();
     }
 

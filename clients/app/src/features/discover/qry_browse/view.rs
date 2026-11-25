@@ -43,8 +43,17 @@ pub fn browse_view(
             )
         })
     });
-    let footer_state =
-        computed(|| store::browse_state().with(|s| (s.loading_more, s.load_more_error.clone())));
+    let footer_state = computed(|| {
+        store::browse_state().with(|s| {
+            let has_items = !s.items.is_empty() || !s.ranking_items.is_empty();
+            let all_loaded = !s.loading
+                && !s.loading_more
+                && s.error.is_none()
+                && has_items
+                && s.pagination.is_some_and(|p| p.page >= p.pages);
+            (s.loading_more, s.load_more_error.clone(), all_loaded)
+        })
+    });
     let scroller = element_ref();
 
     let header_block = view()
@@ -64,8 +73,8 @@ pub fn browse_view(
         .pt_4()
         .pb_safe_area()
         .child(dynamic(move || {
-            let (loading_more, load_more_error) = footer_state.get();
-            pagination_footer(loading_more, load_more_error, move || {
+            let (loading_more, load_more_error, all_loaded) = footer_state.get();
+            pagination_footer(loading_more, load_more_error, all_loaded, move || {
                 page_owner.run(query::load_next_browse_page);
             })
         }));
@@ -98,9 +107,12 @@ pub fn browse_view(
         .min_h_0()
         .on_layout(move |bounds: &Bounds<Points>| {
             let w = bounds.size.width.0;
+            let h = bounds.size.height.0;
+            store::set_viewport_size(w, h);
             if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
                 container_width.set(w);
             }
+            page_owner.run(query::ensure_viewport_filled);
         })
         .child(list_element)
 }

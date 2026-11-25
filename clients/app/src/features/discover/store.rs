@@ -165,11 +165,6 @@ pub fn browse_meta_snapshot() -> BrowseMetaState {
 }
 
 #[must_use]
-pub fn search_snapshot() -> DiscoverSearchState {
-    search_state().get()
-}
-
-#[must_use]
 pub fn search_input_signal() -> Signal<String> {
     global::<String>()
 }
@@ -177,6 +172,48 @@ pub fn search_input_signal() -> Signal<String> {
 #[must_use]
 pub fn ranking_tab_signal() -> Signal<RankingTab> {
     global::<RankingTab>()
+}
+
+#[derive(Debug, Clone, Copy)]
+struct DiscoverViewport {
+    width: f32,
+    height: f32,
+}
+
+impl Default for DiscoverViewport {
+    fn default() -> Self {
+        if crate::ui::platform::is_desktop() {
+            Self {
+                width: 1240.0,
+                height: 720.0,
+            }
+        } else {
+            Self {
+                width: 390.0,
+                height: 844.0,
+            }
+        }
+    }
+}
+
+fn viewport_state() -> Signal<DiscoverViewport> {
+    global::<DiscoverViewport>()
+}
+
+pub fn set_viewport_size(width: f32, height: f32) {
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+    let changed = viewport_state()
+        .with_untracked(|v| (v.width - width).abs() > 1.0 || (v.height - height).abs() > 1.0);
+    if changed {
+        viewport_state().set(DiscoverViewport { width, height });
+    }
+}
+
+#[must_use]
+pub fn viewport_size_untracked() -> (f32, f32) {
+    viewport_state().with_untracked(|v| (v.width, v.height))
 }
 
 #[derive(Debug, Clone, Default)]

@@ -7,17 +7,43 @@ use hg_contracts::error::ContractError;
 use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
-use super::super::parts::{dedup_append, sync_watched_series};
+use super::super::parts::{
+    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_watched_series,
+};
 use super::super::store::{self, SearchTarget};
 use crate::gateway;
 
-const SEARCH_PAGE_SIZE: u16 = 24;
-
 fn page_request(page: u32) -> PageRequest {
+    let (w, h) = store::viewport_size_untracked();
+    let size = adaptive_page_size(w, h, false);
     PageRequest::new(
         NonZeroU32::new(page.max(1)).unwrap_or(NonZeroU32::MIN),
-        NonZeroU16::new(SEARCH_PAGE_SIZE).unwrap_or(NonZeroU16::MIN),
+        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
     )
+}
+
+pub fn ensure_viewport_filled() {
+    let (w, h) = store::viewport_size_untracked();
+    let needs_more = store::search_state().with_untracked(|s| {
+        if s.loading
+            || s.loading_more
+            || s.error.is_some()
+            || s.load_more_error.is_some()
+            || s.target.is_none()
+        {
+            return false;
+        }
+        let Some(page_info) = s.pagination else {
+            return false;
+        };
+        if page_info.page >= page_info.pages {
+            return false;
+        }
+        s.items.len() < min_items_to_fill_viewport(w, h, false)
+    });
+    if needs_more {
+        load_next_search_page();
+    }
 }
 
 pub fn init_search_page() {
@@ -259,6 +285,7 @@ fn apply_search_result(
                 s.error = None;
                 s.load_more_error = None;
             });
+            ensure_viewport_filled();
         }
         Err(err) => {
             store::search_state().update(|s| {

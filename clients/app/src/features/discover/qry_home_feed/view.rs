@@ -26,6 +26,8 @@ pub fn home_feed_view(
             .pb_safe_area_plus(px(24.0))
             .on_layout(move |bounds: &Bounds<Points>| {
                 let w = bounds.size.width.0;
+                let h = bounds.size.height.0;
+                store::set_viewport_size(w, h);
                 if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
                     container_width.set(w);
                 }

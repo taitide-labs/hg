@@ -312,3 +312,39 @@ fn browse_pagination_virtualizes_and_preserves_visible_card_nodes() {
         "appending page 2 must not teardown and remount existing page 1 cards"
     );
 }
+
+#[test]
+fn large_viewport_adapts_page_size_and_fills_screen_on_resize() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(60));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+
+    app.set_viewport(Size::new(Points(2560.0), Points(1440.0)))
+        .unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+
+    app.press("查看精选推荐全部").unwrap();
+    app.wait_for("分页剧目 40").unwrap();
+    assert!(
+        app.screen().shows("分页剧目 40"),
+        "wide tall viewport must scale initial page size past 24 so half the screen is never left empty"
+    );
+
+    app.press("返回").unwrap();
+    app.wait_for("查看排行榜全部").unwrap();
+    app.set_viewport(DESKTOP_VIEWPORT).unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+    assert!(!app.screen().shows("分页剧目 28"));
+
+    app.set_viewport(Size::new(Points(2560.0), Points(1440.0)))
+        .unwrap();
+    app.wait_for("分页剧目 28").unwrap();
+    app.wait_for("已全部加载").unwrap();
+    assert_eq!(
+        crate::features::discover::parts::adaptive_page_size(1240.0, 720.0, false),
+        24
+    );
+    assert!(crate::features::discover::parts::adaptive_page_size(2560.0, 1440.0, false) >= 48);
+}

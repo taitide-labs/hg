@@ -38,17 +38,20 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
         .w_full()
         .gap_5()
         .pb_5()
-        .child(search_bar_row(search_sig, page_owner))
+        .child(search_bar_row(search_sig, scroller, page_owner))
         .child(
             view()
                 .w_full()
                 .gap_3()
-                .child(dynamic(move || search_history_section(page_owner)))
-                .child(dynamic(move || hot_keywords_section(page_owner)))
+                .child(dynamic(move || {
+                    search_history_section(scroller, page_owner)
+                }))
+                .child(dynamic(move || hot_keywords_section(scroller, page_owner)))
                 .child(dynamic(move || {
                     tag_filter_section(
                         (container_width.get() - 48.0).max(240.0),
                         expanded_groups,
+                        scroller,
                         page_owner,
                     )
                 })),
@@ -68,35 +71,19 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
             },
         ));
 
-    let footer_block = view()
-        .w_full()
-        .pt_4()
-        .pb_safe_area()
-        .child(dynamic(move || {
-            let (has_target, loading_more, load_more_error) = store::search_state().with(|s| {
-                (
-                    s.target.is_some(),
-                    s.loading_more,
-                    s.load_more_error.clone(),
-                )
-            });
-            if !has_target {
-                return view().into_element();
-            }
-            pagination_footer(loading_more, load_more_error, move || {
-                page_owner.run(query::load_next_search_page);
-            })
-            .into_element()
-        }));
+    let footer_block = search_footer_block(page_owner);
 
     view()
         .flex_1()
         .min_h_0()
         .on_layout(move |bounds: &Bounds<Points>| {
             let w = bounds.size.width.0;
+            let h = bounds.size.height.0;
+            store::set_viewport_size(w, h);
             if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
                 container_width.set(w);
             }
+            page_owner.run(query::ensure_viewport_filled);
         })
         .child(
             virtual_series_grid(
@@ -125,7 +112,11 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
         )
 }
 
-fn search_bar_row(search_sig: Signal<String>, page_owner: Owner) -> impl IntoElement {
+fn search_bar_row(
+    search_sig: Signal<String>,
+    scroller: ElementRef,
+    page_owner: Owner,
+) -> impl IntoElement {
     view()
         .w_full()
         .flex_row()
@@ -135,36 +126,40 @@ fn search_bar_row(search_sig: Signal<String>, page_owner: Owner) -> impl IntoEle
             search_sig,
             "搜索剧名、标签...",
             move |submitted| {
+                scroller.scroll_to(point(px(0.0), px(0.0)), false);
                 page_owner.run(|| query::submit_keyword(&submitted));
             },
             move || {
+                scroller.scroll_to(point(px(0.0), px(0.0)), false);
                 page_owner.run(query::clear_results);
             },
         )))
         .child(submit_button("搜索", "执行搜索", move || {
+            scroller.scroll_to(point(px(0.0), px(0.0)), false);
             page_owner.run(|| query::submit_keyword(&search_sig.get_untracked()));
         }))
 }
 
-fn search_history_section(page_owner: Owner) -> impl IntoElement {
-    let history = store::search_snapshot().history;
+fn search_history_section(scroller: ElementRef, page_owner: Owner) -> impl IntoElement {
+    let history = store::search_state().with(|s| s.history.clone());
     if history.is_empty() {
         return view().into_element();
     }
-    search_history_strip(history, page_owner).into_element()
+    search_history_strip(history, scroller, page_owner).into_element()
 }
 
-fn hot_keywords_section(page_owner: Owner) -> impl IntoElement {
+fn hot_keywords_section(scroller: ElementRef, page_owner: Owner) -> impl IntoElement {
     let keywords = store::browse_meta_snapshot().hot_keywords;
     if keywords.is_empty() {
         return view().into_element();
     }
-    hot_keywords_strip(keywords, page_owner).into_element()
+    hot_keywords_strip(keywords, scroller, page_owner).into_element()
 }
 
 fn tag_filter_section(
     inner_width: f32,
     expanded_groups: Signal<BTreeSet<u32>>,
+    scroller: ElementRef,
     page_owner: Owner,
 ) -> impl IntoElement {
     let groups: Vec<TagGroup> = store::browse_meta_snapshot()
@@ -175,10 +170,14 @@ fn tag_filter_section(
     if groups.is_empty() {
         return view().into_element();
     }
-    tag_filter_strip(&groups, inner_width, expanded_groups, page_owner).into_element()
+    tag_filter_strip(&groups, inner_width, expanded_groups, scroller, page_owner).into_element()
 }
 
-fn search_history_strip(entries: Vec<SearchHistoryEntry>, page_owner: Owner) -> impl IntoElement {
+fn search_history_strip(
+    entries: Vec<SearchHistoryEntry>,
+    scroller: ElementRef,
+    page_owner: Owner,
+) -> impl IntoElement {
     let mut chips = view().flex_row().flex_wrap().items_center().gap_2();
     for entry in entries {
         let keyword = entry.keyword;
@@ -198,6 +197,7 @@ fn search_history_strip(entries: Vec<SearchHistoryEntry>, page_owner: Owner) -> 
                     ButtonVariant::Ghost,
                     ControlSize::Sm,
                     move || {
+                        scroller.scroll_to(point(px(0.0), px(0.0)), false);
                         page_owner.run(|| query::submit_keyword(&keyword_for_search));
                     },
                 ))
@@ -240,7 +240,11 @@ fn search_history_strip(entries: Vec<SearchHistoryEntry>, page_owner: Owner) -> 
         .child(chips)
 }
 
-fn hot_keywords_strip(keywords: Vec<HotKeyword>, page_owner: Owner) -> impl IntoElement {
+fn hot_keywords_strip(
+    keywords: Vec<HotKeyword>,
+    scroller: ElementRef,
+    page_owner: Owner,
+) -> impl IntoElement {
     let mut row = view().flex_row().flex_wrap().items_center().gap_2().child(
         text("热搜")
             .text_xs()
@@ -254,7 +258,10 @@ fn hot_keywords_strip(keywords: Vec<HotKeyword>, page_owner: Owner) -> impl Into
             word,
             ButtonVariant::Outline,
             ControlSize::Sm,
-            move || page_owner.run(|| query::submit_keyword(&query_word)),
+            move || {
+                scroller.scroll_to(point(px(0.0), px(0.0)), false);
+                page_owner.run(|| query::submit_keyword(&query_word));
+            },
         ));
     }
     row
@@ -295,6 +302,7 @@ fn tag_filter_strip(
     groups: &[TagGroup],
     inner_width: f32,
     expanded_groups: Signal<BTreeSet<u32>>,
+    scroller: ElementRef,
     page_owner: Owner,
 ) -> impl IntoElement {
     let expanded_set = expanded_groups.get();
@@ -324,12 +332,15 @@ fn tag_filter_strip(
                 tag.name.clone(),
                 move || {
                     let s = slug_for_active.clone();
-                    matches!(
-                        store::search_snapshot().target,
-                        Some(SearchTarget::Tag { slug: current, .. }) if current == s
-                    )
+                    store::search_state().with(|st| {
+                        matches!(
+                            &st.target,
+                            Some(SearchTarget::Tag { slug: current, .. }) if current == &s
+                        )
+                    })
                 },
                 move || {
+                    scroller.scroll_to(point(px(0.0), px(0.0)), false);
                     let s = slug.clone();
                     let n = name.clone();
                     page_owner.run(move || query::toggle_tag(s, n));
@@ -353,6 +364,36 @@ fn tag_filter_strip(
         container = container.child(row);
     }
     container
+}
+
+fn search_footer_block(page_owner: Owner) -> impl IntoElement {
+    view()
+        .w_full()
+        .pt_4()
+        .pb_safe_area()
+        .child(dynamic(move || {
+            let (has_target, loading_more, load_more_error, all_loaded) = store::search_state()
+                .with(|s| {
+                    let all_loaded = !s.loading
+                        && !s.loading_more
+                        && s.error.is_none()
+                        && !s.items.is_empty()
+                        && s.pagination.is_some_and(|p| p.page >= p.pages);
+                    (
+                        s.target.is_some(),
+                        s.loading_more,
+                        s.load_more_error.clone(),
+                        all_loaded,
+                    )
+                });
+            if !has_target {
+                return view().into_element();
+            }
+            pagination_footer(loading_more, load_more_error, all_loaded, move || {
+                page_owner.run(query::load_next_search_page);
+            })
+            .into_element()
+        }))
 }
 
 fn search_empty_view(page_owner: Owner) -> AnyElement {
