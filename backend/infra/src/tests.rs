@@ -405,6 +405,21 @@ async fn loopback_proxy_decrypts_and_disk_caches_cover_images() {
     );
     assert_eq!(first.bytes().await.expect("bytes").as_ref(), plain_png);
 
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let size = StorageLayout::dir_size_bytes(storage.catalog_cache_dir())
+            .await
+            .unwrap_or(0);
+        if size >= plain_png.len() as u64 {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for background cover cache write, dir size={size}"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+
     drop(cdn_task);
 
     let second = client
@@ -416,12 +431,6 @@ async fn loopback_proxy_decrypts_and_disk_caches_cover_images() {
     assert_eq!(
         second.bytes().await.expect("cached bytes").as_ref(),
         plain_png
-    );
-    assert!(
-        StorageLayout::dir_size_bytes(storage.catalog_cache_dir())
-            .await
-            .expect("cache bytes")
-            >= plain_png.len() as u64
     );
 
     proxy.shutdown();
