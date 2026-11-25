@@ -20,9 +20,9 @@ pub const PROFILE_OPTIONS: &[(StreamProfile, &str)] = &[
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AppearanceOption {
-    #[default]
     System,
     Light,
+    #[default]
     Dark,
 }
 

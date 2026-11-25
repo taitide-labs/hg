@@ -17,7 +17,7 @@ pub const fn default_playback_preference() -> PlaybackPreference {
         preferred_profile: StreamProfile::Hevc,
         playback_cache_limit_mb: 512,
         default_rate_hundredths: 100,
-        appearance: AppAppearance::System,
+        appearance: AppAppearance::Dark,
         sidebar_collapsed: false,
         sidebar_width: DEFAULT_SIDEBAR_WIDTH,
     }

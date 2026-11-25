@@ -389,7 +389,7 @@ fn ranking_list(
     .columns(move || {
         u32::try_from(ranking_grid_columns_for_width(container_width.get())).unwrap_or(1)
     })
-    .column_gap(px(14.0))
+    .column_gap(px(12.0))
     .row_gap(px(12.0))
     .content_padding(px(24.0))
     .estimated_item_size(px(122.0))

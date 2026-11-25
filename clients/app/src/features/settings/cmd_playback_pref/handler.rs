@@ -31,6 +31,12 @@ pub fn selected_rate() -> u16 {
     })
 }
 
+pub fn apply_default_appearance() {
+    let option = AppearanceOption::default();
+    appearance_signal().set(option);
+    set_color_scheme(option.into());
+}
+
 pub fn apply_loaded_preference(pref: PlaybackPreference) {
     let option = AppearanceOption::from(pref.appearance);
     store::state().update(|s| {

@@ -320,6 +320,31 @@ fn discover_and_ranking_views_render_combined_original_hot_and_new_badges() {
 }
 
 #[test]
+fn discover_poster_card_uses_compact_spacing_and_minimal_immersive_inset() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(12));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Dark);
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+    app.wait_for("分页剧目 02").unwrap();
+
+    let first_card = node_bounds(&app, "label:分页剧目 01");
+    let second_card = node_bounds(&app, "label:分页剧目 02");
+    let col_gap = second_card.origin.x.0 - (first_card.origin.x.0 + first_card.size.width.0);
+    assert!(
+        (col_gap - 12.0).abs() <= 2.0,
+        "desktop poster grid gap should match ranking 12px gap, got {col_gap}"
+    );
+
+    let title_bounds = node_bounds(&app, "text:分页剧目 01");
+    let card_inset = title_bounds.origin.x.0 - first_card.origin.x.0;
+    assert!(
+        card_inset <= 6.0,
+        "immersive borderless poster card must keep minimal inset <= 6px, got {card_inset}"
+    );
+}
+
+#[test]
 fn ranking_list_uses_responsive_multicolumn_high_density_cards() {
     let gw = Arc::new(MockGateway::new());
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
@@ -382,8 +407,8 @@ fn desktop_series_cards_use_roomy_poster_width_and_spacing() {
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
     app.wait_for("云端之上：千金归来").unwrap();
 
-    let card0 = node_bounds(&app, "label:云端之上：千金归来 >> nth=0");
-    let card1 = node_bounds(&app, "label:长安暗夜行 >> nth=0");
+    let card0 = node_bounds(&app, "label:春风十里不及卿 >> nth=0");
+    let card1 = node_bounds(&app, "label:雾港七日 >> nth=0");
     assert!(
         card0.size.width.0 >= 200.0,
         "desktop series card should be roomy >= 200pt wide, got {}",
@@ -391,8 +416,8 @@ fn desktop_series_cards_use_roomy_poster_width_and_spacing() {
     );
     let horizontal_gap = card1.origin.x.0 - (card0.origin.x.0 + card0.size.width.0);
     assert!(
-        horizontal_gap >= 19.0,
-        "desktop series grid spacing should be >= 20pt (gap_5), got {horizontal_gap}"
+        (horizontal_gap - 12.0).abs() <= 2.0,
+        "desktop series grid spacing should match ranking 12px gap, got {horizontal_gap}"
     );
 }
 

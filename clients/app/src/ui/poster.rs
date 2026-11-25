@@ -24,7 +24,7 @@ pub struct SeriesCardProps {
     pub title: String,
     pub cover_url: String,
     pub score: f32,
-    pub subtitle: String,
+    pub tags: Vec<String>,
     pub episode_label: String,
     pub flags: SeriesFlags,
     pub watch_status: PosterWatchStatus,
@@ -38,25 +38,38 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
     let episode_label = props.episode_label;
     let watch_status = props.watch_status;
     let title = props.title;
-    let subtitle = props.subtitle;
+    let mut tags_row = view()
+        .w_full()
+        .min_w_0()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .overflow_hidden();
+    for tag in props.tags.into_iter().take(3) {
+        tags_row = tags_row.child(
+            view()
+                .px_1p5()
+                .py_0p5()
+                .rounded(token::radius_badge)
+                .bg(token::secondary)
+                .child(text(tag).text_xs().text_color(token::muted_fg)),
+        );
+    }
 
     button()
         .on_press(on_press)
         .accessibility_label(title.clone())
         .w_full()
         .min_w_0()
-        .gap_2()
-        .p_2p5()
-        .rounded(token::radius_card)
-        .bg(token::card)
-        .border_1()
-        .border_color(token::border)
-        .transition_colors()
+        .gap_1p5()
+        .p_0p5()
+        .rounded(token::radius)
+        .transition_opacity()
         .duration(token::INSTANT_MS)
-        .hover(|s| s.bg(token::surface_subtle))
+        .hover(|s| s.opacity(0.92))
         .active(|s| {
             if reduce_motion() {
-                s.opacity(0.9)
+                s.opacity(0.86)
             } else {
                 s.scale(token::PRESS_SCALE)
             }
@@ -74,20 +87,15 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
                 .w_full()
                 .min_w_0()
                 .px_0p5()
-                .gap_0p5()
+                .gap_1()
                 .child(
                     text(title)
                         .text_sm()
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(token::card_fg)
+                        .text_color(token::fg)
                         .truncate(),
                 )
-                .child(
-                    text(subtitle)
-                        .text_xs()
-                        .text_color(token::muted_fg)
-                        .truncate(),
-                ),
+                .child(tags_row),
         )
 }
 
@@ -208,7 +216,7 @@ fn poster_cover(
         .rounded(token::radius)
         .overflow_hidden()
         .bg(move || token::poster_surface(&cover_for_bg))
-        .p_2p5()
+        .p_1p5()
         .justify_between()
         .children(image_layer)
         .child(
@@ -231,7 +239,7 @@ fn poster_cover(
                             text(score_text)
                                 .text_xs()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(token::cinema_fg),
+                                .text_color(token::badge_original),
                         ),
                 ),
         )

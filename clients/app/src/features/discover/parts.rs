@@ -13,10 +13,10 @@ use crate::ui::poster::{PosterWatchStatus, SeriesCardProps, SeriesFlags, series_
 use crate::ui::surface::empty_state;
 use crate::ui::token;
 
-pub const DESKTOP_CARD_MIN_WIDTH: f32 = 188.0;
-pub const DESKTOP_GRID_GAP: f32 = 20.0;
+pub const DESKTOP_CARD_MIN_WIDTH: f32 = 196.0;
+pub const DESKTOP_GRID_GAP: f32 = 12.0;
 pub const MOBILE_CARD_MIN_WIDTH: f32 = 152.0;
-pub const MOBILE_GRID_GAP: f32 = 16.0;
+pub const MOBILE_GRID_GAP: f32 = 12.0;
 
 #[must_use]
 pub fn series_grid_columns_for_width(inner_width: f32) -> usize {
@@ -142,13 +142,12 @@ pub fn series_card_from_summary(
             format!("更新至 {} 集", item.episode_count)
         }
     };
-    let subtitle = item.tags.join(" · ");
     series_card(
         SeriesCardProps {
             title: item.title,
             cover_url: item.cover_url,
             score: item.score,
-            subtitle,
+            tags: item.tags,
             episode_label: status,
             flags,
             watch_status,
@@ -172,13 +171,11 @@ pub fn series_grid(
         .into_element();
     }
 
-    let grid = view().w_full().grid();
+    let grid = view().w_full().grid().gap_3();
     let mut grid = if is_desktop() {
-        grid.grid_template_columns("repeat(auto-fill, minmax(188px, 1fr))")
-            .gap_5()
+        grid.grid_template_columns("repeat(auto-fill, minmax(196px, 1fr))")
     } else {
         grid.grid_template_columns("repeat(auto-fill, minmax(152px, 1fr))")
-            .gap_4()
     };
     for (index, item) in items.into_iter().enumerate() {
         grid = grid.child(series_card_from_summary(item, index, on_open_series));

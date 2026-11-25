@@ -72,9 +72,9 @@ pub struct SeriesBookmark {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub enum AppAppearance {
-    #[default]
     System,
     Light,
+    #[default]
     Dark,
 }
 
@@ -94,7 +94,7 @@ impl Default for PlaybackPreference {
             preferred_profile: StreamProfile::Hevc,
             playback_cache_limit_mb: 512,
             default_rate_hundredths: 100,
-            appearance: AppAppearance::System,
+            appearance: AppAppearance::Dark,
             sidebar_collapsed: false,
             sidebar_width: 208,
         }

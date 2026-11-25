@@ -30,6 +30,7 @@ pub fn initialize_with_gateway(gw: Arc<dyn AppGateway>) {
 }
 
 fn hydrate_startup_preferences(gw: Arc<dyn AppGateway>) {
+    settings::cmd_playback_pref::handler::apply_default_appearance();
     spawn(async move {
         if let Ok(pref) = gw.playback_preference().await {
             settings::cmd_playback_pref::handler::apply_loaded_preference(pref);

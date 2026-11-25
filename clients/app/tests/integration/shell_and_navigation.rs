@@ -108,7 +108,13 @@ fn narrow_viewport_auto_collapses_sidebar_without_overwriting_preference() {
 
 #[test]
 fn startup_hydrates_dark_appearance_and_collapsed_sidebar_from_gateway() {
-    let light_app = start_desktop_on_home(Arc::new(MockGateway::new()), ColorScheme::Light);
+    let light_gw = Arc::new(
+        MockGateway::new().with_playback_preference(PlaybackPreference {
+            appearance: AppAppearance::Light,
+            ..PlaybackPreference::default()
+        }),
+    );
+    let light_app = start_desktop_on_home(light_gw, ColorScheme::Light);
     let light_fg = light_app.screen().span_style("最近更新").unwrap().color;
 
     let gw = Arc::new(
