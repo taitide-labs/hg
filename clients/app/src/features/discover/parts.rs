@@ -7,9 +7,25 @@ use nsh_core::prelude::*;
 use super::store;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
+use crate::ui::platform::is_desktop;
 use crate::ui::poster::{SeriesCardProps, series_card};
 use crate::ui::surface::empty_state;
 use crate::ui::token;
+
+pub const DESKTOP_CARD_MIN_WIDTH: f32 = 188.0;
+pub const DESKTOP_GRID_GAP: f32 = 20.0;
+pub const MOBILE_CARD_MIN_WIDTH: f32 = 152.0;
+pub const MOBILE_GRID_GAP: f32 = 16.0;
+
+#[must_use]
+pub fn series_grid_columns_for_width(inner_width: f32) -> usize {
+    let (min_w, gap) = if is_desktop() {
+        (DESKTOP_CARD_MIN_WIDTH, DESKTOP_GRID_GAP)
+    } else {
+        (MOBILE_CARD_MIN_WIDTH, MOBILE_GRID_GAP)
+    };
+    ((inner_width + gap) / (min_w + gap)).floor().max(2.0) as usize
+}
 
 pub async fn sync_watched_series() {
     if let Ok(history) = crate::gateway::current().watch_history().await {
@@ -32,11 +48,14 @@ pub fn series_grid(
         .into_element();
     }
 
-    let mut grid = view()
-        .w_full()
-        .grid()
-        .grid_template_columns("repeat(auto-fill, minmax(156px, 1fr))")
-        .gap_4();
+    let grid = view().w_full().grid();
+    let mut grid = if is_desktop() {
+        grid.grid_template_columns("repeat(auto-fill, minmax(188px, 1fr))")
+            .gap_5()
+    } else {
+        grid.grid_template_columns("repeat(auto-fill, minmax(152px, 1fr))")
+            .gap_4()
+    };
     for (index, item) in items.into_iter().enumerate() {
         let id = item.id;
         let status = if item.is_finished {

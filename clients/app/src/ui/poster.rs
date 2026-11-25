@@ -31,7 +31,7 @@ pub fn series_card(props: SeriesCardProps, on_press: impl Fn() + 'static) -> imp
         .w_full()
         .min_w_0()
         .gap_2()
-        .p_2()
+        .p_2p5()
         .rounded(token::radius_card)
         .bg(token::card)
         .border_1()

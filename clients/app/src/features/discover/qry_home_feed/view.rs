@@ -2,7 +2,7 @@ use hg_contracts::catalog::{CategoryRecommendation, RankingEntry, SeriesSummary}
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
-use super::super::parts::series_grid;
+use super::super::parts::{series_grid, series_grid_columns_for_width};
 use super::super::store::{self, BrowseKind};
 use super::query;
 use crate::ui::icons::IconKind;
@@ -50,7 +50,7 @@ pub fn home_feed_view(
                 };
 
                 let inner_w = (container_width.get() - 48.0).max(0.0);
-                let cols = ((inner_w + 16.0) / 172.0).floor().max(2.0) as usize;
+                let cols = series_grid_columns_for_width(inner_w);
                 let rank_cols = ((inner_w + 12.0) / 232.0).floor().max(2.0) as usize;
 
                 let mut body =

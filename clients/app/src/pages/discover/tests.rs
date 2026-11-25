@@ -270,3 +270,23 @@ fn discover_home_shows_latest_updates_shelf_and_renames_new_sort_to_recently_upd
     app.press("最热").unwrap();
     app.wait_for("分页剧目 01").unwrap();
 }
+
+#[test]
+fn desktop_series_cards_use_roomy_poster_width_and_spacing() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+    app.wait_for("云端之上：千金归来").unwrap();
+
+    let card0 = node_bounds(&app, "label:云端之上：千金归来 >> nth=0");
+    let card1 = node_bounds(&app, "label:长安暗夜行 >> nth=0");
+    assert!(
+        card0.size.width.0 >= 200.0,
+        "desktop series card should be roomy >= 200pt wide, got {}",
+        card0.size.width.0
+    );
+    let horizontal_gap = card1.origin.x.0 - (card0.origin.x.0 + card0.size.width.0);
+    assert!(
+        horizontal_gap >= 19.0,
+        "desktop series grid spacing should be >= 20pt (gap_5), got {horizontal_gap}"
+    );
+}
