@@ -78,6 +78,23 @@ pub enum AppAppearance {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum WindowPlacementMode {
+    #[default]
+    Normal,
+    Maximized,
+    FullScreen,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowPlacementPref {
+    pub mode: WindowPlacementMode,
+    pub x: i32,
+    pub y: i32,
+    pub width: u16,
+    pub height: u16,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlaybackPreference {
     pub preferred_profile: StreamProfile,
@@ -86,6 +103,7 @@ pub struct PlaybackPreference {
     pub appearance: AppAppearance,
     pub sidebar_collapsed: bool,
     pub sidebar_width: u16,
+    pub window_placement: Option<WindowPlacementPref>,
 }
 
 impl Default for PlaybackPreference {
@@ -97,6 +115,7 @@ impl Default for PlaybackPreference {
             appearance: AppAppearance::Dark,
             sidebar_collapsed: false,
             sidebar_width: 208,
+            window_placement: None,
         }
     }
 }

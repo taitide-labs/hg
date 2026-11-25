@@ -11,7 +11,7 @@ use crate::ui::button::{
 };
 use crate::ui::controls::{mobile_nav_drawer, sidebar_resize_handle, sidebar_toggle_button};
 use crate::ui::icons::IconKind;
-use crate::ui::platform::{desktop_title_bar, is_desktop};
+use crate::ui::platform::{desktop_title_bar, is_desktop, observe_window_placement};
 use crate::ui::surface::separator;
 use crate::ui::token;
 
@@ -78,6 +78,10 @@ fn toggle_and_persist_sidebar(owner: Owner) {
 }
 
 pub fn app_shell() -> impl IntoElement {
+    observe_window_placement(
+        nav::is_chrome_fullscreen,
+        settings::cmd_playback_pref::handler::persist_window_placement,
+    );
     let shell_owner = Owner::current();
     let window_width = signal(1240.0_f32);
     let in_player = || nav::active_player().is_some();

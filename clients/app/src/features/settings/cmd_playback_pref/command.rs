@@ -1,5 +1,5 @@
 use hg_contracts::ids::StreamProfile;
-use hg_contracts::viewing::{AppAppearance, PlaybackPreference};
+use hg_contracts::viewing::{AppAppearance, PlaybackPreference, WindowPlacementPref};
 use nsh_core::prelude::Appearance;
 
 pub const SIDEBAR_WIDTH_MIN: u16 = 160;
@@ -117,6 +117,17 @@ pub const fn with_sidebar(
     PlaybackPreference {
         sidebar_collapsed,
         sidebar_width: clamp_sidebar_width(sidebar_width),
+        ..current
+    }
+}
+
+#[must_use]
+pub const fn with_window_placement(
+    current: PlaybackPreference,
+    window_placement: Option<WindowPlacementPref>,
+) -> PlaybackPreference {
+    PlaybackPreference {
+        window_placement,
         ..current
     }
 }

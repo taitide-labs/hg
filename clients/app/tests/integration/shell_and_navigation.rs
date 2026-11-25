@@ -1,9 +1,12 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use hg_contracts::viewing::{AppAppearance, PlaybackPreference};
+use hg_contracts::viewing::{
+    AppAppearance, PlaybackPreference, WindowPlacementMode, WindowPlacementPref,
+};
 use hg_gateway::mock::MockGateway;
-use nsh_core::prelude::{Points, Size, point, px};
+use nsh_core::desktop::{WindowMode, WindowPlacement, WindowState};
+use nsh_core::prelude::{Bounds, Points, Size, point, px};
 use nsh_engine::ColorScheme;
 
 use crate::support::{
@@ -173,4 +176,49 @@ fn mobile_uses_slide_out_drawer_quick_search_and_android_back_without_bottom_bar
     app.wait_for("春风十里不及卿").unwrap();
     app.back().unwrap();
     app.wait_for("查看热门短剧全部").unwrap();
+}
+
+#[test]
+fn desktop_window_placement_persists_fullscreen_and_restores_on_startup() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Dark);
+
+    let fullscreen_state = WindowState::new(
+        Bounds::new(point(px(0.0), px(0.0)), Size::new(px(1920.0), px(1080.0))),
+        WindowPlacement::new(
+            WindowMode::FullScreen,
+            Bounds::new(point(px(120.0), px(80.0)), Size::new(px(1440.0), px(900.0))),
+        ),
+    );
+    app.set_environment("main", |env| {
+        env.window_state = Some(fullscreen_state);
+    })
+    .unwrap();
+    app.wait_until(
+        "fullscreen window placement persisted",
+        Duration::from_secs(2),
+        |_| {
+            gw.snapshot_preference().window_placement
+                == Some(WindowPlacementPref {
+                    mode: WindowPlacementMode::FullScreen,
+                    x: 120,
+                    y: 80,
+                    width: 1440,
+                    height: 900,
+                })
+        },
+    )
+    .unwrap();
+
+    let mut reopened = start_desktop_on_home(gw, ColorScheme::Dark);
+    reopened.wait(Duration::from_millis(80)).unwrap();
+    let restored = reopened
+        .window_state("main")
+        .unwrap()
+        .expect("main window state");
+    assert_eq!(restored.mode, WindowMode::FullScreen);
+    assert_eq!(
+        restored.placement.bounds.size,
+        Size::new(px(1440.0), px(900.0))
+    );
 }

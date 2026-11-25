@@ -1,7 +1,8 @@
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{SeriesId, StreamProfile};
 use hg_contracts::viewing::{
-    AppAppearance, PlaybackPreference, SearchHistoryEntry, SeriesBookmark,
+    AppAppearance, PlaybackPreference, SearchHistoryEntry, SeriesBookmark, WindowPlacementMode,
+    WindowPlacementPref,
 };
 use sqlx::{FromRow, SqlitePool};
 
@@ -26,6 +27,11 @@ struct PlaybackPreferenceRow {
     appearance: String,
     sidebar_collapsed: i64,
     sidebar_width: i64,
+    window_mode: Option<String>,
+    window_x: Option<i64>,
+    window_y: Option<i64>,
+    window_width: Option<i64>,
+    window_height: Option<i64>,
 }
 
 #[derive(Debug, FromRow)]
@@ -86,7 +92,12 @@ pub async fn fetch_playback_preference(
             default_rate_hundredths,
             appearance,
             sidebar_collapsed,
-            sidebar_width
+            sidebar_width,
+            window_mode,
+            window_x,
+            window_y,
+            window_width,
+            window_height
         FROM viewing_playback_preference
         WHERE id = 1",
     )
@@ -189,6 +200,7 @@ impl TryFrom<PlaybackPreferenceRow> for PlaybackPreference {
             u16::try_from(row.sidebar_width).map_err(|err| ContractError::Internal {
                 detail: format!("侧边栏宽度字段非法: {err}"),
             })?;
+        let window_placement = decode_window_placement(&row)?;
 
         Ok(Self {
             preferred_profile,
@@ -197,8 +209,64 @@ impl TryFrom<PlaybackPreferenceRow> for PlaybackPreference {
             appearance,
             sidebar_collapsed: row.sidebar_collapsed != 0,
             sidebar_width,
+            window_placement,
         })
     }
+}
+
+fn decode_window_placement(
+    row: &PlaybackPreferenceRow,
+) -> Result<Option<WindowPlacementPref>, ContractError> {
+    let (Some(mode), Some(x), Some(y), Some(width), Some(height)) = (
+        row.window_mode.as_deref(),
+        row.window_x,
+        row.window_y,
+        row.window_width,
+        row.window_height,
+    ) else {
+        let any_present = row.window_mode.is_some()
+            || row.window_x.is_some()
+            || row.window_y.is_some()
+            || row.window_width.is_some()
+            || row.window_height.is_some();
+        if any_present {
+            return Err(ContractError::Internal {
+                detail: "窗口状态字段不完整".to_owned(),
+            });
+        }
+        return Ok(None);
+    };
+
+    let mode = match mode {
+        "normal" => WindowPlacementMode::Normal,
+        "maximized" => WindowPlacementMode::Maximized,
+        "fullscreen" => WindowPlacementMode::FullScreen,
+        other => {
+            return Err(ContractError::Internal {
+                detail: format!("窗口模式字段非法: {other}"),
+            });
+        }
+    };
+    let x = i32::try_from(x).map_err(|err| ContractError::Internal {
+        detail: format!("窗口横坐标字段非法: {err}"),
+    })?;
+    let y = i32::try_from(y).map_err(|err| ContractError::Internal {
+        detail: format!("窗口纵坐标字段非法: {err}"),
+    })?;
+    let width = u16::try_from(width).map_err(|err| ContractError::Internal {
+        detail: format!("窗口宽度字段非法: {err}"),
+    })?;
+    let height = u16::try_from(height).map_err(|err| ContractError::Internal {
+        detail: format!("窗口高度字段非法: {err}"),
+    })?;
+
+    Ok(Some(WindowPlacementPref {
+        mode,
+        x,
+        y,
+        width,
+        height,
+    }))
 }
 
 impl TryFrom<SearchHistoryRow> for SearchHistoryEntry {

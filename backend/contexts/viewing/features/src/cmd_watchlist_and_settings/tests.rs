@@ -8,7 +8,9 @@ use hg_backend_contracts::error::{PortError, PortFuture};
 use hg_backend_contracts::offline::{CommittedOfflineAsset, OfflineAssetQueryPort};
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{EpisodeKey, EpisodeNumber, SeriesId, StreamProfile};
-use hg_contracts::viewing::PlaybackPreference;
+use hg_contracts::viewing::{
+    AppAppearance, PlaybackPreference, WindowPlacementMode, WindowPlacementPref,
+};
 use hg_infra::clock::FixedClock;
 use hg_infra::db::LocalDatabase;
 use hg_infra::loopback_proxy::LoopbackProxyHandle;
@@ -255,21 +257,59 @@ async fn update_playback_preference_rejects_invalid_and_persists_valid() {
         .expect_err("invalid rate should fail");
     assert!(matches!(err, ContractError::InvalidInput { .. }));
 
+    let bad_window = PlaybackPreference {
+        window_placement: Some(WindowPlacementPref {
+            mode: WindowPlacementMode::Normal,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 800,
+        }),
+        ..PlaybackPreference::default()
+    };
+    let err = update_playback_preference(&deps, bad_window)
+        .await
+        .expect_err("zero window width should fail");
+    assert!(matches!(err, ContractError::InvalidInput { .. }));
+
     let valid = PlaybackPreference {
         preferred_profile: StreamProfile::Main,
         playback_cache_limit_mb: 1024,
         default_rate_hundredths: 200,
-        appearance: hg_contracts::viewing::AppAppearance::Dark,
+        appearance: AppAppearance::Dark,
         sidebar_collapsed: true,
         sidebar_width: 248,
+        window_placement: Some(WindowPlacementPref {
+            mode: WindowPlacementMode::FullScreen,
+            x: 40,
+            y: 60,
+            width: 1440,
+            height: 900,
+        }),
     };
     update_playback_preference(&deps, valid)
         .await
         .expect("valid preference should persist");
 
-    let row: (String, i64, i64, String, i64, i64) = sqlx::query_as(
+    #[derive(Debug, PartialEq, Eq, sqlx::FromRow)]
+    struct PersistedPrefRow {
+        preferred_profile: String,
+        playback_cache_limit_mb: i64,
+        default_rate_hundredths: i64,
+        appearance: String,
+        sidebar_collapsed: i64,
+        sidebar_width: i64,
+        window_mode: Option<String>,
+        window_x: Option<i64>,
+        window_y: Option<i64>,
+        window_width: Option<i64>,
+        window_height: Option<i64>,
+    }
+
+    let row: PersistedPrefRow = sqlx::query_as(
         "SELECT preferred_profile, playback_cache_limit_mb, default_rate_hundredths,
-                appearance, sidebar_collapsed, sidebar_width
+                appearance, sidebar_collapsed, sidebar_width,
+                window_mode, window_x, window_y, window_width, window_height
          FROM viewing_playback_preference WHERE id = 1",
     )
     .fetch_one(deps.pool())
@@ -277,7 +317,19 @@ async fn update_playback_preference_rejects_invalid_and_persists_valid() {
     .expect("read saved preference");
     assert_eq!(
         row,
-        ("main".to_owned(), 1024, 200, "dark".to_owned(), 1, 248)
+        PersistedPrefRow {
+            preferred_profile: "main".to_owned(),
+            playback_cache_limit_mb: 1024,
+            default_rate_hundredths: 200,
+            appearance: "dark".to_owned(),
+            sidebar_collapsed: 1,
+            sidebar_width: 248,
+            window_mode: Some("fullscreen".to_owned()),
+            window_x: Some(40),
+            window_y: Some(60),
+            window_width: Some(1440),
+            window_height: Some(900),
+        }
     );
 
     deps.loopback.shutdown();

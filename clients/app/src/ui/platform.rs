@@ -1,8 +1,82 @@
-use nsh_core::desktop::{TitleBarOptions, TitleBarStyle, WindowAttributes, WindowMode};
+use hg_contracts::viewing::{WindowPlacementMode, WindowPlacementPref};
+use nsh_core::desktop::{
+    TitleBarOptions, TitleBarStyle, WindowAttributes, WindowMode, WindowPlacement,
+};
 use nsh_core::element::desktop::{current_window, title_bar};
 use nsh_core::prelude::*;
 
 use crate::ui::token;
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PendingWindowRestore(Option<WindowMode>);
+
+const fn to_nsh_window_mode(mode: WindowPlacementMode) -> WindowMode {
+    match mode {
+        WindowPlacementMode::Normal => WindowMode::Normal,
+        WindowPlacementMode::Maximized => WindowMode::Maximized,
+        WindowPlacementMode::FullScreen => WindowMode::FullScreen,
+    }
+}
+
+const fn from_nsh_window_mode(mode: WindowMode) -> WindowPlacementMode {
+    match mode {
+        WindowMode::Normal => WindowPlacementMode::Normal,
+        WindowMode::Maximized => WindowPlacementMode::Maximized,
+        WindowMode::FullScreen => WindowPlacementMode::FullScreen,
+    }
+}
+
+pub fn restore_window_placement(placement: WindowPlacementPref) {
+    if !is_desktop() {
+        return;
+    }
+    let mode = to_nsh_window_mode(placement.mode);
+    global::<PendingWindowRestore>().set(PendingWindowRestore(Some(mode)));
+    let bounds = Bounds::new(
+        point(px(placement.x as f32), px(placement.y as f32)),
+        Size::new(
+            px(f32::from(placement.width)),
+            px(f32::from(placement.height)),
+        ),
+    );
+    current_window().set_placement(WindowPlacement::new(mode, bounds));
+}
+
+pub fn observe_window_placement(
+    suppress_capture: impl Fn() -> bool + 'static,
+    on_change: impl Fn(WindowPlacementPref) + 'static,
+) {
+    if !is_desktop() {
+        return;
+    }
+    effect(move || {
+        let Some(state) = current_window().state() else {
+            return;
+        };
+        if state.minimized || untracked(&suppress_capture) {
+            return;
+        }
+        let placement = state.placement;
+        if let Some(target_mode) = global::<PendingWindowRestore>().with_untracked(|p| p.0) {
+            if placement.mode != target_mode {
+                return;
+            }
+            global::<PendingWindowRestore>().set(PendingWindowRestore(None));
+        }
+        let width = placement.bounds.size.width.0.round();
+        let height = placement.bounds.size.height.0.round();
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        on_change(WindowPlacementPref {
+            mode: from_nsh_window_mode(placement.mode),
+            x: placement.bounds.origin.x.0.round() as i32,
+            y: placement.bounds.origin.y.0.round() as i32,
+            width: width.clamp(1.0, f32::from(u16::MAX)) as u16,
+            height: height.clamp(1.0, f32::from(u16::MAX)) as u16,
+        });
+    });
+}
 
 #[must_use]
 pub fn is_desktop() -> bool {
