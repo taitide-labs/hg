@@ -584,7 +584,7 @@ fn list_series_and_ranking_preserve_original_badge_from_is_original_flag() {
     let third = paged.items.get(2).expect("third item");
     assert_eq!(first.badge.as_deref(), Some("原创"));
     assert_eq!(first.episode_count, 21);
-    assert_eq!(second.badge.as_deref(), Some("黄果原创"));
+    assert_eq!(second.badge.as_deref(), Some("原创"));
     assert_eq!(third.badge, None);
 
     let rank_json = json!({
@@ -648,5 +648,7 @@ async fn home_feed_fetches_and_parses_latest_shelf_from_api_home_latest() {
         .expect("home_feed");
     assert_eq!(feed.featured.len(), 1);
     assert_eq!(feed.latest.len(), 1);
-    assert_eq!(feed.latest.first().expect("latest").title, "刚刚更新剧");
+    let latest_first = feed.latest.first().expect("latest");
+    assert_eq!(latest_first.title, "刚刚更新剧");
+    assert_eq!(latest_first.badge.as_deref(), Some("原创"));
 }

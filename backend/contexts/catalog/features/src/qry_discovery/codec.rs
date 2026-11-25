@@ -176,6 +176,13 @@ fn resolve_badge(badge: Option<String>, is_original: bool) -> Option<String> {
     badge
         .map(|s| s.trim().to_owned())
         .filter(|s| !s.is_empty())
+        .map(|s| {
+            if s == "黄果原创" {
+                "原创".to_owned()
+            } else {
+                s
+            }
+        })
         .or_else(|| is_original.then(|| "原创".to_owned()))
 }
 
