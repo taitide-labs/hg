@@ -164,6 +164,11 @@ pub fn browse_meta_snapshot() -> BrowseMetaState {
 }
 
 #[must_use]
+pub fn browse_meta_untracked() -> BrowseMetaState {
+    browse_meta_state().with_untracked(Clone::clone)
+}
+
+#[must_use]
 pub fn search_input_signal() -> Signal<String> {
     global::<String>()
 }
@@ -199,15 +204,16 @@ fn viewport_state() -> Signal<DiscoverViewport> {
     global::<DiscoverViewport>()
 }
 
-pub fn set_viewport_size(width: f32, height: f32) {
+pub fn set_viewport_size(width: f32, height: f32) -> bool {
     if width <= 0.0 || height <= 0.0 {
-        return;
+        return false;
     }
     let changed = viewport_state()
         .with_untracked(|v| (v.width - width).abs() > 1.0 || (v.height - height).abs() > 1.0);
     if changed {
         viewport_state().set(DiscoverViewport { width, height });
     }
+    changed
 }
 
 #[must_use]

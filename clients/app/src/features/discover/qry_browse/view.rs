@@ -4,8 +4,8 @@ use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    pagination_footer, ranking_grid_columns_for_width, series_flags, series_grid_columns_for_width,
-    virtual_series_grid,
+    pagination_footer, ranking_card_props, ranking_grid_columns_for_width,
+    series_grid_columns_for_width, virtual_series_grid,
 };
 use super::super::store::{self, BrowseKind, RankingTab};
 use super::query;
@@ -13,7 +13,7 @@ use crate::ui::button::{ButtonVariant, ControlSize, app_button, app_icon_text_bu
 use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
 use crate::ui::platform::is_desktop;
-use crate::ui::poster::{RankingCardProps, ranking_list_row};
+use crate::ui::poster::ranking_list_row;
 use crate::ui::surface::empty_state;
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
@@ -109,11 +109,13 @@ pub fn browse_view(
         .on_layout(move |bounds: &Bounds<Points>| {
             let w = bounds.size.width.0;
             let h = bounds.size.height.0;
-            store::set_viewport_size(w, h);
+            let viewport_changed = store::set_viewport_size(w, h);
             if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
                 container_width.set(w);
             }
-            page_owner.run(query::ensure_viewport_filled);
+            if viewport_changed {
+                page_owner.run(query::ensure_viewport_filled);
+            }
         })
         .child(list_element)
 }
@@ -130,7 +132,7 @@ fn series_browse_list(
     virtual_series_grid(
         || store::browse_state().with(|s| if s.error.is_some() { 0 } else { s.items.len() }),
         || store::browse_state().with(|s| s.items.iter().map(|i| i.id).collect()),
-        |idx| store::browse_state().with_untracked(|s| s.items.get(idx).cloned()),
+        |idx| store::browse_state().with(|s| s.items.get(idx).cloned()),
         move || {
             let inner_w = (container_width.get() - 48.0).max(0.0);
             series_grid_columns_for_width(inner_w) as u32
@@ -334,6 +336,18 @@ fn ranking_list(
     header_view: impl IntoElement,
     footer_view: impl IntoElement,
 ) -> impl IntoElement {
+    let rank_cols = computed(move || {
+        u32::try_from(ranking_grid_columns_for_width(container_width.get())).unwrap_or(1)
+    });
+    let keys_memo = computed(|| {
+        store::browse_state().with(|s| {
+            s.ranking_items
+                .iter()
+                .map(|r| r.series.id)
+                .collect::<Vec<_>>()
+        })
+    });
+
     virtual_list(
         || {
             store::browse_state().with(|s| {
@@ -345,50 +359,19 @@ fn ranking_list(
             })
         },
         move |at: Position| {
-            view().child(dynamic(move || {
-                let entry = store::browse_state()
-                    .with_untracked(|s| s.ranking_items.get(at.index()).cloned());
-                match entry {
-                    Some(entry) => {
-                        let id = entry.series.id;
-                        let flags = series_flags(&entry.series);
-                        let meta = format!(
-                            "{:.1} 分 · {} · {} 集",
-                            entry.series.score,
-                            entry.series.tags.join(" · "),
-                            entry.series.episode_count
-                        );
-                        let description = (!entry.series.description.is_empty())
-                            .then_some(entry.series.description);
-                        ranking_list_row(
-                            RankingCardProps {
-                                rank: entry.rank,
-                                title: entry.series.title,
-                                cover_url: entry.series.cover_url,
-                                flags,
-                                meta,
-                                description,
-                            },
-                            move || on_open_series(id),
-                        )
-                        .into_element()
-                    }
-                    None => view().into_element(),
+            let item = computed(move || {
+                store::browse_state()
+                    .with(|s| s.ranking_items.get(at.index()).map(ranking_card_props))
+            });
+            ranking_list_row(item, move |raw_id| {
+                if let Ok(series_id) = SeriesId::try_from(raw_id) {
+                    on_open_series(series_id);
                 }
-            }))
+            })
         },
     )
-    .keys(|| {
-        store::browse_state().with(|s| {
-            s.ranking_items
-                .iter()
-                .map(|r| r.series.id)
-                .collect::<Vec<_>>()
-        })
-    })
-    .columns(move || {
-        u32::try_from(ranking_grid_columns_for_width(container_width.get())).unwrap_or(1)
-    })
+    .keys(move || keys_memo.get())
+    .columns(rank_cols)
     .column_gap(px(12.0))
     .row_gap(px(12.0))
     .content_padding(px(24.0))

@@ -1,3 +1,7 @@
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+use std::time::Duration;
+
 use hg_contracts::viewing::{WindowPlacementMode, WindowPlacementPref};
 use nsh_core::desktop::{
     TitleBarOptions, TitleBarStyle, WindowAttributes, WindowMode, WindowPlacement,
@@ -6,6 +10,8 @@ use nsh_core::element::desktop::{current_window, title_bar};
 use nsh_core::prelude::*;
 
 use crate::ui::token;
+
+const WINDOW_PLACEMENT_DEBOUNCE: Duration = Duration::from_millis(300);
 
 #[derive(Debug, Clone, Copy, Default)]
 struct PendingWindowRestore(Option<WindowMode>);
@@ -49,33 +55,69 @@ pub fn observe_window_placement(
     if !is_desktop() {
         return;
     }
+    let pending_timer: Rc<RefCell<Option<Spawned<()>>>> = Rc::new(RefCell::new(None));
+    let pending_timer_cleanup = Rc::clone(&pending_timer);
+    let last_mode: Rc<Cell<Option<WindowPlacementMode>>> = Rc::new(Cell::new(None));
+    let latest_pref: Rc<Cell<Option<WindowPlacementPref>>> = Rc::new(Cell::new(None));
+    let on_change = Rc::new(on_change);
+
+    cleanup(move || {
+        if let Some(handle) = pending_timer_cleanup.borrow_mut().take() {
+            handle.cancel();
+        }
+    });
+
     effect(move || {
-        let Some(state) = current_window().state() else {
+        let Some(next) = read_window_placement(&suppress_capture) else {
             return;
         };
-        if state.minimized || untracked(&suppress_capture) {
+        if let Some(handle) = pending_timer.borrow_mut().take() {
+            handle.cancel();
+        }
+        latest_pref.set(Some(next));
+        let mode_changed = last_mode.get() != Some(next.mode);
+        if mode_changed {
+            last_mode.set(Some(next.mode));
+            on_change(next);
             return;
         }
-        let placement = state.placement;
-        if let Some(target_mode) = global::<PendingWindowRestore>().with_untracked(|p| p.0) {
-            if placement.mode != target_mode {
-                return;
+        let emit = Rc::clone(&on_change);
+        let latest = Rc::clone(&latest_pref);
+        let mode_track = Rc::clone(&last_mode);
+        let handle = set_timeout(WINDOW_PLACEMENT_DEBOUNCE, move || {
+            if let Some(pref) = latest.take() {
+                mode_track.set(Some(pref.mode));
+                emit(pref);
             }
-            global::<PendingWindowRestore>().set(PendingWindowRestore(None));
-        }
-        let width = placement.bounds.size.width.0.round();
-        let height = placement.bounds.size.height.0.round();
-        if width <= 0.0 || height <= 0.0 {
-            return;
-        }
-        on_change(WindowPlacementPref {
-            mode: from_nsh_window_mode(placement.mode),
-            x: placement.bounds.origin.x.0.round() as i32,
-            y: placement.bounds.origin.y.0.round() as i32,
-            width: width.clamp(1.0, f32::from(u16::MAX)) as u16,
-            height: height.clamp(1.0, f32::from(u16::MAX)) as u16,
         });
+        *pending_timer.borrow_mut() = Some(handle);
     });
+}
+
+fn read_window_placement(suppress_capture: &impl Fn() -> bool) -> Option<WindowPlacementPref> {
+    let state = current_window().state()?;
+    if state.minimized || untracked(suppress_capture) {
+        return None;
+    }
+    let placement = state.placement;
+    if let Some(target_mode) = global::<PendingWindowRestore>().with_untracked(|p| p.0) {
+        if placement.mode != target_mode {
+            return None;
+        }
+        global::<PendingWindowRestore>().set(PendingWindowRestore(None));
+    }
+    let width = placement.bounds.size.width.0.round();
+    let height = placement.bounds.size.height.0.round();
+    if width <= 0.0 || height <= 0.0 {
+        return None;
+    }
+    Some(WindowPlacementPref {
+        mode: from_nsh_window_mode(placement.mode),
+        x: placement.bounds.origin.x.0.round() as i32,
+        y: placement.bounds.origin.y.0.round() as i32,
+        width: width.clamp(1.0, f32::from(u16::MAX)) as u16,
+        height: height.clamp(1.0, f32::from(u16::MAX)) as u16,
+    })
 }
 
 #[must_use]

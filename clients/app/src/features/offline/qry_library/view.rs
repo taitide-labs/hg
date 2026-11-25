@@ -12,6 +12,15 @@ use crate::ui::poster;
 use crate::ui::surface::{BadgeTone, badge, empty_state};
 use crate::ui::token;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LibraryPhase {
+    Error,
+    Loading,
+    EmptyNoTasks,
+    EmptyWithTasks,
+    Ready,
+}
+
 pub fn offline_library_section<R>(
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     series_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
@@ -21,37 +30,42 @@ where
 {
     let section_owner = Owner::current();
     query::load_library();
-    view().w_full().gap_3().child(dynamic(move || {
-        library_body(section_owner, on_open_series, series_action)
-    }))
-}
+    let phase = computed(|| {
+        store::state().with(|s| {
+            if s.library_error.is_some() && s.library.is_empty() {
+                LibraryPhase::Error
+            } else if !s.has_loaded_library && s.loading_library && s.library.is_empty() {
+                LibraryPhase::Loading
+            } else if s.library.is_empty() && s.tasks.is_empty() {
+                LibraryPhase::EmptyNoTasks
+            } else if s.library.is_empty() {
+                LibraryPhase::EmptyWithTasks
+            } else {
+                LibraryPhase::Ready
+            }
+        })
+    });
+    let library = computed(|| store::state().with(|s| s.library.clone()));
+    let summary = computed(move || {
+        library.with(|items| {
+            let (series_count, episode_count, total_bytes) = library_totals(items);
+            if series_count > 0 {
+                SharedString::from(format!(
+                    "共 {series_count} 部 · {episode_count} 集 · {}",
+                    format_size_bytes(total_bytes)
+                ))
+            } else {
+                SharedString::default()
+            }
+        })
+    });
 
-fn library_body<R>(
-    section_owner: Owner,
-    on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    series_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
-) -> impl IntoElement
-where
-    R: IntoElement + 'static,
-{
-    let snap = store::state().get();
-    let (series_count, episode_count, total_bytes) = library_totals(&snap.library);
-    let summary = if series_count > 0 {
-        Some(format!(
-            "共 {series_count} 部 · {episode_count} 集 · {}",
-            format_size_bytes(total_bytes)
-        ))
-    } else {
-        None
-    };
-    let header = section_header_row(summary);
-
-    if snap.library_error.is_some() && snap.library.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(empty_state(
+    view()
+        .w_full()
+        .gap_3()
+        .child(section_header_row(summary))
+        .child(dynamic(move || match phase.get() {
+            LibraryPhase::Error => empty_state(
                 IconKind::Download,
                 "离线片库加载失败",
                 "请稍后重试刷新本地已下载内容",
@@ -59,36 +73,25 @@ where
                     "重新加载",
                     Box::new(move || section_owner.run(query::load_library)),
                 )),
-            ))
-            .into_element();
-    }
-
-    if !snap.has_loaded_library && snap.loading_library && snap.library.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(
-                view().py_6().items_center().child(
+            )
+            .into_element(),
+            LibraryPhase::Loading => view()
+                .py_6()
+                .items_center()
+                .child(
                     text("正在加载离线片库...")
                         .text_sm()
                         .text_color(token::muted_fg),
-                ),
-            )
-            .into_element();
-    }
-
-    if snap.library.is_empty() {
-        let empty = if snap.tasks.is_empty() {
-            empty_state(
+                )
+                .into_element(),
+            LibraryPhase::EmptyNoTasks => empty_state(
                 IconKind::Download,
                 "暂无离线剧目",
                 "在播放页选择分集离线下载后，可在此断网观看",
                 None,
             )
-            .into_element()
-        } else {
-            view()
+            .into_element(),
+            LibraryPhase::EmptyWithTasks => view()
                 .py_6()
                 .items_center()
                 .child(
@@ -96,30 +99,20 @@ where
                         .text_sm()
                         .text_color(token::muted_fg),
                 )
-                .into_element()
-        };
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(empty)
-            .into_element();
-    }
-
-    let mut list = view().w_full().gap_2p5();
-    for series in snap.library {
-        list = list.child(series_row(series, on_open_series, series_action));
-    }
-
-    view()
-        .w_full()
-        .gap_3()
-        .child(header)
-        .child(list)
-        .into_element()
+                .into_element(),
+            LibraryPhase::Ready => view()
+                .w_full()
+                .gap_2p5()
+                .child(each(
+                    library,
+                    |s: &OfflineSeriesView| s.series_id,
+                    move |series_sig, _idx| series_row(series_sig, on_open_series, series_action),
+                ))
+                .into_element(),
+        }))
 }
 
-fn section_header_row(summary: Option<String>) -> impl IntoElement {
+fn section_header_row(summary: Memo<SharedString>) -> impl IntoElement {
     view()
         .w_full()
         .flex_row()
@@ -138,35 +131,34 @@ fn section_header_row(summary: Option<String>) -> impl IntoElement {
                 )
                 .child(text("托管离线片库").text_xs().text_color(token::muted_fg)),
         )
-        .children(summary.map(|label| {
-            text(label)
+        .child(
+            text(summary)
+                .style_when(move || summary.with(|s| s.is_empty()), |s| s.hidden())
                 .text_xs()
                 .tabular_nums()
-                .text_color(token::muted_fg)
-        }))
+                .text_color(token::muted_fg),
+        )
 }
 
 fn series_row<R>(
-    series: OfflineSeriesView,
+    series_sig: ReadSignal<OfflineSeriesView>,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     series_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
 {
-    let series_id = series.series_id;
-    let first_ep = first_downloaded_episode(&series);
-    let title = series.title.clone();
-    let a11y_title = series.title.clone();
-    let cover_key = series.cover_local_uri.clone();
-    let stats = series_stats_text(&series);
-    let episodes_preview = episodes_preview_text(&series.episodes);
+    let (series_id, title) = series_sig.with_untracked(|s| (s.series_id, s.title.clone()));
+    let cover_key = computed(move || series_sig.with(|s| s.cover_local_uri.clone()));
 
     let open_trigger = view()
-        .on_press(move || on_open_series(series_id, first_ep))
+        .on_press(move || {
+            let first_ep = series_sig.with_untracked(first_downloaded_episode);
+            on_open_series(series_id, first_ep);
+        })
         .role(AccessibilityRole::Button)
         .focusable(true)
-        .label(a11y_title)
+        .label(move || series_sig.with(|s| SharedString::from(s.title.clone())))
         .flex_1()
         .min_w_0()
         .p_3()
@@ -186,7 +178,7 @@ where
         })
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
         .child(poster_thumb(cover_key))
-        .child(series_meta(series.title, stats, episodes_preview));
+        .child(series_meta(series_sig));
 
     view()
         .w_full()
@@ -200,17 +192,17 @@ where
         .child(series_action(series_id, &title))
 }
 
-fn poster_thumb(cover_key: String) -> impl IntoElement {
-    poster::poster_thumb(cover_key, 52.0, 70.0, IconKind::Play, 26.0, 12.0)
+fn poster_thumb(cover_key: Memo<String>) -> impl IntoElement {
+    poster::reactive_poster_thumb(cover_key, 52.0, 70.0, IconKind::Play, 26.0, 12.0)
 }
 
-fn series_meta(title: String, stats: String, episodes_preview: String) -> impl IntoElement {
+fn series_meta(series_sig: ReadSignal<OfflineSeriesView>) -> impl IntoElement {
     view()
         .flex_1()
         .min_w_0()
         .gap_1p5()
         .child(
-            text(title)
+            text(move || series_sig.with(|s| SharedString::from(s.title.clone())))
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(token::card_fg)
@@ -223,7 +215,7 @@ fn series_meta(title: String, stats: String, episodes_preview: String) -> impl I
                 .gap_2()
                 .child(badge("离线就绪", BadgeTone::Success))
                 .child(
-                    text(stats)
+                    text(move || series_sig.with(|s| SharedString::from(series_stats_text(s))))
                         .text_xs()
                         .tabular_nums()
                         .text_color(token::muted_fg)
@@ -231,9 +223,11 @@ fn series_meta(title: String, stats: String, episodes_preview: String) -> impl I
                 ),
         )
         .child(
-            text(episodes_preview)
-                .text_xs()
-                .text_color(token::muted_fg)
-                .truncate(),
+            text(move || {
+                series_sig.with(|s| SharedString::from(episodes_preview_text(&s.episodes)))
+            })
+            .text_xs()
+            .text_color(token::muted_fg)
+            .truncate(),
         )
 }

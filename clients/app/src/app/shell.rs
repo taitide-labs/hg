@@ -83,19 +83,18 @@ pub fn app_shell() -> impl IntoElement {
         settings::cmd_playback_pref::handler::persist_window_placement,
     );
     let shell_owner = Owner::current();
-    let window_width = signal(1240.0_f32);
+    let is_narrow = signal(false);
     let in_player = || nav::active_player().is_some();
     let show_title_bar = || is_desktop() && !nav::is_chrome_fullscreen();
-    let effective_collapsed =
-        move || nav::sidebar_collapsed() || window_width.get() < NARROW_SIDEBAR_BREAKPOINT;
+    let effective_collapsed = move || nav::sidebar_collapsed() || is_narrow.get();
 
     view()
         .flex_1()
         .bg(token::bg)
         .on_layout(move |bounds: &Bounds<Points>| {
             let w = bounds.size.width.0;
-            if w > 0.0 && (window_width.get_untracked() - w).abs() > 1.0 {
-                window_width.set(w);
+            if w > 0.0 {
+                is_narrow.set(w < NARROW_SIDEBAR_BREAKPOINT);
             }
         })
         .child(when(show_title_bar, move || {

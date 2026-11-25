@@ -9,7 +9,9 @@ use super::store::{self, SeriesWatchStatus, WatchedSeriesSnapshot};
 use crate::ui::button::{ButtonVariant, ControlSize, app_button};
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::poster::{PosterWatchStatus, SeriesCardProps, SeriesFlags, series_card};
+use crate::ui::poster::{
+    PosterWatchStatus, RankingCardProps, SeriesCardProps, SeriesFlags, series_card,
+};
 use crate::ui::surface::empty_state;
 use crate::ui::token;
 
@@ -137,47 +139,66 @@ pub fn series_flags(item: &SeriesSummary) -> SeriesFlags {
     }
 }
 
-pub fn series_card_from_summary(
-    item: SeriesSummary,
-    index: usize,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    let id = item.id;
-    let flags = series_flags(&item);
-    let watch_status = match store::series_watch_status(id, item.episode_count) {
+#[must_use]
+pub fn series_card_props(item: &SeriesSummary) -> SeriesCardProps {
+    SeriesCardProps {
+        id: item.id.get(),
+        title: item.title.clone(),
+        cover_url: item.cover_url.clone(),
+        score: item.score,
+        tags: item.tags.clone(),
+        episode_count: item.episode_count,
+        is_finished: item.is_finished,
+        flags: series_flags(item),
+    }
+}
+
+#[must_use]
+pub fn ranking_card_props(entry: &hg_contracts::catalog::RankingEntry) -> RankingCardProps {
+    let meta = format!(
+        "{:.1} 分 · {} · {} 集",
+        entry.series.score,
+        entry.series.tags.join(" · "),
+        entry.series.episode_count
+    );
+    let description =
+        (!entry.series.description.is_empty()).then(|| entry.series.description.clone());
+    RankingCardProps {
+        id: entry.series.id.get(),
+        rank: entry.rank,
+        title: entry.series.title.clone(),
+        cover_url: entry.series.cover_url.clone(),
+        flags: series_flags(&entry.series),
+        meta,
+        description,
+    }
+}
+
+fn watch_status_for_raw_id(id: u64, episode_count: u32) -> PosterWatchStatus {
+    let Ok(series_id) = SeriesId::try_from(id) else {
+        return PosterWatchStatus::Unwatched;
+    };
+    match store::series_watch_status(series_id, episode_count) {
         SeriesWatchStatus::Unwatched => PosterWatchStatus::Unwatched,
         SeriesWatchStatus::AllWatched => PosterWatchStatus::AllWatched,
         SeriesWatchStatus::UpdatedAfterWatching => PosterWatchStatus::UpdatedAfterWatching,
-    };
-    let status = match watch_status {
-        PosterWatchStatus::UpdatedAfterWatching => {
-            format!("有更新 · {} 集", item.episode_count)
+    }
+}
+
+pub fn series_card_reactive(
+    item: Memo<Option<SeriesCardProps>>,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    series_card(item, watch_status_for_raw_id, move |raw_id| {
+        if let Ok(series_id) = SeriesId::try_from(raw_id) {
+            on_open_series(series_id);
         }
-        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched if item.is_finished => {
-            format!("全 {} 集", item.episode_count)
-        }
-        PosterWatchStatus::Unwatched | PosterWatchStatus::AllWatched => {
-            format!("更新至 {} 集", item.episode_count)
-        }
-    };
-    series_card(
-        SeriesCardProps {
-            title: item.title,
-            cover_url: item.cover_url,
-            score: item.score,
-            tags: item.tags,
-            episode_label: status,
-            flags,
-            watch_status,
-            index,
-        },
-        move || on_open_series(id),
-    )
+    })
 }
 
 pub fn series_horizontal_shelf(
     items: Vec<SeriesSummary>,
-    card_width: f32,
+    card_width: Memo<f32>,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     if items.is_empty() {
@@ -191,12 +212,14 @@ pub fn series_horizontal_shelf(
     }
 
     let mut row = view().flex_row().items_start().gap_3();
-    for (index, item) in items.into_iter().enumerate() {
+    for item in items {
+        let props = series_card_props(&item);
+        let item_memo = computed(move || Some(props.clone()));
         row = row.child(
             view()
-                .w(px(card_width))
+                .w(move || px(card_width.get()))
                 .flex_shrink_0()
-                .child(series_card_from_summary(item, index, on_open_series)),
+                .child(series_card_reactive(item_memo, on_open_series)),
         );
     }
     scroll()
@@ -222,18 +245,15 @@ pub fn virtual_series_grid(
         MOBILE_GRID_GAP
     };
     let estimated_h = if is_desktop() { 430.0 } else { 290.0 };
+    let cols_memo = computed(columns);
+    let keys_memo = computed(keys);
 
     virtual_list(count, move |at: Position| {
-        view().child(dynamic(move || {
-            let idx = at.index();
-            match item_at(idx) {
-                Some(item) => series_card_from_summary(item, idx, on_open_series).into_element(),
-                None => view().into_element(),
-            }
-        }))
+        let item = computed(move || item_at(at.index()).map(|s| series_card_props(&s)));
+        series_card_reactive(item, on_open_series)
     })
-    .keys(keys)
-    .columns(columns)
+    .keys(move || keys_memo.get())
+    .columns(cols_memo)
     .row_gap(px(gap))
     .column_gap(px(gap))
     .content_padding(px(24.0))

@@ -222,3 +222,48 @@ fn desktop_window_placement_persists_fullscreen_and_restores_on_startup() {
         Size::new(px(1440.0), px(900.0))
     );
 }
+
+#[test]
+fn desktop_window_resize_debounces_before_persisting_latest_bounds() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Dark);
+
+    for (w, h) in [(1320.0, 820.0), (1380.0, 860.0), (1440.0, 900.0)] {
+        let state = WindowState::new(
+            Bounds::new(point(px(60.0), px(40.0)), Size::new(px(w), px(h))),
+            WindowPlacement::new(
+                WindowMode::Normal,
+                Bounds::new(point(px(60.0), px(40.0)), Size::new(px(w), px(h))),
+            ),
+        );
+        app.set_environment("main", |env| {
+            env.window_state = Some(state);
+        })
+        .unwrap();
+        app.wait(Duration::from_millis(20)).unwrap();
+    }
+
+    assert_ne!(
+        gw.snapshot_preference().window_placement,
+        Some(WindowPlacementPref {
+            mode: WindowPlacementMode::Normal,
+            x: 60,
+            y: 40,
+            width: 1440,
+            height: 900,
+        }),
+        "continuous drag resizes must debounce instead of writing every frame"
+    );
+
+    app.wait(Duration::from_millis(450)).unwrap();
+    assert_eq!(
+        gw.snapshot_preference().window_placement,
+        Some(WindowPlacementPref {
+            mode: WindowPlacementMode::Normal,
+            x: 60,
+            y: 40,
+            width: 1440,
+            height: 900,
+        })
+    );
+}

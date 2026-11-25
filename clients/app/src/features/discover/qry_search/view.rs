@@ -38,6 +38,15 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
             _ => None,
         })
     });
+    let tag_caps = computed(move || {
+        let inner_w = (container_width.get() - 48.0).max(240.0);
+        store::browse_meta_snapshot()
+            .tag_groups
+            .iter()
+            .filter(|g| !g.tags.is_empty())
+            .map(|g| (g.id, single_row_visible_count(&g.tags, inner_w)))
+            .collect::<Vec<_>>()
+    });
 
     let header_block = view()
         .w_full()
@@ -53,12 +62,7 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
                 }))
                 .child(dynamic(move || hot_keywords_section(scroller, page_owner)))
                 .child(dynamic(move || {
-                    tag_filter_section(
-                        (container_width.get() - 48.0).max(240.0),
-                        expanded_groups,
-                        scroller,
-                        page_owner,
-                    )
+                    tag_filter_section(tag_caps, expanded_groups, scroller, page_owner)
                 })),
         )
         .child(dynamic(move || {
@@ -73,11 +77,13 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
         .on_layout(move |bounds: &Bounds<Points>| {
             let w = bounds.size.width.0;
             let h = bounds.size.height.0;
-            store::set_viewport_size(w, h);
+            let viewport_changed = store::set_viewport_size(w, h);
             if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
                 container_width.set(w);
             }
-            page_owner.run(query::ensure_viewport_filled);
+            if viewport_changed {
+                page_owner.run(query::ensure_viewport_filled);
+            }
         })
         .child(
             virtual_series_grid(
@@ -91,7 +97,7 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
                     })
                 },
                 || store::search_state().with(|s| s.items.iter().map(|i| i.id).collect()),
-                |idx| store::search_state().with_untracked(|s| s.items.get(idx).cloned()),
+                |idx| store::search_state().with(|s| s.items.get(idx).cloned()),
                 move || {
                     let inner_w = (container_width.get() - 48.0).max(0.0);
                     series_grid_columns_for_width(inner_w) as u32
@@ -195,12 +201,16 @@ fn hot_keywords_section(scroller: ElementRef, page_owner: Owner) -> impl IntoEle
 }
 
 fn tag_filter_section(
-    inner_width: f32,
+    tag_caps: Memo<Vec<(u32, usize)>>,
     expanded_groups: Signal<BTreeSet<u32>>,
     scroller: ElementRef,
     page_owner: Owner,
 ) -> impl IntoElement {
-    let groups: Vec<TagGroup> = store::browse_meta_snapshot()
+    let caps = tag_caps.get();
+    if caps.is_empty() {
+        return view().into_element();
+    }
+    let groups: Vec<TagGroup> = store::browse_meta_untracked()
         .tag_groups
         .into_iter()
         .filter(|g| !g.tags.is_empty())
@@ -208,7 +218,7 @@ fn tag_filter_section(
     if groups.is_empty() {
         return view().into_element();
     }
-    tag_filter_strip(&groups, inner_width, expanded_groups, scroller, page_owner).into_element()
+    tag_filter_strip(&groups, &caps, expanded_groups, scroller, page_owner).into_element()
 }
 
 fn search_history_strip(
@@ -342,7 +352,7 @@ fn single_row_visible_count(tags: &[TagItem], inner_width: f32) -> usize {
 
 fn tag_filter_strip(
     groups: &[TagGroup],
-    inner_width: f32,
+    caps: &[(u32, usize)],
     expanded_groups: Signal<BTreeSet<u32>>,
     scroller: ElementRef,
     page_owner: Owner,
@@ -351,7 +361,10 @@ fn tag_filter_strip(
     let mut container = view().gap_2();
     for group in groups {
         let group_id = group.id;
-        let visible_cap = single_row_visible_count(&group.tags, inner_width);
+        let visible_cap = caps
+            .iter()
+            .find(|(id, _)| *id == group_id)
+            .map_or(group.tags.len(), |(_, cap)| *cap);
         let needs_fold = group.tags.len() > visible_cap;
         let is_expanded = expanded_set.contains(&group_id);
         let limit = if !needs_fold || is_expanded {

@@ -9,6 +9,14 @@ use crate::ui::poster;
 use crate::ui::surface::{BadgeTone, badge, empty_state, progress_track};
 use crate::ui::token;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HistoryPhase {
+    Error,
+    Loading,
+    Empty,
+    Ready,
+}
+
 pub fn history_section<H, R>(
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     header_action: impl Fn() -> H + Copy + 'static,
@@ -20,81 +28,75 @@ where
 {
     let section_owner = Owner::current();
     query::load_history();
-    view().w_full().gap_3().child(dynamic(move || {
-        history_body(section_owner, on_open_series, header_action, row_action)
-    }))
-}
-
-fn history_body<H, R>(
-    section_owner: Owner,
-    on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
-    header_action: impl Fn() -> H + Copy + 'static,
-    row_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
-) -> impl IntoElement
-where
-    H: IntoElement + 'static,
-    R: IntoElement + 'static,
-{
-    let snap = store::state().get();
-    let header = section_header_row(!snap.history.is_empty(), header_action);
-
-    if snap.error.is_some() && snap.history.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(empty_state(
-                IconKind::Clock,
-                "观看历史加载失败",
-                "请稍后重试刷新观看记录",
-                Some((
-                    "重新加载",
-                    Box::new(move || section_owner.run(query::load_history)),
-                )),
-            ))
-            .into_element();
-    }
-
-    if snap.loading_history && snap.history.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(
-                view().py_6().items_center().child(
-                    text("正在加载观看历史...")
-                        .text_sm()
-                        .text_color(token::muted_fg),
-                ),
-            )
-            .into_element();
-    }
-
-    if snap.history.is_empty() {
-        return view()
-            .w_full()
-            .gap_3()
-            .child(header)
-            .child(empty_state(
-                IconKind::Clock,
-                "暂无观看历史",
-                "开始观看任意剧目后将在此保留续播进度",
-                None,
-            ))
-            .into_element();
-    }
-
-    let mut list = view().w_full().gap_2p5();
-    for (index, entry) in snap.history.into_iter().enumerate() {
-        list = list.child(history_row(index, entry, on_open_series, row_action));
-    }
+    let phase = computed(|| {
+        store::state().with(|s| {
+            if s.error.is_some() && s.history.is_empty() {
+                HistoryPhase::Error
+            } else if s.loading_history && s.history.is_empty() {
+                HistoryPhase::Loading
+            } else if s.history.is_empty() {
+                HistoryPhase::Empty
+            } else {
+                HistoryPhase::Ready
+            }
+        })
+    });
+    let history = computed(|| store::state().with(|s| s.history.clone()));
 
     view()
         .w_full()
         .gap_3()
-        .child(header)
-        .child(list)
-        .into_element()
+        .child(dynamic(move || match phase.get() {
+            HistoryPhase::Error => view()
+                .w_full()
+                .gap_3()
+                .child(section_header_row(false, header_action))
+                .child(empty_state(
+                    IconKind::Clock,
+                    "观看历史加载失败",
+                    "请稍后重试刷新观看记录",
+                    Some((
+                        "重新加载",
+                        Box::new(move || section_owner.run(query::load_history)),
+                    )),
+                ))
+                .into_element(),
+            HistoryPhase::Loading => view()
+                .w_full()
+                .gap_3()
+                .child(section_header_row(false, header_action))
+                .child(
+                    view().py_6().items_center().child(
+                        text("正在加载观看历史...")
+                            .text_sm()
+                            .text_color(token::muted_fg),
+                    ),
+                )
+                .into_element(),
+            HistoryPhase::Empty => view()
+                .w_full()
+                .gap_3()
+                .child(section_header_row(false, header_action))
+                .child(empty_state(
+                    IconKind::Clock,
+                    "暂无观看历史",
+                    "开始观看任意剧目后将在此保留续播进度",
+                    None,
+                ))
+                .into_element(),
+            HistoryPhase::Ready => view()
+                .w_full()
+                .gap_3()
+                .child(section_header_row(true, header_action))
+                .child(view().w_full().gap_2p5().child(each(
+                    history,
+                    |h: &WatchHistoryEntry| h.series_id,
+                    move |entry_sig, index_sig| {
+                        history_row(index_sig, entry_sig, on_open_series, row_action)
+                    },
+                )))
+                .into_element(),
+        }))
 }
 
 fn section_header_row<H>(
@@ -121,30 +123,26 @@ where
 }
 
 fn history_row<R>(
-    index: usize,
-    entry: WatchHistoryEntry,
+    index_sig: ReadSignal<usize>,
+    entry_sig: ReadSignal<WatchHistoryEntry>,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     row_action: impl Fn(SeriesId, &str) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
 {
-    let enter = token::stagger_enter(index);
-    let series_id = entry.series_id;
-    let last_episode = entry.last_episode;
-    let title = entry.title.clone();
-    let a11y_title = entry.title.clone();
-    let cover_key = entry.cover_url.clone();
-    let episode_text = format!("第 {} 集", last_episode.get());
-    let summary_text = progress_summary(&entry);
-    let ratio = progress_ratio(&entry);
-    let completed = entry.episode_completed;
+    let enter = token::stagger_enter(index_sig.get_untracked());
+    let (series_id, title) = entry_sig.with_untracked(|e| (e.series_id, e.title.clone()));
+    let cover_key = computed(move || entry_sig.with(|e| e.cover_url.clone()));
 
     let open_trigger = view()
-        .on_press(move || on_open_series(series_id, Some(last_episode)))
+        .on_press(move || {
+            let last_ep = entry_sig.with_untracked(|e| e.last_episode);
+            on_open_series(series_id, Some(last_ep));
+        })
         .role(AccessibilityRole::Button)
         .focusable(true)
-        .label(a11y_title)
+        .label(move || entry_sig.with(|e| SharedString::from(e.title.clone())))
         .flex_1()
         .min_w_0()
         .p_3()
@@ -164,13 +162,7 @@ where
         })
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
         .child(poster_thumb(cover_key))
-        .child(history_meta(
-            entry.title,
-            episode_text,
-            summary_text,
-            completed,
-            ratio,
-        ));
+        .child(history_meta(entry_sig));
 
     view()
         .bind_motion(&enter)
@@ -185,29 +177,19 @@ where
         .child(row_action(series_id, &title))
 }
 
-fn poster_thumb(cover_key: String) -> impl IntoElement {
-    poster::poster_thumb(cover_key, 52.0, 70.0, IconKind::Play, 26.0, 12.0)
+fn poster_thumb(cover_key: Memo<String>) -> impl IntoElement {
+    poster::reactive_poster_thumb(cover_key, 52.0, 70.0, IconKind::Play, 26.0, 12.0)
 }
 
-fn history_meta(
-    title: String,
-    episode_text: String,
-    summary_text: String,
-    completed: bool,
-    ratio: f32,
-) -> impl IntoElement {
-    let status_badge = if completed {
-        badge(episode_text, BadgeTone::Success)
-    } else {
-        badge(episode_text, BadgeTone::Brand)
-    };
+fn history_meta(entry_sig: ReadSignal<WatchHistoryEntry>) -> impl IntoElement {
+    let completed = computed(move || entry_sig.with(|e| e.episode_completed));
 
     view()
         .flex_1()
         .min_w_0()
         .gap_1p5()
         .child(
-            text(title)
+            text(move || entry_sig.with(|e| SharedString::from(e.title.clone())))
                 .text_sm()
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(token::card_fg)
@@ -218,14 +200,28 @@ fn history_meta(
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(status_badge)
+                .child(dynamic(move || {
+                    let tone = if completed.get() {
+                        BadgeTone::Success
+                    } else {
+                        BadgeTone::Brand
+                    };
+                    badge(
+                        move || {
+                            entry_sig.with(|e| {
+                                SharedString::from(format!("第 {} 集", e.last_episode.get()))
+                            })
+                        },
+                        tone,
+                    )
+                }))
                 .child(
-                    text(summary_text)
+                    text(move || entry_sig.with(|e| SharedString::from(progress_summary(e))))
                         .text_xs()
                         .tabular_nums()
                         .text_color(token::muted_fg)
                         .truncate(),
                 ),
         )
-        .child(progress_track(move || ratio))
+        .child(progress_track(move || entry_sig.with(progress_ratio)))
 }

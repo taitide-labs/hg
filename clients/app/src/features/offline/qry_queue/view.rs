@@ -17,6 +17,13 @@ use crate::ui::token;
 
 const QUEUE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum QueuePhase {
+    Error,
+    Empty,
+    Ready,
+}
+
 pub fn download_queue_section<H, R>(
     header_action: impl Fn() -> H + Copy + 'static,
     task_action: impl Fn(EpisodeKey, DownloadTaskState) -> R + Copy + 'static,
@@ -33,30 +40,34 @@ where
             library_query::load_library();
         });
     });
-    view().w_full().child(dynamic(move || {
-        queue_body(section_owner, header_action, task_action)
-    }))
-}
+    let phase = computed(|| {
+        store::state().with(|s| {
+            if s.queue_error.is_some() && s.tasks.is_empty() {
+                QueuePhase::Error
+            } else if s.tasks.is_empty() {
+                QueuePhase::Empty
+            } else {
+                QueuePhase::Ready
+            }
+        })
+    });
+    let tasks = computed(|| store::state().with(|s| s.tasks.clone()));
+    let summary = computed(|| {
+        store::state().with(|s| {
+            if s.tasks.is_empty() {
+                SharedString::default()
+            } else {
+                SharedString::from(queue_summary_text(&s.tasks))
+            }
+        })
+    });
 
-fn queue_body<H, R>(
-    section_owner: Owner,
-    header_action: impl Fn() -> H + Copy + 'static,
-    task_action: impl Fn(EpisodeKey, DownloadTaskState) -> R + Copy + 'static,
-) -> impl IntoElement
-where
-    H: IntoElement + 'static,
-    R: IntoElement + 'static,
-{
-    let snap = store::state().get();
-    let summary = (!snap.tasks.is_empty()).then(|| queue_summary_text(&snap.tasks));
-    let header = section_header_row(summary, !snap.tasks.is_empty(), header_action);
-
-    if snap.queue_error.is_some() && snap.tasks.is_empty() {
-        return view()
+    view().w_full().child(dynamic(move || match phase.get() {
+        QueuePhase::Error => view()
             .w_full()
             .pb_6()
             .gap_3()
-            .child(header)
+            .child(section_header_row(summary, false, header_action))
             .child(empty_state(
                 IconKind::Download,
                 "下载队列加载失败",
@@ -66,29 +77,24 @@ where
                     Box::new(move || section_owner.run(query::load_queue)),
                 )),
             ))
-            .into_element();
-    }
-
-    if snap.tasks.is_empty() {
-        return view().into_element();
-    }
-
-    let mut list = view().w_full().gap_2p5();
-    for task in snap.tasks {
-        list = list.child(task_row(task, task_action));
-    }
-
-    view()
-        .w_full()
-        .pb_6()
-        .gap_3()
-        .child(header)
-        .child(list)
-        .into_element()
+            .into_element(),
+        QueuePhase::Empty => view().into_element(),
+        QueuePhase::Ready => view()
+            .w_full()
+            .pb_6()
+            .gap_3()
+            .child(section_header_row(summary, true, header_action))
+            .child(view().w_full().gap_2p5().child(each(
+                tasks,
+                |task: &DownloadTaskView| task.key,
+                move |task_sig, _idx| task_row(task_sig, task_action),
+            )))
+            .into_element(),
+    }))
 }
 
 fn section_header_row<H>(
-    summary: Option<String>,
+    summary: Memo<SharedString>,
     show_action: bool,
     header_action: impl Fn() -> H + Copy + 'static,
 ) -> impl IntoElement
@@ -113,12 +119,13 @@ where
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(token::fg),
                 )
-                .children(summary.map(|label| {
-                    text(label)
+                .child(
+                    text(summary)
+                        .style_when(move || summary.with(|s| s.is_empty()), |s| s.hidden())
                         .text_xs()
                         .tabular_nums()
-                        .text_color(token::muted_fg)
-                })),
+                        .text_color(token::muted_fg),
+                ),
         )
         .children(show_action.then(header_action))
 }
@@ -133,17 +140,27 @@ fn map_tone(tone: TaskStatusTone) -> BadgeTone {
 }
 
 fn task_row<R>(
-    task: DownloadTaskView,
+    task_sig: ReadSignal<DownloadTaskView>,
     task_action: impl Fn(EpisodeKey, DownloadTaskState) -> R + Copy + 'static,
 ) -> impl IntoElement
 where
     R: IntoElement + 'static,
 {
-    let key = task.key;
-    let state = task.state;
-    let (state_label, tone) = state_badge(state);
-    let ratio = progress_ratio(state);
-    let detail = progress_detail_text(state, task.profile);
+    let key = task_sig.with_untracked(|t| t.key);
+    let cover_url = computed(move || task_sig.with(|t| t.cover_url.clone()));
+    let badge_meta = computed(move || {
+        let (label, tone) = state_badge(task_sig.with(|t| t.state));
+        (label, map_tone(tone))
+    });
+    let action_variant_key = computed(move || match task_sig.with(|t| t.state) {
+        DownloadTaskState::Downloading { .. } => 0_u8,
+        DownloadTaskState::FetchingSource => 1,
+        DownloadTaskState::Queued => 2,
+        DownloadTaskState::Paused { .. } => 3,
+        DownloadTaskState::Failed { .. } => 4,
+        DownloadTaskState::Completed => 5,
+        DownloadTaskState::Cancelled => 6,
+    });
 
     view()
         .w_full()
@@ -155,7 +172,7 @@ where
         .flex_row()
         .items_center()
         .gap_3p5()
-        .child(poster_thumb(task.cover_url))
+        .child(poster_thumb(cover_url))
         .child(
             view()
                 .flex_1()
@@ -167,17 +184,21 @@ where
                         .items_center()
                         .gap_2()
                         .child(
-                            text(task.episode_title)
-                                .text_sm()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(token::card_fg)
-                                .truncate(),
+                            text(move || {
+                                task_sig.with(|t| SharedString::from(t.episode_title.clone()))
+                            })
+                            .text_sm()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(token::card_fg)
+                            .truncate(),
                         )
                         .child(
-                            text(task.series_title)
-                                .text_xs()
-                                .text_color(token::muted_fg)
-                                .truncate(),
+                            text(move || {
+                                task_sig.with(|t| SharedString::from(t.series_title.clone()))
+                            })
+                            .text_xs()
+                            .text_color(token::muted_fg)
+                            .truncate(),
                         ),
                 )
                 .child(
@@ -185,20 +206,33 @@ where
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(badge(state_label, map_tone(tone)))
+                        .child(dynamic(move || {
+                            let (label, tone) = badge_meta.get();
+                            badge(label, tone)
+                        }))
                         .child(
-                            text(detail)
-                                .text_xs()
-                                .tabular_nums()
-                                .text_color(token::muted_fg)
-                                .truncate(),
+                            text(move || {
+                                task_sig.with(|t| {
+                                    SharedString::from(progress_detail_text(t.state, t.profile))
+                                })
+                            })
+                            .text_xs()
+                            .tabular_nums()
+                            .text_color(token::muted_fg)
+                            .truncate(),
                         ),
                 )
-                .child(progress_track(move || ratio)),
+                .child(progress_track(move || {
+                    progress_ratio(task_sig.with(|t| t.state))
+                })),
         )
-        .child(task_action(key, state))
+        .child(dynamic(move || {
+            let _ = action_variant_key.get();
+            let state = task_sig.with_untracked(|t| t.state);
+            task_action(key, state)
+        }))
 }
 
-fn poster_thumb(cover_key: String) -> impl IntoElement {
-    poster::poster_thumb(cover_key, 46.0, 62.0, IconKind::Download, 24.0, 11.0)
+fn poster_thumb(cover_key: Memo<String>) -> impl IntoElement {
+    poster::reactive_poster_thumb(cover_key, 46.0, 62.0, IconKind::Download, 24.0, 11.0)
 }

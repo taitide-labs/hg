@@ -21,6 +21,15 @@ pub fn home_feed_view(
     let page_owner = Owner::current();
     query::load_home();
     let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
+    let card_width = computed(move || {
+        let inner_w = (container_width.get() - 48.0).max(0.0);
+        let cols = series_grid_columns_for_width(inner_w);
+        shelf_card_width(inner_w, cols)
+    });
+    let rank_cols = computed(move || {
+        let inner_w = (container_width.get() - 48.0).max(0.0);
+        ((inner_w + 12.0) / 232.0).floor().clamp(2.0, 6.0) as usize
+    });
 
     scroll().flex_1().child(
         view()
@@ -55,24 +64,18 @@ pub fn home_feed_view(
                     return view().into_element();
                 };
 
-                let inner_w = (container_width.get() - 48.0).max(0.0);
-                let cols = series_grid_columns_for_width(inner_w);
-                let card_w = shelf_card_width(inner_w, cols);
-                let rank_cols = ((inner_w + 12.0) / 232.0).floor().clamp(2.0, 6.0) as usize;
-
-                let mut body =
-                    view()
-                        .w_full()
-                        .gap_6()
-                        .children((!feed.latest.is_empty()).then(|| {
-                            latest_shelf(feed.latest, card_w, on_open_browse, on_open_series)
-                        }))
-                        .child(ranking_shelf(
-                            snap.rankings,
-                            rank_cols,
-                            on_open_browse,
-                            on_open_series,
-                        ));
+                let mut body = view()
+                    .w_full()
+                    .gap_6()
+                    .children((!feed.latest.is_empty()).then(|| {
+                        latest_shelf(feed.latest, card_width, on_open_browse, on_open_series)
+                    }))
+                    .child(ranking_shelf(
+                        snap.rankings,
+                        rank_cols,
+                        on_open_browse,
+                        on_open_series,
+                    ));
 
                 for rec in feed.category_recommendations {
                     let route = snap
@@ -83,7 +86,7 @@ pub fn home_feed_view(
                     body = body.child(category_shelf(
                         rec,
                         route,
-                        card_w,
+                        card_width,
                         on_open_browse,
                         on_open_series,
                     ));
@@ -95,7 +98,7 @@ pub fn home_feed_view(
 
 fn latest_shelf(
     items: Vec<SeriesSummary>,
-    card_w: f32,
+    card_w: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
@@ -113,7 +116,7 @@ fn series_shelf_block(
     title: &'static str,
     browse_kind: BrowseKind,
     items: Vec<SeriesSummary>,
-    card_w: f32,
+    card_w: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
@@ -129,7 +132,7 @@ fn series_shelf_block(
 
 fn ranking_shelf(
     entries: Vec<RankingEntry>,
-    cols: usize,
+    cols: Memo<usize>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
@@ -138,8 +141,12 @@ fn ranking_shelf(
         .grid()
         .grid_template_columns("repeat(auto-fill, minmax(220px, 1fr))")
         .gap_3();
-    for entry in entries.into_iter().take(cols) {
-        list = list.child(ranking_preview_card(entry, on_open_series));
+    for (idx, entry) in entries.into_iter().take(6).enumerate() {
+        list = list.child(
+            view()
+                .style_when(move || idx >= cols.get(), |s| s.hidden())
+                .child(ranking_preview_card(entry, on_open_series)),
+        );
     }
 
     view()
@@ -163,6 +170,7 @@ fn ranking_preview_card(
     );
     ranking_compact_card(
         RankingCardProps {
+            id: id.get(),
             rank: entry.rank,
             title: entry.series.title,
             cover_url: entry.series.cover_url,
@@ -177,7 +185,7 @@ fn ranking_preview_card(
 fn category_shelf(
     rec: CategoryRecommendation,
     route: String,
-    card_w: f32,
+    card_w: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
