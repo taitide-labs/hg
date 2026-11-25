@@ -37,16 +37,24 @@ fn tab_title(tab: PrimaryTab) -> &'static str {
     }
 }
 
-fn close_player_and_refresh() {
+fn close_player_and_refresh(shell_owner: Owner) {
     nav::close_player();
-    spawn(crate::features::discover::parts::sync_watched_series());
+    shell_owner.run(|| {
+        spawn(async {
+            crate::features::discover::parts::sync_poster_preferences().await;
+            crate::features::discover::parts::sync_watched_series().await;
+        });
+    });
 }
 
 fn open_search_tag_from_player(shell_owner: Owner, tag_name: String) {
     nav::select_tab(PrimaryTab::Search);
     shell_owner.run(move || {
         crate::features::discover::qry_search::query::activate_tag(tag_name);
-        spawn(crate::features::discover::parts::sync_watched_series());
+        spawn(async {
+            crate::features::discover::parts::sync_watched_series().await;
+            crate::features::discover::parts::sync_poster_preferences().await;
+        });
     });
 }
 
@@ -99,13 +107,13 @@ pub fn app_shell() -> impl IntoElement {
         })
         .child(when(show_title_bar, move || {
             desktop_title_bar(
-                when(in_player, || {
+                when(in_player, move || {
                     app_icon_text_button(
                         IconKind::ChevronLeft,
                         "返回",
                         ButtonVariant::Ghost,
                         ControlSize::Sm,
-                        close_player_and_refresh,
+                        move || close_player_and_refresh(shell_owner),
                     )
                 })
                 .otherwise(move || {
@@ -133,12 +141,16 @@ pub fn app_shell() -> impl IntoElement {
                 .style_when(in_player, |s| s.hidden())
                 .child(main_chrome(effective_collapsed)),
         )
+        .child(when(
+            move || !in_player(),
+            crate::features::player::cmd_batch_download::view::batch_download_drawer,
+        ))
         .child(when(in_player, move || {
             dynamic(move || match nav::active_player() {
                 Some(route) => pages::player::page::player_page(
                     route.series_id,
                     route.initial_episode,
-                    close_player_and_refresh,
+                    move || close_player_and_refresh(shell_owner),
                     nav::set_chrome_fullscreen,
                     move |tag_name| open_search_tag_from_player(shell_owner, tag_name),
                 )
@@ -146,6 +158,7 @@ pub fn app_shell() -> impl IntoElement {
                 None => view().into_element(),
             })
         }))
+        .child(crate::ui::toast::toast_host())
 }
 
 fn main_chrome(effective_collapsed: impl Fn() -> bool + Copy + 'static) -> impl IntoElement {

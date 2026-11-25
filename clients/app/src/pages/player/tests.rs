@@ -310,10 +310,11 @@ fn bottom_control_bar_auto_fades_via_manual_clock_even_during_ticks() {
     app.hover("视频画面").unwrap();
     app.wait_for("倍速").unwrap();
     app.press("播放或暂停").unwrap();
-    app.fast_forward(Duration::from_secs(5)).unwrap();
+    app.hover("视频画面").unwrap();
+    app.fast_forward(Duration::from_secs(4)).unwrap();
     assert!(
-        app.screen().shows("倍速"),
-        "paused playback must keep control bar visible"
+        !app.screen().shows("倍速"),
+        "paused playback must use the same 3s auto-hide policy as active playback"
     );
 }
 
@@ -373,21 +374,64 @@ fn double_clicking_video_canvas_toggles_play_and_pause() {
     let (_gw, mut app, _back, _fullscreen) =
         mount_player_with_spies(Arc::new(MockGateway::new()), ColorScheme::Dark, None, true);
 
+    assert!(!app.screen().shows("倍速"));
     app.press("视频画面").unwrap();
     app.press("视频画面").unwrap();
     app.wait_for("倍速").unwrap();
     app.fast_forward(Duration::from_secs(5)).unwrap();
     assert!(
-        app.screen().shows("倍速"),
-        "double-clicking video canvas must pause playback and keep controls visible"
+        !app.screen().shows("倍速"),
+        "paused controls must auto-hide after 3s idle"
     );
 
     app.press("视频画面").unwrap();
     app.press("视频画面").unwrap();
+    app.wait_for("倍速").unwrap();
     app.fast_forward(Duration::from_secs(5)).unwrap();
     assert!(
         !app.screen().shows("倍速"),
-        "double-clicking video canvas again must resume playback so controls auto-hide"
+        "double-clicking video canvas again must resume playback and auto-hide controls"
+    );
+}
+
+#[test]
+fn episodes_at_or_below_fold_threshold_render_expanded_without_toggle() {
+    let gw = Arc::new(MockGateway::new());
+    gw.set_series_episode_count(series_1001(), 6);
+    let sid = series_1001();
+    let mut app = mount_desktop_page(gw, ColorScheme::Light, move || {
+        player_page(sid, Some(episode_num(1)), || {}, |_| {}, |_| {})
+    });
+    app.wait_for("选集 (1/6)").unwrap();
+
+    for ep in 1..=6 {
+        assert!(app.screen().id(&format!("role:button[{ep}]")).is_ok());
+    }
+    assert!(app.screen().id("label:展开选集").is_err());
+    assert!(app.screen().id("label:收起选集").is_err());
+}
+
+#[test]
+fn dislike_button_next_to_bookmark_toggles_state_and_persists() {
+    let (gw, mut app) = start_and_open_first_series(ColorScheme::Light);
+
+    app.wait_for("不喜欢").unwrap();
+    app.press("不喜欢").unwrap();
+    app.wait_for("已不喜欢").unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    assert!(
+        gw.snapshot_disliked()
+            .iter()
+            .any(|d| d.series_id == series_1001())
+    );
+
+    app.press("已不喜欢").unwrap();
+    app.wait_for("不喜欢").unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    assert!(
+        !gw.snapshot_disliked()
+            .iter()
+            .any(|d| d.series_id == series_1001())
     );
 }
 

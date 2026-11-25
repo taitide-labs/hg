@@ -12,9 +12,10 @@ use super::command::{
 };
 use super::handler;
 use crate::ui::button::{
-    ButtonVariant, ControlSize, app_button, app_icon_button, episode_tile_button, text_link_button,
+    ButtonVariant, ControlSize, app_button, app_icon_button, confirm_episode_tile_trigger,
+    confirm_link_trigger, episode_tile_button, text_link_button,
 };
-use crate::ui::controls::confirm_destructive;
+use crate::ui::controls::confirm_popover;
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
 use crate::ui::surface::separator;
@@ -25,7 +26,6 @@ const MODAL_SEGMENT_SIZE: u32 = 50;
 pub fn delete_series_button(series_id: SeriesId, title: &str) -> impl IntoElement + use<> {
     let series_a11y = delete_series_a11y_label(title);
     let manage_a11y = manage_episodes_a11y_label(title);
-    let delete_desc = format!("确定要删除《{title}》的全部离线分集吗？删除后将无法离线观看。");
 
     view()
         .pr_3()
@@ -38,20 +38,11 @@ pub fn delete_series_button(series_id: SeriesId, title: &str) -> impl IntoElemen
             Some(IconKind::List),
             move || store::open_episodes_modal(series_id),
         ))
-        .child(text_link_button(
-            "删除",
-            series_a11y,
-            Some(IconKind::Close),
-            move || {
-                confirm_destructive(
-                    "删除离线剧目",
-                    delete_desc.clone(),
-                    "删除",
-                    move || {
-                        handler::delete_series(series_id);
-                    },
-                );
-            },
+        .child(confirm_popover(
+            confirm_link_trigger("删除", series_a11y, Some(IconKind::Close)),
+            "确认删除此离线剧目？",
+            "确认删除",
+            move || handler::delete_series(series_id),
         ))
 }
 
@@ -393,12 +384,12 @@ fn episode_modal_tile(
     if delete_mode {
         let key = EpisodeKey::new(series_id, ep_num);
         let a11y = delete_episode_a11y_label(title, ep_num);
-        let desc = format!("确定要删除《{title}》第 {num} 集的离线缓存吗？");
-        episode_tile_button(format!("{num}"), a11y, ButtonVariant::Danger, move || {
-            confirm_destructive("删除离线分集", desc.clone(), "删除", move || {
-                handler::delete_episode(key);
-            });
-        })
+        confirm_popover(
+            confirm_episode_tile_trigger(format!("{num}"), a11y, ButtonVariant::Danger),
+            format!("确认删除第 {num} 集？"),
+            "确认删除",
+            move || handler::delete_episode(key),
+        )
         .into_element()
     } else {
         let a11y = play_episode_a11y_label(title, ep_num);

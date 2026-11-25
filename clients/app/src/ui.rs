@@ -6,5 +6,6 @@ pub mod platform;
 pub mod poster;
 pub mod surface;
 pub mod tabs;
+pub mod toast;
 pub mod token;
 pub mod video_surface;

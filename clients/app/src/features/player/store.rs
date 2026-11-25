@@ -108,6 +108,7 @@ pub struct PlayerState {
     pub source: Option<PlaybackSource>,
     pub mode: PlaybackMode,
     pub bookmarked: bool,
+    pub disliked: bool,
     pub episodes_expanded: bool,
     pub episode_segment_index: usize,
     pub active_replies_comment: Option<CommentId>,
@@ -126,6 +127,7 @@ impl Default for PlayerState {
             source: None,
             mode: PlaybackMode::Cinema,
             bookmarked: false,
+            disliked: false,
             episodes_expanded: false,
             episode_segment_index: 0,
             active_replies_comment: None,
@@ -331,7 +333,7 @@ pub fn pause_and_cancel_loads() {
     });
 }
 
-pub fn set_detail_if_seq(seq: u64, detail: SeriesDetail, bookmarked: bool) -> bool {
+pub fn set_detail_if_seq(seq: u64, detail: SeriesDetail, bookmarked: bool, disliked: bool) -> bool {
     let mut applied = false;
     state().update(|s| {
         if s.episode_seq != seq {
@@ -339,6 +341,7 @@ pub fn set_detail_if_seq(seq: u64, detail: SeriesDetail, bookmarked: bool) -> bo
         }
         s.detail = Some(detail);
         s.bookmarked = bookmarked;
+        s.disliked = disliked;
         s.error = None;
         applied = true;
     });
@@ -532,6 +535,10 @@ pub fn set_bookmarked(bookmarked: bool) {
     state().update(|s| s.bookmarked = bookmarked);
 }
 
+pub fn set_disliked(disliked: bool) {
+    state().update(|s| s.disliked = disliked);
+}
+
 pub fn set_mode(mode: PlaybackMode) {
     state().update(|s| s.mode = mode);
     controls_state().update(|c| c.popover = ActivePopover::None);
@@ -561,14 +568,14 @@ pub fn set_controls_hovered(hovered: bool) {
 
 #[must_use]
 pub fn should_show_controls() -> bool {
-    controls_state().with(|c| {
-        c.controls_visible || c.paused || c.popover != ActivePopover::None || c.controls_hovered
-    }) || progress_state().with(|p| p.scrub_preview_secs.is_some())
+    controls_state()
+        .with(|c| c.controls_visible || c.popover != ActivePopover::None || c.controls_hovered)
+        || progress_state().with(|p| p.scrub_preview_secs.is_some())
 }
 
 #[must_use]
 pub fn should_keep_controls_visible() -> bool {
-    controls_state().with(|c| c.paused || c.popover != ActivePopover::None || c.controls_hovered)
+    controls_state().with(|c| c.popover != ActivePopover::None || c.controls_hovered)
         || progress_state().with(|p| p.scrub_preview_secs.is_some())
 }
 

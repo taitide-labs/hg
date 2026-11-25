@@ -14,8 +14,9 @@ use hg_contracts::offline::{
     EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView,
 };
 use hg_contracts::viewing::{
-    PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry, WatchProgress,
+    DislikedSeriesEntry, PlaybackPreference, PlaybackSource, ReportWatchProgressRequest,
+    ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark, StorageOverview,
+    WatchHistoryEntry, WatchProgress,
 };
 
 pub type GatewayFuture<T> =
@@ -60,6 +61,11 @@ pub trait AppGateway: Send + Sync {
     fn is_bookmarked(&self, series_id: SeriesId) -> GatewayFuture<bool>;
     fn bookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
     fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
+    fn disliked_series(&self) -> GatewayFuture<Vec<DislikedSeriesEntry>>;
+    fn is_disliked(&self, series_id: SeriesId) -> GatewayFuture<bool>;
+    fn dislike_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
+    fn undislike_series(&self, series_id: SeriesId) -> GatewayFuture<()>;
+    fn clear_disliked_series(&self) -> GatewayFuture<()>;
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference>;
     fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()>;
     fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>>;

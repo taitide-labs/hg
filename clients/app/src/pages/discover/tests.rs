@@ -223,8 +223,8 @@ fn discover_home_fullscreen_grows_visible_series() {
         base_featured, 4,
         "desktop base width should show 4 cards across (got {base_featured})"
     );
-    assert!(app.screen().shows("TOP 4"));
-    assert!(!app.screen().shows("TOP 6"));
+    assert!(app.screen().shows("TOP 1"));
+    assert!(app.screen().shows("TOP 12"));
 
     app.set_viewport(Size::new(Points(1920.0), Points(1080.0)))
         .unwrap();
@@ -240,9 +240,13 @@ fn discover_home_fullscreen_grows_visible_series() {
         wide_card_w >= base_card_w - 1.0,
         "4K fullscreen poster cards must not shrink below base window width (base={base_card_w}, wide={wide_card_w})"
     );
+    let rank_card_w = node_bounds(&app, "label:TOP 1 云端之上：千金归来")
+        .size
+        .width
+        .0;
     assert!(
-        app.screen().shows("TOP 6"),
-        "fullscreen ranking shelf must dynamically reveal more than 4 cards"
+        (rank_card_w - wide_card_w).abs() <= 2.0,
+        "ranking shelf poster width ({rank_card_w}) must match regular shelf poster width ({wide_card_w})"
     );
 }
 
@@ -390,18 +394,14 @@ fn poster_card_centers_play_overlay_and_reveals_only_on_hover() {
 }
 
 #[test]
-fn ranking_list_uses_responsive_multicolumn_high_density_cards() {
-    let gw = Arc::new(MockGateway::new());
+fn ranking_list_uses_unified_portrait_poster_grid_with_rank_badges() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(12));
     let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
 
     app.press("查看排行榜全部").unwrap();
     app.wait_for("#1").unwrap();
     app.wait_for("#2").unwrap();
-    app.wait_for("9.4 分 · 都市 · 逆袭 · 女频 · 68 集").unwrap();
-    assert!(!app.screen().shows("热度 98.4万"));
-    assert!(!app.screen().shows("热力指数"));
-    assert!(!app.screen().shows("飙升指数"));
-    assert!(!app.screen().shows("口碑推荐"));
+    app.wait_for("9.4分").unwrap();
 
     let b1 = node_bounds(&app, "label:#1 云端之上：千金归来");
     let b2 = node_bounds(&app, "label:#2 长安暗夜行");
@@ -414,21 +414,51 @@ fn ranking_list_uses_responsive_multicolumn_high_density_cards() {
         .unwrap();
     app.wait(Duration::from_millis(60)).unwrap();
     let w1 = node_bounds(&app, "label:#1 云端之上：千金归来");
-    let w2 = node_bounds(&app, "label:#2 长安暗夜行");
-    let w3 = node_bounds(&app, "label:#3 重返 1998：科技大亨");
-    assert!(
-        (w1.origin.y.0 - w3.origin.y.0).abs() < 4.0 && w3.origin.x.0 > w2.origin.x.0 + 100.0,
-        "1920px wide ranking list should place #1..#3 in 3 columns (w1={w1:?}, w2={w2:?}, w3={w3:?})"
+    let w7 = node_bounds(&app, "label:#7 分页剧目 01");
+    let first_row_count = [
+        "#1 云端之上：千金归来",
+        "#2 长安暗夜行",
+        "#3 重返 1998：科技大亨",
+        "#4 星穹机甲纪元",
+        "#5 雾港七日",
+        "#6 春风十里不及卿",
+    ]
+    .iter()
+    .filter(|lbl| {
+        (node_bounds(&app, &format!("label:{lbl}")).origin.y.0 - w1.origin.y.0).abs() < 4.0
+    })
+    .count();
+    assert_eq!(
+        first_row_count, 6,
+        "1920px wide ranking grid should place #1..#6 in 6 columns (w1={w1:?}, w7={w7:?})"
     );
+    assert!(w7.origin.y.0 > w1.origin.y.0 + 100.0);
 
-    app.set_viewport(Size::new(Points(560.0), Points(800.0)))
+    app.set_viewport(Size::new(Points(390.0), Points(844.0)))
         .unwrap();
     app.wait(Duration::from_millis(60)).unwrap();
     let n1 = node_bounds(&app, "label:#1 云端之上：千金归来");
     let n2 = node_bounds(&app, "label:#2 长安暗夜行");
+    let n3 = node_bounds(&app, "label:#3 重返 1998：科技大亨");
     assert!(
-        n2.origin.y.0 > n1.origin.y.0 + 40.0,
-        "narrow viewport should collapse ranking list to 1 column (n1={n1:?}, n2={n2:?})"
+        (n1.origin.y.0 - n2.origin.y.0).abs() < 4.0 && n3.origin.y.0 > n1.origin.y.0 + 100.0,
+        "narrow viewport should collapse ranking poster grid to 2 columns (n1={n1:?}, n2={n2:?}, n3={n3:?})"
+    );
+}
+
+#[test]
+fn poster_score_badge_stays_right_aligned_without_left_flags() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(12));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Dark);
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+
+    let card = node_bounds(&app, "label:分页剧目 01");
+    let score = node_bounds(&app, "9.0分 >> nth=0");
+    assert!(
+        score.origin.x.0 >= card.origin.x.0 + card.size.width.0 * 0.55,
+        "score badge without left flags must stay pinned right (card={card:?}, score={score:?})"
     );
 }
 
@@ -519,4 +549,67 @@ fn large_viewport_adapts_page_size_and_fills_screen_on_resize() {
         24
     );
     assert!(crate::features::discover::parts::adaptive_page_size(2560.0, 1440.0, false) >= 36);
+}
+
+#[test]
+fn poster_context_menu_supports_dislike_with_smooth_backfill_and_bookmark() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(20));
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
+
+    app.wait_for("分页剧目 14").unwrap();
+    let sibling_before = app.screen().id("长安暗夜行 >> nth=0").unwrap();
+    app.right_click("label:云端之上：千金归来 >> nth=0")
+        .unwrap();
+    app.wait_for("取消追剧").unwrap();
+    app.wait_for("离线下载").unwrap();
+    app.wait_for("不喜欢").unwrap();
+
+    app.press("不喜欢").unwrap();
+    app.wait_for_gone("云端之上：千金归来", Duration::from_secs(2))
+        .unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    let sibling_after = app.screen().id("长安暗夜行 >> nth=0").unwrap();
+    assert_eq!(
+        sibling_before, sibling_after,
+        "disliking a poster must update keyed shelf smoothly without tearing down sibling cards"
+    );
+    assert!(app.screen().shows("TOP 12"));
+    assert!(
+        gw.snapshot_disliked()
+            .iter()
+            .any(|d| d.series_id.get() == 1001)
+    );
+}
+
+#[test]
+fn discover_returning_from_browse_preserves_home_scroll_and_card_nodes() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(20));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+
+    app.wait_for("漫剧与悬疑").unwrap();
+    app.scroll("最近更新", Points(900.0)).unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    let home_y_before = node_bounds(&app, "漫剧与悬疑").origin.y.0;
+    let card_before = app.screen().id("label:星穹机甲纪元 >> nth=0").unwrap();
+
+    app.press("查看漫剧与悬疑全部").unwrap();
+    app.wait_for("星穹机甲纪元").unwrap();
+    let browse_back_y = node_bounds(&app, "返回").origin.y.0;
+    assert!(
+        browse_back_y <= 60.0,
+        "browse overlay must occupy full top-aligned page bounds, got back button y={browse_back_y}"
+    );
+    app.press("返回").unwrap();
+    app.wait_for("漫剧与悬疑").unwrap();
+
+    let home_y_after = node_bounds(&app, "漫剧与悬疑").origin.y.0;
+    let card_after = app.screen().id("label:星穹机甲纪元 >> nth=0").unwrap();
+    assert_eq!(
+        card_before, card_after,
+        "returning from browse must keep home mounted without rebuilding cards"
+    );
+    assert!(
+        (home_y_before - home_y_after).abs() <= 2.0,
+        "returning from browse must preserve home scroll position (before={home_y_before}, after={home_y_after})"
+    );
 }

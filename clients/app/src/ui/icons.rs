@@ -34,6 +34,7 @@ pub enum IconKind {
     Close,
     Plus,
     Minus,
+    ThumbsDown,
 }
 
 fn polyline(p: Painter, pts: &[(f32, f32)]) -> Painter {
@@ -281,6 +282,21 @@ fn draw_glyph(kind: IconKind, p: Painter) -> Painter {
             polyline(p, &[(5.0, 10.0), (15.0, 10.0)])
         }
         IconKind::Minus => polyline(p, &[(5.0, 10.0), (15.0, 10.0)]),
+        IconKind::ThumbsDown => {
+            let p = rounded_box(p, 13.5, 4.0, 3.0, 7.5, 1.0);
+            polyline(
+                p,
+                &[
+                    (13.5, 4.5),
+                    (6.5, 4.5),
+                    (4.5, 10.5),
+                    (9.0, 10.5),
+                    (8.2, 16.0),
+                    (10.2, 16.0),
+                    (13.5, 11.0),
+                ],
+            )
+        }
     }
 }
 

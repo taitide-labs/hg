@@ -1,8 +1,9 @@
+use std::rc::Rc;
+
 use nsh_base::button;
-use nsh_core::prelude::*;
+use nsh_core::{ContextMenuEvent, Point, prelude::*};
 
 use crate::ui::icons::{IconKind, icon};
-use crate::ui::surface::{BadgeTone, badge};
 use crate::ui::token;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -20,22 +21,57 @@ pub struct SeriesFlags {
     pub is_new: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SeriesRank {
+    pub rank: u32,
+    pub label: SharedString,
+}
+
+impl SeriesRank {
+    #[must_use]
+    pub fn top(rank: u32) -> Self {
+        Self {
+            rank,
+            label: SharedString::from(format!("TOP {rank}")),
+        }
+    }
+
+    #[must_use]
+    pub fn hash(rank: u32) -> Self {
+        Self {
+            rank,
+            label: SharedString::from(format!("#{rank}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SeriesCardProps {
     pub id: u64,
-    pub title: String,
-    pub cover_url: String,
+    pub title: SharedString,
+    pub cover_url: SharedString,
     pub score: f32,
-    pub tags: Vec<String>,
+    pub tags_text: SharedString,
     pub episode_count: u32,
     pub is_finished: bool,
     pub flags: SeriesFlags,
+    pub rank: Option<SeriesRank>,
+}
+
+#[derive(Clone)]
+pub struct PosterContextActions {
+    pub is_bookmarked: Rc<dyn Fn(u64) -> bool>,
+    pub is_disliked: Rc<dyn Fn(u64) -> bool>,
+    pub on_toggle_bookmark: Rc<dyn Fn(u64)>,
+    pub on_open_download: Rc<dyn Fn(u64)>,
+    pub on_toggle_dislike: Rc<dyn Fn(u64)>,
 }
 
 pub fn series_card(
     item: Memo<Option<SeriesCardProps>>,
     watch_status_fn: impl Fn(u64, u32) -> PosterWatchStatus + Copy + 'static,
-    on_open: impl Fn(u64) + Copy + 'static,
+    on_open: impl Fn(u64) + 'static,
+    context_actions: Option<PosterContextActions>,
 ) -> impl IntoElement {
     let status = computed(move || {
         item.with(|opt| match opt {
@@ -43,24 +79,8 @@ pub fn series_card(
             None => PosterWatchStatus::Unwatched,
         })
     });
-    let flags = computed(move || item.with(|opt| opt.as_ref().map_or_default(|p| p.flags)));
-    let tags =
-        computed(move || item.with(|opt| opt.as_ref().map(|p| p.tags.clone()).unwrap_or_default()));
-    let cover_url = computed(move || {
-        item.with(|opt| {
-            opt.as_ref()
-                .map(|p| p.cover_url.clone())
-                .unwrap_or_default()
-        })
-    });
-    let title = computed(move || {
-        item.with(|opt| {
-            opt.as_ref()
-                .map(|p| SharedString::from(p.title.clone()))
-                .unwrap_or_default()
-        })
-    });
 
+    let context_handler = context_actions;
     button()
         .group()
         .style_when(move || item.with(Option::is_none), |s| s.hidden())
@@ -69,8 +89,22 @@ pub fn series_card(
                 on_open(id);
             }
         })
+        .on_context_menu(move |e: &ContextMenuEvent| {
+            let (Some(actions), Some(id)) = (
+                context_handler.as_ref(),
+                item.with_untracked(|opt| opt.as_ref().map(|p| p.id)),
+            ) else {
+                return;
+            };
+            open_poster_menu(id, e.page_position, actions.clone());
+        })
         .accessibility_label(move || {
-            item.with(|opt| opt.as_ref().map(|p| SharedString::from(p.title.clone())))
+            item.with(|opt| {
+                opt.as_ref().map(|p| match &p.rank {
+                    Some(rank) => SharedString::from(format!("{} {}", rank.label, p.title)),
+                    None => p.title.clone(),
+                })
+            })
         })
         .w_full()
         .min_w_0()
@@ -85,52 +119,173 @@ pub fn series_card(
             }
         })
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
-        .child(reactive_poster_cover(item, cover_url, flags, status))
+        .child(reactive_poster_cover(item, status))
         .child(
             view()
                 .w_full()
                 .min_w_0()
                 .px_0p5()
-                .gap_1()
+                .gap_0p5()
                 .child(
-                    text(title)
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(token::fg)
-                        .truncate(),
+                    text(move || {
+                        item.with(|opt| opt.as_ref().map(|p| p.title.clone()).unwrap_or_default())
+                    })
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(token::fg)
+                    .truncate(),
                 )
-                .child(reactive_tags_row(tags)),
+                .child(
+                    text(move || {
+                        item.with(|opt| {
+                            opt.as_ref()
+                                .map(|p| p.tags_text.clone())
+                                .unwrap_or_default()
+                        })
+                    })
+                    .style_when(
+                        move || {
+                            item.with(|opt| opt.as_ref().is_none_or(|p| p.tags_text.is_empty()))
+                        },
+                        |s| s.hidden(),
+                    )
+                    .text_xs()
+                    .text_color(token::muted_fg)
+                    .truncate(),
+                ),
         )
 }
 
-fn reactive_tags_row(tags: Memo<Vec<String>>) -> impl IntoElement {
-    let mut row = view()
+#[derive(Clone, Default)]
+struct PosterMenuState {
+    open: bool,
+    series_id: Option<u64>,
+    at: Point<Points>,
+    actions: Option<PosterContextActions>,
+}
+
+fn poster_menu_state() -> Signal<PosterMenuState> {
+    global::<PosterMenuState>()
+}
+
+fn open_poster_menu(series_id: u64, at: Point<Points>, actions: PosterContextActions) {
+    poster_menu_state().set(PosterMenuState {
+        open: true,
+        series_id: Some(series_id),
+        at,
+        actions: Some(actions),
+    });
+}
+
+fn close_poster_menu() {
+    poster_menu_state().update(|s| {
+        s.open = false;
+        s.series_id = None;
+        s.actions = None;
+    });
+}
+
+pub fn poster_context_menu_host() -> impl IntoElement {
+    let is_open = computed(|| poster_menu_state().with(|s| s.open));
+
+    when(
+        move || is_open.get(),
+        move || {
+            cleanup(close_poster_menu);
+            let snapshot = poster_menu_state().with_untracked(Clone::clone);
+            let (Some(series_id), Some(actions)) = (snapshot.series_id, snapshot.actions) else {
+                return view().into_element();
+            };
+            let bookmarked = (actions.is_bookmarked)(series_id);
+            let disliked = (actions.is_disliked)(series_id);
+            let on_toggle_bookmark = Rc::clone(&actions.on_toggle_bookmark);
+            let on_open_download = Rc::clone(&actions.on_open_download);
+            let on_toggle_dislike = Rc::clone(&actions.on_toggle_dislike);
+
+            overlay()
+                .anchor_point(move || snapshot.at)
+                .placement(Placement::Bottom)
+                .align(Align::Start)
+                .offset(px(4.0))
+                .margin(px(12.0))
+                .on_press_outside(|_: &Point<Points>| close_poster_menu())
+                .on_cancel(close_poster_menu)
+                .min_w(px(148.0))
+                .p_1p5()
+                .rounded(token::radius_card)
+                .bg(token::popover)
+                .border_1()
+                .border_color(token::border)
+                .child(poster_menu_item(
+                    IconKind::Bookmark,
+                    if bookmarked { "取消追剧" } else { "追剧" },
+                    false,
+                    move || {
+                        close_poster_menu();
+                        on_toggle_bookmark(series_id);
+                    },
+                ))
+                .child(poster_menu_item(
+                    IconKind::Download,
+                    "离线下载",
+                    false,
+                    move || {
+                        close_poster_menu();
+                        on_open_download(series_id);
+                    },
+                ))
+                .child(view().h(px(1.0)).w_full().my_1().bg(token::border))
+                .child(poster_menu_item(
+                    IconKind::ThumbsDown,
+                    if disliked {
+                        "取消不喜欢"
+                    } else {
+                        "不喜欢"
+                    },
+                    true,
+                    move || {
+                        close_poster_menu();
+                        on_toggle_dislike(series_id);
+                    },
+                ))
+                .into_element()
+        },
+    )
+}
+
+fn poster_menu_item(
+    kind: IconKind,
+    label: &'static str,
+    destructive: bool,
+    on_select: impl Fn() + 'static,
+) -> impl IntoElement {
+    let text_color = if destructive {
+        token::destructive
+    } else {
+        token::popover_fg
+    };
+    let icon_color = if destructive {
+        token::destructive
+    } else {
+        token::muted_fg
+    };
+    button()
+        .on_press(on_select)
+        .h(px(30.0))
+        .px_2p5()
         .w_full()
-        .min_w_0()
+        .rounded(token::radius_control)
         .flex_row()
         .items_center()
-        .gap_1()
-        .overflow_hidden();
-    for slot in 0..3 {
-        let label = computed(move || {
-            tags.with(|list| {
-                list.get(slot)
-                    .cloned()
-                    .map(SharedString::from)
-                    .unwrap_or_default()
-            })
-        });
-        row = row.child(
-            view()
-                .px_1p5()
-                .py_0p5()
-                .rounded(token::radius_badge)
-                .bg(token::secondary)
-                .style_when(move || label.with(|s| s.is_empty()), |s| s.hidden())
-                .child(text(label).text_xs().text_color(token::muted_fg)),
-        );
-    }
-    row
+        .gap_2()
+        .hover(|s| s.bg(token::accent))
+        .child(icon(kind, 14.0, icon_color))
+        .child(
+            text(label)
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(text_color),
+        )
 }
 
 fn is_loadable_image_uri(uri: &str) -> bool {
@@ -146,29 +301,51 @@ fn cover_image_layer(cover_url: &str) -> Option<impl IntoElement + use<>> {
             .absolute()
             .inset_0()
             .size_full()
-            .object_fit(ResizeMode::Cover)
-            .fade_duration(120.0),
+            .object_fit(ResizeMode::Cover),
     )
+}
+
+fn card_cover_image(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    let has_image = computed(move || {
+        item.with(|opt| {
+            opt.as_ref()
+                .is_some_and(|p| is_loadable_image_uri(&p.cover_url))
+        })
+    });
+    when(has_image, move || {
+        image(move || {
+            let uri = item.with(|opt| {
+                opt.as_ref()
+                    .filter(|p| is_loadable_image_uri(&p.cover_url))
+                    .map(|p| p.cover_url.clone())
+                    .unwrap_or_default()
+            });
+            nsh_core::element::ImageSrc::from(uri)
+        })
+        .absolute()
+        .inset_0()
+        .size_full()
+        .object_fit(ResizeMode::Cover)
+    })
 }
 
 fn reactive_cover_image(cover_url: Memo<String>) -> impl IntoElement {
     let has_image = computed(move || cover_url.with(|u| is_loadable_image_uri(u)));
-    let image_src = computed(move || {
-        cover_url.with(|u| {
-            if is_loadable_image_uri(u) {
-                SharedString::from(u.clone())
-            } else {
-                SharedString::default()
-            }
-        })
-    });
     when(has_image, move || {
-        image(move || nsh_core::element::ImageSrc::from(image_src.get()))
-            .absolute()
-            .inset_0()
-            .size_full()
-            .object_fit(ResizeMode::Cover)
-            .fade_duration(120.0)
+        image(move || {
+            let uri = cover_url.with(|u| {
+                if is_loadable_image_uri(u) {
+                    SharedString::from(u.clone())
+                } else {
+                    SharedString::default()
+                }
+            });
+            nsh_core::element::ImageSrc::from(uri)
+        })
+        .absolute()
+        .inset_0()
+        .size_full()
+        .object_fit(ResizeMode::Cover)
     })
 }
 
@@ -274,47 +451,27 @@ const FLAG_PILL_SPECS: [FlagPillSpec; 3] = [
     },
 ];
 
-fn series_flag_capsule(flags: SeriesFlags) -> Option<impl IntoElement + use<>> {
-    let mut row = view()
-        .flex_row()
-        .items_center()
-        .rounded_full()
-        .overflow_hidden();
-    let mut has_any = false;
-    for spec in FLAG_PILL_SPECS {
-        if !(spec.pred)(&flags) {
-            continue;
-        }
-        has_any = true;
-        row = row.child(
-            view().px_2().py_0p5().bg(spec.bg).child(
-                text(spec.label)
-                    .text_xs()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(spec.fg),
-            ),
-        );
-    }
-    has_any.then_some(row)
-}
-
-fn reactive_flag_capsule(flags: Memo<SeriesFlags>) -> impl IntoElement {
-    let mut row = view()
-        .flex_row()
-        .items_center()
-        .rounded_full()
-        .overflow_hidden()
-        .style_when(
-            move || !flags.with(|f| f.is_original || f.is_hot || f.is_new),
-            |s| s.hidden(),
-        );
+fn reactive_flag_capsule(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    let mut row = view().flex_row().items_center().gap_0p5().style_when(
+        move || {
+            item.with(|opt| {
+                opt.as_ref()
+                    .is_none_or(|p| !p.flags.is_original && !p.flags.is_hot && !p.flags.is_new)
+            })
+        },
+        |s| s.hidden(),
+    );
     for spec in FLAG_PILL_SPECS {
         row = row.child(
             view()
-                .px_2()
+                .px_1p5()
                 .py_0p5()
+                .rounded(token::radius_badge)
                 .bg(spec.bg)
-                .style_when(move || !flags.with(spec.pred), |s| s.hidden())
+                .style_when(
+                    move || item.with(|opt| opt.as_ref().is_none_or(|p| !(spec.pred)(&p.flags))),
+                    |s| s.hidden(),
+                )
                 .child(
                     text(spec.label)
                         .text_xs()
@@ -340,8 +497,6 @@ fn format_episode_status(count: u32, is_finished: bool, status: PosterWatchStatu
 
 fn reactive_poster_cover(
     item: Memo<Option<SeriesCardProps>>,
-    cover_url: Memo<String>,
-    flags: Memo<SeriesFlags>,
     watch_status: Memo<PosterWatchStatus>,
 ) -> impl IntoElement {
     view()
@@ -350,66 +505,14 @@ fn reactive_poster_cover(
         .relative()
         .rounded(token::radius)
         .overflow_hidden()
-        .bg(move || cover_url.with(|u| token::poster_surface(u)))
+        .bg(move || {
+            item.with(|opt| token::poster_surface(opt.as_ref().map_or("", |p| &p.cover_url)))
+        })
         .p_1p5()
         .justify_between()
-        .child(reactive_cover_image(cover_url))
-        .child(
-            view()
-                .absolute()
-                .inset_0()
-                .items_center()
-                .justify_center()
-                .child(
-                    view()
-                        .label(move || {
-                            item.with(|opt| {
-                                opt.as_ref().map_or_else(SharedString::default, |p| {
-                                    SharedString::from(format!("悬浮播放 {}", p.title))
-                                })
-                            })
-                        })
-                        .size(px(44.0))
-                        .rounded_full()
-                        .bg(token::cinema_scrim)
-                        .border_1()
-                        .border_color(token::cinema_border)
-                        .items_center()
-                        .justify_center()
-                        .opacity(0.0)
-                        .transition_opacity()
-                        .duration(token::FAST_MS)
-                        .group_hover(|s| s.opacity(1.0))
-                        .child(icon(IconKind::Play, 18.0, token::cinema_fg)),
-                ),
-        )
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .child(reactive_flag_capsule(flags))
-                .child(
-                    view()
-                        .px_1p5()
-                        .py_0p5()
-                        .rounded(token::radius_badge)
-                        .bg(token::cinema_scrim)
-                        .child(
-                            text(move || {
-                                item.with(|opt| {
-                                    opt.as_ref().map_or_else(SharedString::default, |p| {
-                                        SharedString::from(format!("{:.1}分", p.score))
-                                    })
-                                })
-                            })
-                            .text_xs()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .text_color(token::badge_original),
-                        ),
-                ),
-        )
+        .child(card_cover_image(item))
+        .child(poster_hover_play_overlay(item))
+        .child(poster_top_bar(item))
         .child(
             view().flex_row().items_center().justify_start().child(
                 view()
@@ -445,234 +548,112 @@ fn reactive_poster_cover(
         )
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct RankingCardProps {
-    pub id: u64,
-    pub rank: u32,
-    pub title: String,
-    pub cover_url: String,
-    pub flags: SeriesFlags,
-    pub meta: String,
-    pub description: Option<String>,
+fn poster_hover_play_overlay(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    view()
+        .absolute()
+        .inset_0()
+        .items_center()
+        .justify_center()
+        .child(
+            view()
+                .label(move || {
+                    item.with(|opt| {
+                        opt.as_ref().map_or_else(SharedString::default, |p| {
+                            SharedString::from(format!("悬浮播放 {}", p.title))
+                        })
+                    })
+                })
+                .size(px(44.0))
+                .rounded_full()
+                .bg(token::cinema_scrim)
+                .border_1()
+                .border_color(token::cinema_border)
+                .items_center()
+                .justify_center()
+                .opacity(0.0)
+                .group_hover(|s| s.opacity(1.0))
+                .child(
+                    text("▶")
+                        .text_sm()
+                        .font_weight(FontWeight::BOLD)
+                        .text_color(token::cinema_fg),
+                ),
+        )
 }
 
-pub fn ranking_compact_card(
-    props: RankingCardProps,
-    on_press: impl Fn() + 'static,
-) -> impl IntoElement {
-    let cover_key = props.cover_url;
-    let rank_label = format!("TOP {}", props.rank);
-    let tone = if props.rank <= 3 {
-        BadgeTone::Brand
-    } else {
-        BadgeTone::Neutral
-    };
-    let a11y = format!("{} {}", rank_label, props.title);
-
-    let image_layer = cover_image_layer(&cover_key);
-    button()
-        .on_press(on_press)
-        .accessibility_label(a11y)
+fn poster_top_bar(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
+    view()
         .w_full()
-        .min_w_0()
-        .p_3()
-        .rounded(token::radius_card)
-        .bg(token::card)
-        .border_1()
-        .border_color(token::border)
         .flex_row()
         .items_center()
-        .gap_3()
-        .transition_colors()
-        .duration(token::INSTANT_MS)
-        .hover(|s| s.bg(token::surface_subtle))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .gap_1()
+        .child(reactive_rank_badge(item))
+        .child(reactive_flag_capsule(item))
+        .child(view().flex_1())
         .child(
             view()
-                .w(px(46.0))
-                .h(px(62.0))
-                .flex_shrink_0()
-                .relative()
-                .overflow_hidden()
-                .rounded(token::radius)
-                .bg(move || token::poster_surface(&cover_key))
-                .children(image_layer),
-        )
-        .child(
-            view()
-                .flex_1()
-                .min_w_0()
-                .gap_1()
-                .child(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap_1p5()
-                        .child(badge(rank_label, tone))
-                        .children(series_flag_capsule(props.flags)),
-                )
-                .child(
-                    text(props.title)
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(token::card_fg)
-                        .truncate(),
-                )
-                .child(text(props.meta).text_xs().text_color(token::muted_fg)),
-        )
-}
-
-pub fn ranking_list_row(
-    item: Memo<Option<RankingCardProps>>,
-    on_open: impl Fn(u64) + Copy + 'static,
-) -> impl IntoElement {
-    button()
-        .style_when(move || item.with(Option::is_none), |s| s.hidden())
-        .on_press(move || {
-            if let Some(id) = item.with_untracked(|opt| opt.as_ref().map(|p| p.id)) {
-                on_open(id);
-            }
-        })
-        .accessibility_label(move || {
-            item.with(|opt| {
-                opt.as_ref()
-                    .map(|p| SharedString::from(format!("#{} {}", p.rank, p.title)))
-            })
-        })
-        .w_full()
-        .min_w_0()
-        .p_3()
-        .rounded(token::radius_card)
-        .bg(token::card)
-        .border_1()
-        .border_color(token::border)
-        .flex_row()
-        .items_start()
-        .gap_3()
-        .transition_colors()
-        .duration(token::INSTANT_MS)
-        .hover(|s| s.bg(token::surface_subtle))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
-        .child(ranking_list_thumb(item))
-        .child(ranking_list_meta(item))
-}
-
-fn ranking_list_thumb(item: Memo<Option<RankingCardProps>>) -> impl IntoElement {
-    let cover_url = computed(move || {
-        item.with(|opt| {
-            opt.as_ref()
-                .map(|p| p.cover_url.clone())
-                .unwrap_or_default()
-        })
-    });
-    let is_top3 = computed(move || item.with(|opt| opt.as_ref().is_some_and(|p| p.rank <= 3)));
-    let rank_label = computed(move || {
-        item.with(|opt| {
-            opt.as_ref()
-                .map_or_else(SharedString::default, |p| format!("#{}", p.rank).into())
-        })
-    });
-
-    view()
-        .w(px(72.0))
-        .h(px(96.0))
-        .flex_shrink_0()
-        .relative()
-        .overflow_hidden()
-        .rounded(token::radius)
-        .bg(move || cover_url.with(|u| token::poster_surface(u)))
-        .child(reactive_cover_image(cover_url))
-        .child(
-            view()
-                .absolute()
-                .top_1()
-                .left_1()
-                .child(reactive_rank_badge(rank_label, is_top3)),
-        )
-}
-
-fn ranking_list_meta(item: Memo<Option<RankingCardProps>>) -> impl IntoElement {
-    let flags = computed(move || item.with(|opt| opt.as_ref().map_or_default(|p| p.flags)));
-    let description = computed(move || {
-        item.with(|opt| {
-            opt.as_ref()
-                .and_then(|p| p.description.clone())
-                .map(SharedString::from)
-                .unwrap_or_default()
-        })
-    });
-
-    view()
-        .flex_1()
-        .min_w_0()
-        .gap_1p5()
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap_1p5()
+                .px_1p5()
+                .py_0p5()
+                .rounded(token::radius_badge)
+                .bg(token::cinema_scrim)
                 .child(
                     text(move || {
                         item.with(|opt| {
-                            opt.as_ref()
-                                .map(|p| SharedString::from(p.title.clone()))
-                                .unwrap_or_default()
+                            opt.as_ref().map_or_else(SharedString::default, |p| {
+                                SharedString::from(format!("{:.1}分", p.score))
+                            })
                         })
                     })
-                    .flex_1()
-                    .min_w_0()
-                    .text_sm()
+                    .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(token::card_fg)
-                    .truncate(),
-                )
-                .child(reactive_flag_capsule(flags)),
-        )
-        .child(
-            text(move || {
-                item.with(|opt| {
-                    opt.as_ref()
-                        .map(|p| SharedString::from(p.meta.clone()))
-                        .unwrap_or_default()
-                })
-            })
-            .text_xs()
-            .text_color(token::muted_fg)
-            .truncate(),
-        )
-        .child(
-            text(description)
-                .style_when(move || description.with(|d| d.is_empty()), |s| s.hidden())
-                .text_xs()
-                .text_color(token::muted_fg)
-                .number_of_lines(2u32)
-                .text_overflow(nsh_core::EllipsizeMode::Tail),
+                    .text_color(token::badge_original),
+                ),
         )
 }
 
-fn reactive_rank_badge(label: Memo<SharedString>, is_top3: Memo<bool>) -> impl IntoElement {
+fn reactive_rank_badge(item: Memo<Option<SeriesCardProps>>) -> impl IntoElement {
     view()
         .self_start()
         .px_2()
         .py_0p5()
         .rounded(token::radius_badge)
+        .style_when(
+            move || item.with(|opt| opt.as_ref().is_none_or(|p| p.rank.is_none())),
+            |s| s.hidden(),
+        )
         .bg(move || {
-            if is_top3.get() {
+            let top3 = item.with(|opt| {
+                opt.as_ref()
+                    .and_then(|p| p.rank.as_ref())
+                    .is_some_and(|r| r.rank <= 3)
+            });
+            if top3 {
                 token::cinema_brand_bg()
             } else {
                 token::cinema_surface_elevated()
             }
         })
         .child(
-            text(label)
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(move || {
-                    if is_top3.get() {
-                        token::cinema_brand_fg()
-                    } else {
-                        token::cinema_fg()
-                    }
-                }),
+            text(move || {
+                item.with(|opt| {
+                    opt.as_ref()
+                        .and_then(|p| p.rank.as_ref())
+                        .map_or_else(SharedString::default, |r| r.label.clone())
+                })
+            })
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(move || {
+                let top3 = item.with(|opt| {
+                    opt.as_ref()
+                        .and_then(|p| p.rank.as_ref())
+                        .is_some_and(|r| r.rank <= 3)
+                });
+                if top3 {
+                    token::cinema_brand_fg()
+                } else {
+                    token::cinema_fg()
+                }
+            }),
         )
 }

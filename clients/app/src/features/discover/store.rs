@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use hg_contracts::catalog::{
     Category, HomeFeed, HotKeyword, RankingEntry, RankingKind, SeriesSort, SeriesSummary, TagGroup,
@@ -137,11 +137,11 @@ impl Default for DiscoverSearchState {
     }
 }
 
-fn home_state() -> Signal<DiscoverHomeState> {
+pub(crate) fn home_state() -> Signal<DiscoverHomeState> {
     global::<DiscoverHomeState>()
 }
 
-fn browse_meta_state() -> Signal<BrowseMetaState> {
+pub(crate) fn browse_meta_state() -> Signal<BrowseMetaState> {
     global::<BrowseMetaState>()
 }
 
@@ -269,6 +269,75 @@ pub fn set_watched_series(map: HashMap<SeriesId, WatchedSeriesSnapshot>) {
     watched_series_state().set(WatchedSeriesMap(map));
 }
 
+#[derive(Debug, Clone, Default)]
+struct DiscoverPreferencesState {
+    disliked_ids: BTreeSet<SeriesId>,
+    bookmarked_ids: BTreeSet<SeriesId>,
+}
+
+fn preferences_state() -> Signal<DiscoverPreferencesState> {
+    global::<DiscoverPreferencesState>()
+}
+
+pub fn set_disliked_ids(ids: BTreeSet<SeriesId>) {
+    preferences_state().update(|p| p.disliked_ids = ids);
+}
+
+pub fn add_disliked_id(id: SeriesId) {
+    preferences_state().update(|p| {
+        p.disliked_ids.insert(id);
+    });
+}
+
+pub fn remove_disliked_id(id: SeriesId) {
+    preferences_state().update(|p| {
+        p.disliked_ids.remove(&id);
+    });
+}
+
+#[must_use]
+pub fn is_disliked(id: SeriesId) -> bool {
+    preferences_state().with(|p| p.disliked_ids.contains(&id))
+}
+
+#[must_use]
+pub fn is_disliked_untracked(id: SeriesId) -> bool {
+    preferences_state().with_untracked(|p| p.disliked_ids.contains(&id))
+}
+
+pub fn set_bookmarked_ids(ids: BTreeSet<SeriesId>) {
+    preferences_state().update(|p| p.bookmarked_ids = ids);
+}
+
+#[must_use]
+pub fn is_bookmarked_untracked(id: SeriesId) -> bool {
+    preferences_state().with_untracked(|p| p.bookmarked_ids.contains(&id))
+}
+
+#[must_use]
+pub fn toggle_bookmarked_local(id: SeriesId) -> bool {
+    let mut now_bookmarked = false;
+    preferences_state().update(|p| {
+        if p.bookmarked_ids.remove(&id) {
+            now_bookmarked = false;
+        } else {
+            p.bookmarked_ids.insert(id);
+            now_bookmarked = true;
+        }
+    });
+    now_bookmarked
+}
+
+pub fn set_bookmarked_local(id: SeriesId, bookmarked: bool) {
+    preferences_state().update(|p| {
+        if bookmarked {
+            p.bookmarked_ids.insert(id);
+        } else {
+            p.bookmarked_ids.remove(&id);
+        }
+    });
+}
+
 pub fn set_home_loading() {
     home_state().update(|s| {
         s.loading = true;
@@ -293,9 +362,53 @@ pub fn set_home_error(message: String) {
     });
 }
 
-pub fn set_browse_meta(tag_groups: Vec<TagGroup>, hot_keywords: Vec<HotKeyword>) {
-    browse_meta_state().update(|s| {
-        s.tag_groups = tag_groups;
-        s.hot_keywords = hot_keywords;
-    });
+#[must_use]
+pub fn home_latest_items(limit: usize) -> Vec<SeriesSummary> {
+    home_state().with(|s| {
+        s.feed
+            .as_ref()
+            .map(|f| {
+                f.latest
+                    .iter()
+                    .filter(|item| !is_disliked(item.id))
+                    .take(limit)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+#[must_use]
+pub fn home_ranking_items(limit: usize) -> Vec<SeriesSummary> {
+    home_state().with(|s| {
+        s.rankings
+            .iter()
+            .filter(|entry| !is_disliked(entry.series.id))
+            .take(limit)
+            .map(|entry| entry.series.clone())
+            .collect()
+    })
+}
+
+#[must_use]
+pub fn home_category_items(category_id: u32, limit: usize) -> Vec<SeriesSummary> {
+    home_state().with(|s| {
+        s.feed
+            .as_ref()
+            .and_then(|f| {
+                f.category_recommendations
+                    .iter()
+                    .find(|rec| rec.category_id == category_id)
+            })
+            .map(|rec| {
+                rec.items
+                    .iter()
+                    .filter(|item| !is_disliked(item.id))
+                    .take(limit)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
 }

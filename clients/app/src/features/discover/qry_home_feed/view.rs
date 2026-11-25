@@ -1,15 +1,16 @@
-use hg_contracts::catalog::{CategoryRecommendation, RankingEntry, SeriesSummary};
+use hg_contracts::catalog::RankingKind;
 use hg_contracts::ids::SeriesId;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    series_flags, series_grid_columns_for_width, series_horizontal_shelf, shelf_card_width,
+    poster_context_actions, series_card_props, series_card_props_with_rank,
+    series_grid_columns_for_width, series_horizontal_shelf, shelf_card_width,
 };
 use super::super::store::{self, BrowseKind};
 use super::query;
 use crate::ui::icons::IconKind;
 use crate::ui::platform::is_desktop;
-use crate::ui::poster::{RankingCardProps, ranking_compact_card};
+use crate::ui::poster::{PosterContextActions, SeriesCardProps, SeriesRank};
 use crate::ui::surface::{empty_state, shelf_header};
 
 const HOME_SHELF_MAX_ITEMS: usize = 12;
@@ -17,6 +18,7 @@ const HOME_SHELF_MAX_ITEMS: usize = 12;
 pub fn home_feed_view(
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    on_open_download: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     let page_owner = Owner::current();
     query::load_home();
@@ -26,9 +28,28 @@ pub fn home_feed_view(
         let cols = series_grid_columns_for_width(inner_w);
         shelf_card_width(inner_w, cols)
     });
-    let rank_cols = computed(move || {
-        let inner_w = (container_width.get() - 48.0).max(0.0);
-        ((inner_w + 12.0) / 232.0).floor().clamp(2.0, 6.0) as usize
+    let context_actions = poster_context_actions(on_open_download, || {});
+    let shell_meta = computed(|| {
+        let snap = store::home_snapshot();
+        let has_error = snap.error.is_some();
+        let categories = snap
+            .feed
+            .as_ref()
+            .map(|feed| {
+                feed.category_recommendations
+                    .iter()
+                    .map(|rec| {
+                        let route = snap
+                            .categories
+                            .iter()
+                            .find(|c| c.id == rec.category_id)
+                            .map_or_else(|| "duanju".to_owned(), |c| c.route.clone());
+                        (rec.category_id, rec.category_name.clone(), route)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        (has_error, snap.feed.is_some(), categories)
     });
 
     scroll().flex_1().child(
@@ -46,8 +67,8 @@ pub fn home_feed_view(
                 }
             })
             .child(dynamic(move || {
-                let snap = store::home_snapshot();
-                if snap.error.is_some() {
+                let (has_error, has_feed, category_meta) = shell_meta.get();
+                if has_error {
                     return empty_state(
                         IconKind::Discover,
                         "片库加载失败",
@@ -60,149 +81,111 @@ pub fn home_feed_view(
                     .into_element();
                 }
 
-                let Some(feed) = snap.feed else {
+                if !has_feed {
                     return view().into_element();
-                };
-
-                let mut body = view()
-                    .w_full()
-                    .gap_6()
-                    .children((!feed.latest.is_empty()).then(|| {
-                        latest_shelf(feed.latest, card_width, on_open_browse, on_open_series)
-                    }))
-                    .child(ranking_shelf(
-                        snap.rankings,
-                        rank_cols,
-                        on_open_browse,
-                        on_open_series,
-                    ));
-
-                for rec in feed.category_recommendations {
-                    let route = snap
-                        .categories
-                        .iter()
-                        .find(|c| c.id == rec.category_id)
-                        .map_or_else(|| "duanju".to_owned(), |c| c.route.clone());
-                    body = body.child(category_shelf(
-                        rec,
-                        route,
-                        card_width,
-                        on_open_browse,
-                        on_open_series,
-                    ));
                 }
-                body.into_element()
+
+                render_home_shelves(
+                    category_meta,
+                    card_width,
+                    on_open_browse,
+                    on_open_series,
+                    &context_actions,
+                )
+                .into_element()
             })),
     )
 }
 
-fn latest_shelf(
-    items: Vec<SeriesSummary>,
-    card_w: Memo<f32>,
+fn render_home_shelves(
+    category_meta: Vec<(u32, String, String)>,
+    card_width: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    context_actions: &PosterContextActions,
 ) -> impl IntoElement {
-    series_shelf_block(
-        "最近更新",
-        BrowseKind::Latest,
-        items,
-        card_w,
-        on_open_browse,
-        on_open_series,
-    )
+    let latest_items = computed(|| {
+        store::home_latest_items(HOME_SHELF_MAX_ITEMS)
+            .into_iter()
+            .map(|s| series_card_props(&s))
+            .collect::<Vec<_>>()
+    });
+    let ranking_items = computed(|| {
+        store::home_ranking_items(HOME_SHELF_MAX_ITEMS)
+            .into_iter()
+            .enumerate()
+            .map(|(idx, s)| {
+                let rank = u32::try_from(idx + 1).unwrap_or(u32::MAX);
+                series_card_props_with_rank(&s, Some(SeriesRank::top(rank)))
+            })
+            .collect::<Vec<_>>()
+    });
+
+    let mut body = view()
+        .w_full()
+        .gap_6()
+        .child(series_shelf_block(
+            "最近更新",
+            BrowseKind::Latest,
+            latest_items,
+            card_width,
+            on_open_browse,
+            on_open_series,
+            context_actions,
+        ))
+        .child(series_shelf_block(
+            "排行榜",
+            BrowseKind::Ranking(RankingKind::Hot),
+            ranking_items,
+            card_width,
+            on_open_browse,
+            on_open_series,
+            context_actions,
+        ));
+
+    for (cat_id, cat_name, route) in category_meta {
+        let cat_items = computed(move || {
+            store::home_category_items(cat_id, HOME_SHELF_MAX_ITEMS)
+                .into_iter()
+                .map(|s| series_card_props(&s))
+                .collect::<Vec<_>>()
+        });
+        body = body.child(series_shelf_block(
+            cat_name.clone(),
+            BrowseKind::Category {
+                id: cat_id,
+                name: cat_name,
+                route,
+            },
+            cat_items,
+            card_width,
+            on_open_browse,
+            on_open_series,
+            context_actions,
+        ));
+    }
+    body
 }
 
 fn series_shelf_block(
-    title: &'static str,
+    title: impl Into<SharedString>,
     browse_kind: BrowseKind,
-    items: Vec<SeriesSummary>,
+    items: Memo<Vec<SeriesCardProps>>,
     card_w: Memo<f32>,
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    context_actions: &PosterContextActions,
 ) -> impl IntoElement {
-    let preview: Vec<SeriesSummary> = items.into_iter().take(HOME_SHELF_MAX_ITEMS).collect();
     view()
         .w_full()
         .gap_3()
         .child(shelf_header(title, "全部", move || {
             on_open_browse(browse_kind.clone());
         }))
-        .child(series_horizontal_shelf(preview, card_w, on_open_series))
-}
-
-fn ranking_shelf(
-    entries: Vec<RankingEntry>,
-    cols: Memo<usize>,
-    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    let mut list = view()
-        .w_full()
-        .grid()
-        .grid_template_columns("repeat(auto-fill, minmax(220px, 1fr))")
-        .gap_3();
-    for (idx, entry) in entries.into_iter().take(6).enumerate() {
-        list = list.child(
-            view()
-                .style_when(move || idx >= cols.get(), |s| s.hidden())
-                .child(ranking_preview_card(entry, on_open_series)),
-        );
-    }
-
-    view()
-        .w_full()
-        .gap_3()
-        .child(shelf_header("排行榜", "全部", move || {
-            on_open_browse(BrowseKind::Ranking(hg_contracts::catalog::RankingKind::Hot));
-        }))
-        .child(list)
-}
-
-fn ranking_preview_card(
-    entry: RankingEntry,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    let id = entry.series.id;
-    let flags = series_flags(&entry.series);
-    let meta = format!(
-        "{:.1} 分 · {} 集",
-        entry.series.score, entry.series.episode_count
-    );
-    ranking_compact_card(
-        RankingCardProps {
-            id: id.get(),
-            rank: entry.rank,
-            title: entry.series.title,
-            cover_url: entry.series.cover_url,
-            flags,
-            meta,
-            description: None,
-        },
-        move || on_open_series(id),
-    )
-}
-
-fn category_shelf(
-    rec: CategoryRecommendation,
-    route: String,
-    card_w: Memo<f32>,
-    on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    let cat_id = rec.category_id;
-    let cat_name = rec.category_name.clone();
-    let header_title = rec.category_name;
-    let preview: Vec<SeriesSummary> = rec.items.into_iter().take(HOME_SHELF_MAX_ITEMS).collect();
-
-    view()
-        .w_full()
-        .gap_3()
-        .child(shelf_header(header_title, "全部", move || {
-            on_open_browse(BrowseKind::Category {
-                id: cat_id,
-                name: cat_name.clone(),
-                route: route.clone(),
-            });
-        }))
-        .child(series_horizontal_shelf(preview, card_w, on_open_series))
+        .child(series_horizontal_shelf(
+            items,
+            card_w,
+            on_open_series,
+            context_actions,
+        ))
 }

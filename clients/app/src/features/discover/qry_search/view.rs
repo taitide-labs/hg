@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::rc::Rc;
 
 use hg_contracts::catalog::{HotKeyword, SeriesSort, TagGroup, TagItem};
 use hg_contracts::ids::SeriesId;
@@ -6,12 +7,15 @@ use hg_contracts::viewing::SearchHistoryEntry;
 use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
-use super::super::parts::{pagination_footer, series_grid_columns_for_width, virtual_series_grid};
+use super::super::parts::{
+    VirtualGridCallbacks, pagination_footer, poster_context_actions, series_card_props,
+    series_grid_columns_for_width, virtual_series_grid,
+};
 use super::super::store::{self, SearchTarget};
 use super::query;
-use crate::ui::button::{ButtonVariant, ControlSize, app_button, text_link_button};
+use crate::ui::button::{ButtonVariant, ControlSize, app_button, confirm_link_trigger};
 use crate::ui::controls::{
-    chip_remove_button, confirm_destructive, hot_keyword_chip, selected_tag_chip, submit_button,
+    chip_remove_button, confirm_popover, hot_keyword_chip, selected_tag_chip, submit_button,
     tag_chip_button, tag_fold_button,
 };
 use crate::ui::icons::IconKind;
@@ -24,7 +28,10 @@ use crate::ui::token;
 const TAG_GROUP_LABEL_RESERVE_PX: f32 = 76.0;
 const TAG_FOLD_BUTTON_RESERVE_PX: f32 = 38.0;
 
-pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl IntoElement {
+pub fn search_view(
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    on_open_download: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
     let page_owner = Owner::current();
     query::init_search_page();
     cleanup(query::reset_on_leave);
@@ -32,6 +39,23 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
     let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
     let expanded_groups = signal(BTreeSet::<u32>::new());
     let scroller = element_ref();
+    let visible = computed(|| {
+        store::search_state().with(|s| {
+            if s.target.is_none() || s.error.is_some() {
+                Vec::new()
+            } else {
+                s.items
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, item)| !store::is_disliked(item.id))
+                    .map(|(idx, item)| (idx, item.id))
+                    .collect::<Vec<_>>()
+            }
+        })
+    });
+    let context_actions = poster_context_actions(on_open_download, move || {
+        page_owner.run(query::ensure_viewport_filled);
+    });
     let active_tag_name = computed(|| {
         store::search_state().with(|s| match &s.target {
             Some(SearchTarget::Tag { name, .. }) => Some(name.clone()),
@@ -48,26 +72,20 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
             .collect::<Vec<_>>()
     });
 
-    let header_block = view()
+    let pinned_search_bar = view()
         .w_full()
-        .gap_5()
-        .pb_5()
-        .child(search_bar_row(search_sig, scroller, page_owner))
-        .child(
-            view()
-                .w_full()
-                .gap_3()
-                .child(dynamic(move || {
-                    search_history_section(scroller, page_owner)
-                }))
-                .child(dynamic(move || hot_keywords_section(scroller, page_owner)))
-                .child(dynamic(move || {
-                    tag_filter_section(tag_caps, expanded_groups, scroller, page_owner)
-                })),
-        )
-        .child(dynamic(move || {
-            active_tag_controls_bar(active_tag_name.get(), scroller, page_owner)
-        }));
+        .px_6()
+        .pt_5()
+        .pb_2()
+        .child(search_bar_row(search_sig, scroller, page_owner));
+
+    let header_block = search_header_block(
+        tag_caps,
+        expanded_groups,
+        active_tag_name,
+        scroller,
+        page_owner,
+    );
 
     let footer_block = search_footer_block(page_owner);
 
@@ -85,31 +103,59 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
                 page_owner.run(query::ensure_viewport_filled);
             }
         })
+        .child(pinned_search_bar)
         .child(
             virtual_series_grid(
-                || {
-                    store::search_state().with(|s| {
-                        if s.target.is_none() || s.error.is_some() {
-                            0
-                        } else {
-                            s.items.len()
-                        }
-                    })
+                move || visible.with(Vec::len),
+                move || visible.with(|list| list.iter().map(|(_, id)| *id).collect()),
+                move |idx| {
+                    let real_idx = visible.with_untracked(|list| list.get(idx).map(|(i, _)| *i))?;
+                    store::search_state()
+                        .with_untracked(|s| s.items.get(real_idx).map(series_card_props))
                 },
-                || store::search_state().with(|s| s.items.iter().map(|i| i.id).collect()),
-                |idx| store::search_state().with(|s| s.items.get(idx).cloned()),
                 move || {
                     let inner_w = (container_width.get() - 48.0).max(0.0);
                     series_grid_columns_for_width(inner_w) as u32
                 },
-                on_open_series,
-                move || page_owner.run(query::load_next_search_page),
-                move || search_empty_view(page_owner),
+                VirtualGridCallbacks {
+                    on_open_series: Rc::new(on_open_series),
+                    context_actions,
+                    on_load_more: Rc::new(move || page_owner.run(query::load_next_search_page)),
+                    empty_view: Rc::new(move || search_empty_view(page_owner)),
+                },
             )
             .header(header_block)
             .footer(footer_block)
             .element_ref(&scroller),
         )
+}
+
+fn search_header_block(
+    tag_caps: Memo<Vec<(u32, usize)>>,
+    expanded_groups: Signal<BTreeSet<u32>>,
+    active_tag_name: Memo<Option<String>>,
+    scroller: ElementRef,
+    page_owner: Owner,
+) -> impl IntoElement {
+    view()
+        .w_full()
+        .gap_4()
+        .pb_4()
+        .child(
+            view()
+                .w_full()
+                .gap_3()
+                .child(dynamic(move || {
+                    search_history_section(scroller, page_owner)
+                }))
+                .child(dynamic(move || hot_keywords_section(scroller, page_owner)))
+                .child(dynamic(move || {
+                    tag_filter_section(tag_caps, expanded_groups, scroller, page_owner)
+                })),
+        )
+        .child(dynamic(move || {
+            active_tag_controls_bar(active_tag_name.get(), scroller, page_owner)
+        }))
 }
 
 fn active_tag_controls_bar(
@@ -271,18 +317,11 @@ fn search_history_strip(
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(token::muted_fg),
                 )
-                .child(text_link_button(
-                    "清空",
-                    "清空搜索历史",
-                    None,
-                    move || {
-                        confirm_destructive(
-                            "清空搜索历史",
-                            "确定要清空全部搜索历史记录吗？",
-                            "清空",
-                            move || page_owner.run(query::clear_history),
-                        );
-                    },
+                .child(confirm_popover(
+                    confirm_link_trigger("清空", "清空搜索历史", None),
+                    "确认清空搜索历史？",
+                    "确认清空",
+                    move || page_owner.run(query::clear_history),
                 )),
         )
         .child(chips)

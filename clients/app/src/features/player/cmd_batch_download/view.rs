@@ -15,12 +15,12 @@ use crate::ui::token;
 
 pub fn batch_download_drawer() -> impl IntoElement {
     handler::reset_state();
-    let open = computed(store::is_batch_download_ready);
+    let open = computed(|| store::is_batch_download_ready() || handler::snapshot().open);
 
     when(
         move || open.get(),
         move || {
-            untracked(handler::open_from_player_store);
+            untracked(handler::ensure_opened_from_player_store);
             cleanup(handler::reset_state);
             on_key("escape", |_| handler::close());
             on_back_press(|| {
@@ -152,7 +152,19 @@ fn drawer_content() -> impl IntoElement {
 }
 
 fn drawer_body() -> impl IntoElement {
-    let Some(detail) = store::snapshot().detail else {
+    let snap = handler::snapshot();
+    if snap.loading_detail && snap.detail.is_none() {
+        return view()
+            .py_6()
+            .items_center()
+            .child(
+                text("正在加载剧目分集...")
+                    .text_sm()
+                    .text_color(token::muted_fg),
+            )
+            .into_element();
+    }
+    let Some(ref detail) = snap.detail else {
         return empty_state(
             IconKind::Download,
             "暂无可选分集",
@@ -161,7 +173,6 @@ fn drawer_body() -> impl IntoElement {
         )
         .into_element();
     };
-    let snap = handler::snapshot();
     if detail.episodes.is_empty() {
         return empty_state(
             IconKind::Download,
@@ -182,7 +193,7 @@ fn drawer_body() -> impl IntoElement {
     view()
         .gap_3()
         .child(segment_toolbar(
-            &detail,
+            detail,
             &snap,
             &ranges,
             active_idx,

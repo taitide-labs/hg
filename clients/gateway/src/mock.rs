@@ -22,7 +22,7 @@ use hg_contracts::offline::{
     OfflineSeriesView, PauseReason,
 };
 use hg_contracts::viewing::{
-    OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
+    DislikedSeriesEntry, OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
     ReportWatchProgressRequest, ReportWatchProgressResult, SearchHistoryEntry, SeriesBookmark,
     StorageOverview, WatchHistoryEntry, WatchProgress,
 };
@@ -90,6 +90,7 @@ impl MockGateway {
         if let Some(detail) = state.details.get_mut(&series_id) {
             detail.summary.episode_count = episode_count;
             detail.total_episodes = episode_count;
+            detail.episodes.truncate(episode_count as usize);
         }
     }
 
@@ -341,6 +342,11 @@ impl MockGateway {
     #[must_use]
     pub fn snapshot_bookmarks(&self) -> Vec<SeriesBookmark> {
         self.state.lock().bookmarks.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_disliked(&self) -> Vec<DislikedSeriesEntry> {
+        self.state.lock().disliked.clone()
     }
 
     #[must_use]
@@ -914,6 +920,72 @@ impl AppGateway for MockGateway {
                 .retain(|b| b.series_id != series_id);
         });
         self.finish("unbookmark_series", result)
+    }
+
+    fn disliked_series(&self) -> GatewayFuture<Vec<DislikedSeriesEntry>> {
+        let result = self
+            .check_error("disliked_series")
+            .map(|()| self.state.lock().disliked.clone());
+        self.finish("disliked_series", result)
+    }
+
+    fn is_disliked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
+        let result = self.check_error("is_disliked").map(|()| {
+            self.state
+                .lock()
+                .disliked
+                .iter()
+                .any(|d| d.series_id == series_id)
+        });
+        self.finish("is_disliked", result)
+    }
+
+    fn dislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let result =
+            self.check_error("dislike_series").and_then(|()| {
+                let mut state = self.state.lock();
+                if state.disliked.iter().any(|d| d.series_id == series_id) {
+                    return Ok(());
+                }
+                let detail = state.details.get(&series_id).cloned().ok_or_else(|| {
+                    ContractError::NotFound {
+                        resource: format!("series/{series_id}"),
+                    }
+                })?;
+                state.next_timestamp += 1;
+                let ts = state.next_timestamp;
+                state.disliked.insert(
+                    0,
+                    DislikedSeriesEntry {
+                        series_id,
+                        title: detail.summary.title,
+                        cover_url: detail.summary.cover_url,
+                        episode_count: detail.summary.episode_count,
+                        is_finished: detail.summary.is_finished,
+                        score: detail.summary.score,
+                        disliked_at_epoch_secs: ts,
+                    },
+                );
+                Ok(())
+            });
+        self.finish("dislike_series", result)
+    }
+
+    fn undislike_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
+        let result = self.check_error("undislike_series").map(|()| {
+            self.state
+                .lock()
+                .disliked
+                .retain(|d| d.series_id != series_id);
+        });
+        self.finish("undislike_series", result)
+    }
+
+    fn clear_disliked_series(&self) -> GatewayFuture<()> {
+        let result = self.check_error("clear_disliked_series").map(|()| {
+            self.state.lock().disliked.clear();
+        });
+        self.finish("clear_disliked_series", result)
     }
 
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {

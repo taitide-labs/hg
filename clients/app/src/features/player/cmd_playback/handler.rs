@@ -36,6 +36,7 @@ pub fn open_series(
 
         let detail_res = gw.series_detail(series_id).await;
         let is_bookmarked = gw.is_bookmarked(series_id).await.unwrap_or(false);
+        let is_disliked = gw.is_disliked(series_id).await.unwrap_or(false);
         let ep_progress = gw.episode_progress(series_id).await.unwrap_or_default();
         let last_watched = gw.watch_history().await.ok().and_then(|entries| {
             entries
@@ -56,7 +57,7 @@ pub fn open_series(
             Ok(detail) => {
                 store::hydrate_episode_progress(ep_progress);
                 let plan = resume_plan(initial_episode, last_watched, detail.total_episodes);
-                if !store::set_detail_if_seq(seq, detail, is_bookmarked) {
+                if !store::set_detail_if_seq(seq, detail, is_bookmarked, is_disliked) {
                     return;
                 }
                 load_episode_internal(series_id, plan.episode, seq, plan.position_secs).await;
@@ -266,11 +267,44 @@ pub fn toggle_bookmark() {
         };
         if res.is_ok() {
             let next = !currently_bookmarked;
-            store::set_bookmarked(next);
-            store::set_hint(if next {
-                "已加入追剧".to_owned()
+            let msg = if next {
+                "已加入追剧"
             } else {
-                "已取消追剧".to_owned()
+                "已取消追剧"
+            };
+            store::set_bookmarked(next);
+            store::set_hint(msg.to_owned());
+            crate::ui::toast::show_toast(msg);
+        }
+    });
+}
+
+pub fn toggle_dislike() {
+    let snap = store::snapshot_untracked();
+    let Some(series_id) = snap.detail.map(|d| d.summary.id) else {
+        return;
+    };
+    let currently_disliked = snap.disliked;
+    let gw = gateway::current();
+    spawn(async move {
+        let res = if currently_disliked {
+            gw.undislike_series(series_id).await
+        } else {
+            gw.dislike_series(series_id).await
+        };
+        if res.is_ok() {
+            let next = !currently_disliked;
+            store::set_disliked(next);
+            let msg = if next {
+                "已标记为不喜欢，返回列表后将自动隐藏"
+            } else {
+                "已取消不喜欢"
+            };
+            store::set_hint(msg.to_owned());
+            crate::ui::toast::show_toast(if next {
+                "已隐藏，可在设置中恢复"
+            } else {
+                "已取消不喜欢"
             });
         }
     });

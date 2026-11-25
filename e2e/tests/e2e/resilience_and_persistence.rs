@@ -43,7 +43,7 @@ fn dirty_upstream_total_episodes_fallback_sort_and_pagination_e2e() {
     );
     harness
         .app
-        .scroll("热门短剧", Points(2400.0))
+        .scroll("星辰暗涌", Points(2400.0))
         .expect("scroll category browse list to bottom");
     harness
         .app
@@ -245,4 +245,114 @@ fn mobile_android_drawer_and_system_back_exits_player_flow() {
         .app
         .wait_for("最近更新")
         .expect("returned to discover home after android back");
+}
+
+#[test]
+fn dislike_right_click_player_toggle_and_settings_restore_persists_across_restart() {
+    let mut harness = E2eHarness::start().expect("start e2e harness");
+    harness.app.wait_for("夜雨长灯").expect("home loaded");
+    harness
+        .app
+        .wait_for("星辰暗涌")
+        .expect("second seed series loaded");
+
+    harness
+        .app
+        .right_click("label:夜雨长灯 >> nth=0")
+        .expect("open poster context menu");
+    harness
+        .app
+        .wait_for("不喜欢")
+        .expect("dislike menu item visible");
+    harness
+        .app
+        .press("不喜欢")
+        .expect("dislike first series from poster");
+    harness
+        .app
+        .wait_for_gone("夜雨长灯", Duration::from_secs(2))
+        .expect("disliked series hidden immediately across home");
+    harness
+        .app
+        .wait(Duration::from_millis(80))
+        .expect("wait dislike sqlite write");
+
+    harness
+        .app
+        .press("星辰暗涌 >> nth=0")
+        .expect("open second series player");
+    harness.app.wait_for("选集 (1/2)").expect("player loaded");
+    assert!(
+        harness.app.screen().id("label:展开选集").is_err(),
+        "series with <= 8 episodes must not render fold toggle"
+    );
+    harness
+        .app
+        .press("不喜欢")
+        .expect("dislike from player action row");
+    harness
+        .app
+        .wait_for("已不喜欢")
+        .expect("disliked state active");
+    harness
+        .app
+        .wait(Duration::from_millis(80))
+        .expect("wait player dislike sqlite write");
+    harness.app.press("返回").expect("return to home");
+    harness
+        .app
+        .wait_for_gone("星辰暗涌", Duration::from_secs(2))
+        .expect("player-disliked series hidden on return");
+
+    harness.restart().expect("restart app with same sqlite");
+    harness
+        .app
+        .wait_for("最近更新")
+        .expect("restarted app rendered home");
+    harness
+        .app
+        .wait(Duration::from_millis(120))
+        .expect("wait disliked preference hydration");
+    assert!(!harness.app.screen().shows("夜雨长灯"));
+    assert!(!harness.app.screen().shows("星辰暗涌"));
+
+    let disliked = harness
+        .block_on(harness.gateway.disliked_series())
+        .expect("query persisted disliked series");
+    assert_eq!(disliked.len(), 2);
+
+    harness.app.press("设置").expect("open settings tab");
+    harness
+        .app
+        .wait_for("管理不喜欢")
+        .expect("disliked section visible");
+    harness
+        .app
+        .press("管理不喜欢")
+        .expect("open disliked drawer");
+    harness
+        .app
+        .wait_for("夜雨长灯")
+        .expect("disliked row rendered");
+    harness
+        .app
+        .press("取消不喜欢 夜雨长灯")
+        .expect("open undislike confirm popover");
+    harness
+        .app
+        .wait_for("确认移除")
+        .expect("confirm popover open");
+    harness.app.press("确认移除").expect("confirm undislike");
+    harness
+        .app
+        .wait_for_gone("夜雨长灯", Duration::from_secs(2))
+        .expect("undisliked row removed from drawer");
+    harness.app.press("关闭").expect("close disliked drawer");
+
+    harness.app.press("发现").expect("switch back to discover");
+    harness
+        .app
+        .wait_for("夜雨长灯")
+        .expect("restored series visible again on discover");
+    assert!(!harness.app.screen().shows("星辰暗涌"));
 }

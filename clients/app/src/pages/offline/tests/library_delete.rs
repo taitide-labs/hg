@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use hg_gateway::mock::MockGateway;
 use nsh_engine::ColorScheme;
-use nsh_testing::DialogAnswer;
 
 use super::{start_on_offline, start_on_offline_with_spy};
 
@@ -13,9 +12,11 @@ fn deleting_offline_series_requires_confirmation_and_removes_assets() {
 
     app.wait_for("删除 云端之上：千金归来 离线剧目").unwrap();
 
-    app.on_dialog(|_| DialogAnswer::Press("取消".to_owned()));
     app.press("删除 云端之上：千金归来 离线剧目").unwrap();
-    app.wait(Duration::from_millis(40)).unwrap();
+    app.wait_for("确认删除").unwrap();
+    app.press("role:button[取消]").unwrap();
+    app.wait_for_gone("确认删除", Duration::from_secs(2))
+        .unwrap();
     assert!(
         app.screen()
             .id("label:删除 云端之上：千金归来 离线剧目")
@@ -23,8 +24,9 @@ fn deleting_offline_series_requires_confirmation_and_removes_assets() {
     );
     assert_eq!(gw.snapshot_offline_library().len(), 1);
 
-    app.on_dialog(|_| DialogAnswer::Press("删除".to_owned()));
     app.press("删除 云端之上：千金归来 离线剧目").unwrap();
+    app.wait_for("确认删除").unwrap();
+    app.press("确认删除").unwrap();
     app.wait_for_gone("删除 云端之上：千金归来 离线剧目", Duration::from_secs(2))
         .unwrap();
     app.wait_for("暂无已下载剧目，下载完成后将自动归档至此")
@@ -59,10 +61,12 @@ fn offline_episodes_modal_displays_total_episodes_color_codes_downloaded_and_sup
     );
 
     app.press("删除分集").unwrap();
-    app.on_dialog(|_| DialogAnswer::Press("取消".to_owned()));
     app.press("label:删除 云端之上：千金归来 第 2 集离线分集")
         .unwrap();
-    app.wait(Duration::from_millis(40)).unwrap();
+    app.wait_for("确认删除").unwrap();
+    app.press("role:button[取消]").unwrap();
+    app.wait_for_gone("确认删除", Duration::from_secs(2))
+        .unwrap();
     assert_eq!(
         gw.snapshot_offline_library()
             .first()
@@ -70,9 +74,10 @@ fn offline_episodes_modal_displays_total_episodes_color_codes_downloaded_and_sup
         Some(3)
     );
 
-    app.on_dialog(|_| DialogAnswer::Press("删除".to_owned()));
     app.press("label:删除 云端之上：千金归来 第 2 集离线分集")
         .unwrap();
+    app.wait_for("确认删除").unwrap();
+    app.press("确认删除").unwrap();
     app.wait_for("text:/已下载 2 集/").unwrap();
     assert_eq!(
         gw.snapshot_offline_library()
