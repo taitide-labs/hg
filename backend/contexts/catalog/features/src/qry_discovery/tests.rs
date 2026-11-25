@@ -544,3 +544,64 @@ async fn dynamic_endpoints_bypass_and_never_write_cache() {
         .expect("count cache rows after dynamic");
     assert_eq!(count.0, 0);
 }
+
+#[test]
+fn list_series_and_ranking_preserve_original_badge_from_is_original_flag() {
+    let list_json = json!({
+        "items": [
+            {
+                "id": 15941,
+                "title": "列表原创短剧",
+                "cover": "/c/15941.jpg",
+                "score": 8.9,
+                "tags": ["逆袭"],
+                "episode_count": 0,
+                "total_episodes": 21,
+                "is_finished": 0,
+                "is_original": 1
+            },
+            {
+                "id": 15942,
+                "title": "显式角标短剧",
+                "cover": "/c/15942.jpg",
+                "score": 9.1,
+                "badge": "黄果原创",
+                "is_original": 1
+            },
+            {
+                "id": 15943,
+                "title": "普通非原创短剧",
+                "cover": "/c/15943.jpg",
+                "score": 8.0,
+                "is_original": 0
+            }
+        ],
+        "total": 3
+    });
+    let paged = parse_paged_series(list_json, page_req(1, 20), "列表").expect("parse paged");
+    let first = paged.items.first().expect("first item");
+    let second = paged.items.get(1).expect("second item");
+    let third = paged.items.get(2).expect("third item");
+    assert_eq!(first.badge.as_deref(), Some("原创"));
+    assert_eq!(first.episode_count, 21);
+    assert_eq!(second.badge.as_deref(), Some("黄果原创"));
+    assert_eq!(third.badge, None);
+
+    let rank_json = json!({
+        "items": [
+            {
+                "id": 15941,
+                "title": "榜单原创短剧",
+                "cover": "/c/15941.jpg",
+                "score": 9.3,
+                "episode_count": 0,
+                "total_episodes": 30,
+                "is_original": true
+            }
+        ]
+    });
+    let ranked = parse_ranking(rank_json, RankingKind::Hot, page_req(1, 20)).expect("parse rank");
+    let ranked_first = ranked.items.first().expect("first rank item");
+    assert_eq!(ranked_first.series.badge.as_deref(), Some("原创"));
+    assert_eq!(ranked_first.series.episode_count, 30);
+}

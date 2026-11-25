@@ -210,6 +210,7 @@ pub struct RankingCardProps {
     pub rank: u32,
     pub title: String,
     pub cover_url: String,
+    pub badge_text: Option<String>,
     pub meta: String,
     pub description: Option<String>,
 }
@@ -261,7 +262,14 @@ pub fn ranking_compact_card(
                 .flex_1()
                 .min_w_0()
                 .gap_1()
-                .child(badge(rank_label, tone))
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_1p5()
+                        .child(badge(rank_label, tone))
+                        .children(props.badge_text.map(|label| badge(label, BadgeTone::Brand))),
+                )
                 .child(
                     text(props.title)
                         .text_sm()
@@ -321,10 +329,17 @@ pub fn ranking_list_row(
                 .min_w_0()
                 .gap_1()
                 .child(
-                    text(props.title)
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(token::card_fg),
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            text(props.title)
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(token::card_fg),
+                        )
+                        .children(props.badge_text.map(|label| badge(label, BadgeTone::Brand))),
                 )
                 .child(text(props.meta).text_xs().text_color(token::muted_fg))
                 .children(

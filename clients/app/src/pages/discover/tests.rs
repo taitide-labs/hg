@@ -246,3 +246,13 @@ fn watched_series_cards_show_distinct_watched_color() {
         "watched series card must visually mark watched status with distinct color"
     );
 }
+
+#[test]
+fn ranking_views_display_series_badge() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+
+    app.press("查看排行榜全部").unwrap();
+    app.wait_for("#1").unwrap();
+    app.wait_for("热播 Top 1").unwrap();
+}
