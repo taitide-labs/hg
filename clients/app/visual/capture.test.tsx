@@ -3,7 +3,7 @@ import { open, test } from "nsh/test";
 const OUT = "../../.visual-shots";
 
 test("capture desktop light screens", async () => {
-  const app = await open(".", {
+  const app = await open("..", {
     width: 1240,
     height: 800,
     colorScheme: "light",
@@ -31,30 +31,36 @@ test("capture desktop light screens", async () => {
   await app.press("设置");
   await app.waitFor("外观");
   await app.screenshot(`${OUT}/06-settings-light.png`);
+
+  await app.press("发现");
+  await app.waitFor("TOP 1");
+  await app.press("TOP 1");
+  await app.waitFor("离线下载");
+  await app.screenshot(`${OUT}/07-player-light.png`);
 });
 
 test("capture desktop dark screens", async () => {
-  const app = await open(".", {
+  const app = await open("..", {
     width: 1240,
     height: 800,
     colorScheme: "dark",
   });
 
   await app.waitFor("精选推荐");
-  await app.screenshot(`${OUT}/07-discover-dark.png`);
+  await app.screenshot(`${OUT}/08-discover-dark.png`);
 
   await app.press("设置");
   await app.waitFor("外观");
-  await app.screenshot(`${OUT}/08-settings-dark.png`);
+  await app.screenshot(`${OUT}/09-settings-dark.png`);
 });
 
 test("capture narrow width layout", async () => {
-  const app = await open(".", {
+  const app = await open("..", {
     width: 390,
     height: 844,
     colorScheme: "light",
   });
 
   await app.waitFor("精选推荐");
-  await app.screenshot(`${OUT}/09-discover-narrow.png`);
+  await app.screenshot(`${OUT}/10-discover-narrow.png`);
 });
