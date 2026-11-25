@@ -95,6 +95,20 @@ class HgVideoPlayerComponent(
         }
     }
 
+    private val attachStateListener = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) {
+            if (!destroyed) {
+                player?.playWhenReady = !props.paused
+                syncProgressTicker()
+            }
+        }
+
+        override fun onViewDetachedFromWindow(v: View) {
+            stopProgressTicker()
+            player?.playWhenReady = false
+        }
+    }
+
     init {
         container.addView(
             textureView,
@@ -105,6 +119,7 @@ class HgVideoPlayerComponent(
             ),
         )
         container.addOnLayoutChangeListener(layoutListener)
+        container.addOnAttachStateChangeListener(attachStateListener)
         player?.let { exoPlayer ->
             exoPlayer.addListener(playerListener)
             exoPlayer.setVideoTextureView(textureView)
@@ -149,6 +164,7 @@ class HgVideoPlayerComponent(
         if (destroyed) return
         destroyed = true
         stopProgressTicker()
+        container.removeOnAttachStateChangeListener(attachStateListener)
         container.removeOnLayoutChangeListener(layoutListener)
         val activePlayer = player
         player = null

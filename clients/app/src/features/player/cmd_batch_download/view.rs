@@ -23,6 +23,10 @@ pub fn batch_download_drawer() -> impl IntoElement {
             untracked(handler::open_from_player_store);
             cleanup(handler::reset_state);
             on_key("escape", |_| handler::close());
+            on_back_press(|| {
+                handler::close();
+                true
+            });
             drawer_overlay()
         },
     )

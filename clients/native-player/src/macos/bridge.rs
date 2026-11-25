@@ -28,6 +28,27 @@ pub(super) struct PlaybackSession {
     item_active: Rc<Cell<bool>>,
     item_ended: Rc<Cell<bool>>,
     item_failed: Rc<Cell<bool>>,
+    pending_seek_secs: Rc<Cell<Option<u32>>>,
+    paused_state: Rc<Cell<bool>>,
+    rate_state: Rc<Cell<f64>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SeekDisposition {
+    Immediate,
+    Deferred,
+}
+
+pub(super) fn should_emit_progress(active: bool, ended: bool) -> bool {
+    active && !ended
+}
+
+pub(super) fn resolve_seek_disposition(item_status: Option<isize>) -> SeekDisposition {
+    if item_status == Some(AV_PLAYER_ITEM_STATUS_READY) {
+        SeekDisposition::Immediate
+    } else {
+        SeekDisposition::Deferred
+    }
 }
 
 impl PlaybackSession {
@@ -40,6 +61,9 @@ impl PlaybackSession {
             item_active: Rc::new(Cell::new(false)),
             item_ended: Rc::new(Cell::new(false)),
             item_failed: Rc::new(Cell::new(false)),
+            pending_seek_secs: Rc::new(Cell::new(None)),
+            paused_state: Rc::new(Cell::new(false)),
+            rate_state: Rc::new(Cell::new(1.0)),
         }
     }
 
@@ -53,13 +77,15 @@ impl PlaybackSession {
         let ctx = context.clone();
         let failed = Rc::clone(&self.item_failed);
         let active = Rc::clone(&self.item_active);
+        let ended = Rc::clone(&self.item_ended);
         let block = RcBlock::new(move |time: CMTime| {
+            if !should_emit_progress(active.get(), ended.get()) {
+                return;
+            }
             let Some(player) = weak_player.load() else {
                 return;
             };
-            if active.get() {
-                check_current_item_failure(&player, &ctx, &failed);
-            }
+            check_current_item_failure(&player, &ctx, &failed);
             let position_secs = cmtime_to_secs_u32(time);
             let duration_secs = current_item_duration_secs(&player);
             emit_event(
@@ -118,6 +144,7 @@ impl PlaybackSession {
         }
         self.item_ended.set(false);
         self.item_failed.set(false);
+        self.pending_seek_secs.set(None);
     }
 
     pub(super) fn load_source(
@@ -137,15 +164,15 @@ impl PlaybackSession {
             return false;
         };
 
-        let active = Rc::new(Cell::new(true));
-        let ended = Rc::new(Cell::new(false));
-        let failed = Rc::new(Cell::new(false));
-        self.item_active = Rc::clone(&active);
-        self.item_ended = Rc::clone(&ended);
-        self.item_failed = Rc::clone(&failed);
+        self.item_active.set(true);
+        self.item_ended.set(false);
+        self.item_failed.set(false);
+        self.sync_control_state(props);
+        self.pending_seek_secs
+            .set((props.seek_secs > 0).then_some(props.seek_secs));
 
-        self.install_item_notifications(&item, context, &active, &ended, &failed);
-        self.install_load_timer(player, context, &active, &failed);
+        self.install_item_notifications(&item, context);
+        self.install_load_timer(player, context);
 
         #[expect(unsafe_code, reason = "向 AVPlayer 替换当前 AVPlayerItem 播放源")]
         unsafe {
@@ -156,20 +183,13 @@ impl PlaybackSession {
         true
     }
 
-    fn install_item_notifications(
-        &mut self,
-        item: &AnyObject,
-        context: &ComponentContext,
-        active: &Rc<Cell<bool>>,
-        ended: &Rc<Cell<bool>>,
-        failed: &Rc<Cell<bool>>,
-    ) {
+    fn install_item_notifications(&mut self, item: &AnyObject, context: &ComponentContext) {
         let center = NSNotificationCenter::defaultCenter();
         let main_queue = NSOperationQueue::mainQueue();
 
         let end_ctx = context.clone();
-        let end_active = Rc::clone(active);
-        let end_flag = Rc::clone(ended);
+        let end_active = Rc::clone(&self.item_active);
+        let end_flag = Rc::clone(&self.item_ended);
         let end_block = RcBlock::new(move |_: NonNull<NSNotification>| {
             if !end_active.get() {
                 return;
@@ -179,8 +199,8 @@ impl PlaybackSession {
         });
 
         let fail_ctx = context.clone();
-        let fail_active = Rc::clone(active);
-        let fail_flag = Rc::clone(failed);
+        let fail_active = Rc::clone(&self.item_active);
+        let fail_flag = Rc::clone(&self.item_failed);
         let fail_block = RcBlock::new(move |notification: NonNull<NSNotification>| {
             if !fail_active.get() || fail_flag.replace(true) {
                 return;
@@ -214,17 +234,15 @@ impl PlaybackSession {
         }
     }
 
-    fn install_load_timer(
-        &mut self,
-        player: &Retained<AnyObject>,
-        context: &ComponentContext,
-        active: &Rc<Cell<bool>>,
-        failed: &Rc<Cell<bool>>,
-    ) {
+    fn install_load_timer(&mut self, player: &Retained<AnyObject>, context: &ComponentContext) {
         let weak_player = Weak::from_retained(player);
         let ctx = context.clone();
-        let active_flag = Rc::clone(active);
-        let failed_flag = Rc::clone(failed);
+        let active_flag = Rc::clone(&self.item_active);
+        let ended_flag = Rc::clone(&self.item_ended);
+        let failed_flag = Rc::clone(&self.item_failed);
+        let pending_seek = Rc::clone(&self.pending_seek_secs);
+        let paused_state = Rc::clone(&self.paused_state);
+        let rate_state = Rc::clone(&self.rate_state);
         let ticks = Cell::new(0_u32);
         let block = RcBlock::new(move |timer_ptr: NonNull<NSTimer>| {
             #[expect(unsafe_code, reason = "NSTimer 回调传入有效的非空主线程 NSTimer 引用")]
@@ -245,6 +263,16 @@ impl PlaybackSession {
                     timer.invalidate();
                 } else if status == AV_PLAYER_ITEM_STATUS_READY {
                     timer.invalidate();
+                    if let Some(target_secs) = pending_seek.take() {
+                        ended_flag.set(false);
+                        seek_to_secs(&player, target_secs);
+                        sync_playback_state(
+                            &player,
+                            paused_state.get(),
+                            rate_state.get(),
+                            &ended_flag,
+                        );
+                    }
                 }
             }
         });
@@ -262,8 +290,26 @@ impl PlaybackSession {
         self.load_timer = Some(timer);
     }
 
-    pub(super) fn mark_active_for_seek(&self) {
+    pub(super) fn sync_control_state(&self, props: &VideoPlayerProps) {
+        self.paused_state.set(props.paused);
+        self.rate_state.set(props.rate);
+    }
+
+    pub(super) fn seek(&self, player: &AnyObject, position_secs: u32, props: &VideoPlayerProps) {
         self.item_ended.set(false);
+        self.sync_control_state(props);
+        match resolve_seek_disposition(current_item_status(player)) {
+            SeekDisposition::Immediate => {
+                self.pending_seek_secs.set(None);
+                seek_to_secs(player, position_secs);
+                if !props.paused {
+                    sync_playback(player, props, &self.item_ended);
+                }
+            }
+            SeekDisposition::Deferred => {
+                self.pending_seek_secs.set(Some(position_secs));
+            }
+        }
     }
 
     pub(super) fn is_ended(&self) -> &Cell<bool> {
@@ -294,14 +340,18 @@ pub(super) fn sync_audio(player: &AnyObject, props: &VideoPlayerProps) {
 }
 
 pub(super) fn sync_playback(player: &AnyObject, props: &VideoPlayerProps, ended: &Cell<bool>) {
-    let rate = clamp_rate_f32(props.rate);
+    sync_playback_state(player, props.paused, props.rate, ended);
+}
+
+fn sync_playback_state(player: &AnyObject, paused: bool, rate_f64: f64, ended: &Cell<bool>) {
+    let rate = clamp_rate_f32(rate_f64);
     #[expect(unsafe_code, reason = "同步 AVPlayer 播放、暂停与倍速状态")]
     unsafe {
         let has_default_rate: Bool = msg_send![player, respondsToSelector: sel!(setDefaultRate:)];
         if has_default_rate.as_bool() {
             let _: () = msg_send![player, setDefaultRate: rate];
         }
-        if props.paused {
+        if paused {
             let _: () = msg_send![player, pause];
             return;
         }

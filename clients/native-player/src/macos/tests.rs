@@ -4,6 +4,7 @@ use std::rc::Rc;
 use super::avfoundation::{
     CMTime, MediaSourceKind, classify_source, cmtime_to_secs_u32, video_gravity_for_aspect,
 };
+use super::bridge::{SeekDisposition, resolve_seek_disposition, should_emit_progress};
 use super::pool::{DEFAULT_POOL_CAPACITY, PlayerPool};
 use crate::protocol::VideoAspect;
 
@@ -141,4 +142,23 @@ fn classifies_loopback_hls_urls_and_local_paths() {
         Some(MediaSourceKind::FilePath)
     );
     assert_eq!(classify_source("   "), None);
+}
+
+#[test]
+fn time_observer_suppresses_progress_when_inactive_or_ended() {
+    assert!(!should_emit_progress(false, false));
+    assert!(!should_emit_progress(false, true));
+    assert!(!should_emit_progress(true, true));
+    assert!(should_emit_progress(true, false));
+}
+
+#[test]
+fn seek_defers_until_player_item_status_is_ready() {
+    assert_eq!(resolve_seek_disposition(None), SeekDisposition::Deferred);
+    assert_eq!(resolve_seek_disposition(Some(0)), SeekDisposition::Deferred);
+    assert_eq!(resolve_seek_disposition(Some(2)), SeekDisposition::Deferred);
+    assert_eq!(
+        resolve_seek_disposition(Some(1)),
+        SeekDisposition::Immediate
+    );
 }

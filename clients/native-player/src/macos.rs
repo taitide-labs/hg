@@ -15,9 +15,7 @@ use nsh_platform_macos::objc2::runtime::AnyObject;
 use nsh_platform_macos::objc2_app_kit::NSView;
 use nsh_platform_macos::{ComponentContext, Components, NativeComponent};
 
-use self::bridge::{
-    PlaybackSession, emit_error, seek_to_secs, sync_audio, sync_playback, sync_rate,
-};
+use self::bridge::{PlaybackSession, emit_error, sync_audio, sync_playback, sync_rate};
 use self::pool::{acquire_av_player, release_av_player};
 use self::view::HgVideoLayerView;
 use crate::protocol::{PropChange, VIDEO_PLAYER_COMPONENT_NAME, VideoPlayerProps};
@@ -96,8 +94,7 @@ impl MacOsVideoPlayer {
             .load_source(&player, &raw_url, &self.props, &self.context)
             && let Some(position_secs) = self.pending_seek.take()
         {
-            self.session.mark_active_for_seek();
-            seek_to_secs(&player, position_secs);
+            self.session.seek(&player, position_secs, &self.props);
         }
     }
 
@@ -106,11 +103,7 @@ impl MacOsVideoPlayer {
             self.pending_seek = Some(position_secs);
             return;
         };
-        self.session.mark_active_for_seek();
-        seek_to_secs(player, position_secs);
-        if !self.props.paused {
-            sync_playback(player, &self.props, self.session.is_ended());
-        }
+        self.session.seek(player, position_secs, &self.props);
     }
 }
 
@@ -130,11 +123,13 @@ impl NativeComponent for MacOsVideoPlayer {
             PropChange::Unchanged => {}
             PropChange::Source => self.handle_source_change(),
             PropChange::Paused => {
+                self.session.sync_control_state(&self.props);
                 if let Some(player) = self.player.as_ref() {
                     sync_playback(player, &self.props, self.session.is_ended());
                 }
             }
             PropChange::Rate => {
+                self.session.sync_control_state(&self.props);
                 if let Some(player) = self.player.as_ref() {
                     sync_rate(player, &self.props);
                 }

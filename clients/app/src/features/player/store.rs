@@ -1,5 +1,5 @@
 use hg_contracts::catalog::{EpisodeComment, SeriesDetail};
-use hg_contracts::ids::{CommentId, EpisodeNumber, SeriesId};
+use hg_contracts::ids::{CommentId, EpisodeNumber, PageInfo, SeriesId};
 use hg_contracts::viewing::{PlaybackMode, PlaybackSource};
 use nsh_core::prelude::*;
 
@@ -28,35 +28,90 @@ pub enum PlayerSurfaceKey {
     VerticalImmersive,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PlayerProgressState {
+    pub position_secs: u32,
+    pub duration_secs: u32,
+    pub seek_seq: u64,
+    pub scrub_preview_secs: Option<u32>,
+    pub last_reported_secs: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlayerControlsState {
+    pub controls_visible: bool,
+    pub controls_activity_seq: u64,
+    pub controls_hovered: bool,
+    pub popover: ActivePopover,
+    pub paused: bool,
+    pub muted: bool,
+    pub rate_hundredths: u16,
+    pub volume_percent: u8,
+    pub aspect: AspectPreset,
+    pub fullscreen: bool,
+    pub status_hint: Option<String>,
+}
+
+impl Default for PlayerControlsState {
+    fn default() -> Self {
+        Self {
+            controls_visible: false,
+            controls_activity_seq: 0,
+            controls_hovered: false,
+            popover: ActivePopover::None,
+            paused: false,
+            muted: false,
+            rate_hundredths: 100,
+            volume_percent: 80,
+            aspect: AspectPreset::Original,
+            fullscreen: false,
+            status_hint: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EpisodeCommentsState {
+    pub items: Vec<EpisodeComment>,
+    pub total_count: u64,
+    pub next_page: u32,
+    pub has_more: bool,
+    pub loading: bool,
+    pub loading_more: bool,
+    pub error: Option<String>,
+    pub request_seq: u64,
+}
+
+impl Default for EpisodeCommentsState {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            total_count: 0,
+            next_page: 1,
+            has_more: false,
+            loading: false,
+            loading_more: false,
+            error: None,
+            request_seq: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct PlayerState {
     pub detail: Option<SeriesDetail>,
     pub current_episode: Option<EpisodeNumber>,
     pub source: Option<PlaybackSource>,
     pub mode: PlaybackMode,
-    pub aspect: AspectPreset,
-    pub paused: bool,
-    pub muted: bool,
-    pub fullscreen: bool,
-    pub controls_visible: bool,
-    pub controls_activity_seq: u64,
-    pub auto_advance: bool,
-    pub loop_single: bool,
     pub bookmarked: bool,
     pub info_expanded: bool,
     pub episodes_expanded: bool,
     pub episode_segment_index: usize,
-    pub popover: ActivePopover,
     pub active_replies_comment: Option<CommentId>,
     pub batch_download_open: bool,
-    pub volume_percent: u8,
-    pub rate_hundredths: u16,
-    pub position_secs: u32,
-    pub duration_secs: u32,
-    pub seek_seq: u64,
-    pub last_reported_secs: Option<u32>,
-    pub comments: Vec<EpisodeComment>,
-    pub status_hint: Option<String>,
+    pub auto_advance: bool,
+    pub loop_single: bool,
+    pub episode_seq: u64,
     pub error: Option<String>,
 }
 
@@ -67,36 +122,41 @@ impl Default for PlayerState {
             current_episode: None,
             source: None,
             mode: PlaybackMode::Cinema,
-            aspect: AspectPreset::Original,
-            paused: false,
-            muted: false,
-            fullscreen: false,
-            controls_visible: false,
-            controls_activity_seq: 0,
-            auto_advance: true,
-            loop_single: false,
             bookmarked: false,
             info_expanded: false,
             episodes_expanded: false,
             episode_segment_index: 0,
-            popover: ActivePopover::None,
             active_replies_comment: None,
             batch_download_open: false,
-            volume_percent: 80,
-            rate_hundredths: 100,
-            position_secs: 0,
-            duration_secs: 0,
-            seek_seq: 0,
-            last_reported_secs: None,
-            comments: Vec::new(),
-            status_hint: None,
+            auto_advance: true,
+            loop_single: false,
+            episode_seq: 0,
             error: None,
         }
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct LoadedPlaybackSeq(u64);
+
 fn state() -> Signal<PlayerState> {
     global::<PlayerState>()
+}
+
+fn progress_state() -> Signal<PlayerProgressState> {
+    global::<PlayerProgressState>()
+}
+
+fn controls_state() -> Signal<PlayerControlsState> {
+    global::<PlayerControlsState>()
+}
+
+fn comments_state() -> Signal<EpisodeCommentsState> {
+    global::<EpisodeCommentsState>()
+}
+
+fn loaded_seq_state() -> Signal<LoadedPlaybackSeq> {
+    global::<LoadedPlaybackSeq>()
 }
 
 #[must_use]
@@ -105,7 +165,43 @@ pub fn snapshot() -> PlayerState {
 }
 
 #[must_use]
+pub fn progress_snapshot() -> PlayerProgressState {
+    progress_state().get()
+}
+
+#[must_use]
+pub fn controls_snapshot() -> PlayerControlsState {
+    controls_state().get()
+}
+
+#[must_use]
+pub fn comments_snapshot() -> EpisodeCommentsState {
+    comments_state().get()
+}
+
+#[must_use]
+pub fn snapshot_untracked() -> PlayerState {
+    state().with_untracked(Clone::clone)
+}
+
+#[must_use]
+pub fn progress_untracked() -> PlayerProgressState {
+    progress_state().with_untracked(Clone::clone)
+}
+
+#[must_use]
+pub fn controls_untracked() -> PlayerControlsState {
+    controls_state().with_untracked(Clone::clone)
+}
+
+#[must_use]
+pub fn is_fullscreen_untracked() -> bool {
+    controls_state().with_untracked(|c| c.fullscreen)
+}
+
+#[must_use]
 pub fn surface_key() -> PlayerSurfaceKey {
+    let fullscreen = controls_state().with(|c| c.fullscreen);
     state().with(|s| {
         if s.error.is_some() {
             PlayerSurfaceKey::Error
@@ -113,9 +209,7 @@ pub fn surface_key() -> PlayerSurfaceKey {
             PlayerSurfaceKey::Loading
         } else {
             match s.mode {
-                PlaybackMode::Cinema => PlayerSurfaceKey::Regular {
-                    fullscreen: s.fullscreen,
-                },
+                PlaybackMode::Cinema => PlayerSurfaceKey::Regular { fullscreen },
                 PlaybackMode::ShortDrama => PlayerSurfaceKey::VerticalImmersive,
             }
         }
@@ -127,59 +221,232 @@ pub fn mobile_tab_signal() -> Signal<MobileDetailTab> {
     global::<MobileDetailTab>()
 }
 
-pub fn reset_for_open(default_mode: PlaybackMode) {
+pub fn reset_for_open(default_mode: PlaybackMode) -> u64 {
     global::<MobileDetailTab>().set(MobileDetailTab::Info);
-    state().set(PlayerState {
-        mode: default_mode,
-        ..PlayerState::default()
+    loaded_seq_state().set(LoadedPlaybackSeq(0));
+    progress_state().set(PlayerProgressState::default());
+    controls_state().set(PlayerControlsState::default());
+    comments_state().update(|c| {
+        let next_req = c.request_seq.wrapping_add(1);
+        *c = EpisodeCommentsState {
+            request_seq: next_req,
+            ..EpisodeCommentsState::default()
+        };
+    });
+    let mut next_ep_seq = 0;
+    state().update(|s| {
+        next_ep_seq = s.episode_seq.wrapping_add(1).max(1);
+        *s = PlayerState {
+            mode: default_mode,
+            episode_seq: next_ep_seq,
+            ..PlayerState::default()
+        };
+    });
+    next_ep_seq
+}
+
+#[must_use]
+pub fn bump_episode_seq() -> u64 {
+    let mut next = 0;
+    state().update(|s| {
+        next = s.episode_seq.wrapping_add(1).max(1);
+        s.episode_seq = next;
+    });
+    next
+}
+
+#[must_use]
+pub fn current_episode_seq() -> u64 {
+    state().with_untracked(|s| s.episode_seq)
+}
+
+#[must_use]
+pub fn is_playback_seq_active() -> bool {
+    let seq = state().with_untracked(|s| s.episode_seq);
+    let loaded = loaded_seq_state().with_untracked(|l| l.0);
+    seq > 0 && seq == loaded
+}
+
+pub fn pause_and_cancel_loads() {
+    controls_state().update(|c| {
+        c.paused = true;
+        c.controls_hovered = false;
+        c.popover = ActivePopover::None;
+    });
+    state().update(|s| {
+        s.episode_seq = s.episode_seq.wrapping_add(1).max(1);
     });
 }
 
-pub fn set_detail(detail: SeriesDetail, bookmarked: bool) {
+pub fn set_detail_if_seq(seq: u64, detail: SeriesDetail, bookmarked: bool) -> bool {
+    let mut applied = false;
     state().update(|s| {
+        if s.episode_seq != seq {
+            return;
+        }
         s.detail = Some(detail);
         s.bookmarked = bookmarked;
         s.error = None;
+        applied = true;
     });
+    applied
 }
 
-pub fn set_source(ep_num: EpisodeNumber, source: PlaybackSource) {
+pub fn set_source_if_seq(seq: u64, ep_num: EpisodeNumber, source: PlaybackSource) -> bool {
+    let mut applied = false;
+    let duration_secs = source.duration_secs;
     let segment_index = (ep_num.get().saturating_sub(1) / 50) as usize;
+    let mut source_slot = Some(source);
     state().update(|s| {
+        if s.episode_seq != seq {
+            return;
+        }
         s.current_episode = Some(ep_num);
         s.episode_segment_index = segment_index;
-        s.duration_secs = source.duration_secs;
-        s.position_secs = 0;
-        s.seek_seq = 0;
-        s.last_reported_secs = None;
-        s.paused = false;
-        s.source = Some(source);
+        s.source = source_slot.take();
         s.error = None;
+        applied = true;
+    });
+    if applied {
+        loaded_seq_state().set(LoadedPlaybackSeq(seq));
+        progress_state().set(PlayerProgressState {
+            position_secs: 0,
+            duration_secs,
+            seek_seq: 0,
+            scrub_preview_secs: None,
+            last_reported_secs: None,
+        });
+        controls_state().update(|c| c.paused = false);
+    }
+    applied
+}
+
+pub fn begin_comments_load() -> u64 {
+    let mut req_seq = 0;
+    comments_state().update(|c| {
+        req_seq = c.request_seq.wrapping_add(1).max(1);
+        *c = EpisodeCommentsState {
+            items: Vec::new(),
+            total_count: 0,
+            next_page: 1,
+            has_more: false,
+            loading: true,
+            loading_more: false,
+            error: None,
+            request_seq: req_seq,
+        };
+    });
+    req_seq
+}
+
+pub fn begin_comments_load_more() -> Option<(u64, u32)> {
+    let mut started = None;
+    comments_state().update(|c| {
+        if !c.has_more || c.loading || c.loading_more {
+            return;
+        }
+        let req_seq = c.request_seq.wrapping_add(1).max(1);
+        c.request_seq = req_seq;
+        c.loading_more = true;
+        c.error = None;
+        started = Some((req_seq, c.next_page));
+    });
+    started
+}
+
+pub fn apply_comments_loaded(
+    episode_seq: u64,
+    req_seq: u64,
+    items: Vec<EpisodeComment>,
+    pagination: PageInfo,
+) {
+    if current_episode_seq() != episode_seq {
+        return;
+    }
+    comments_state().update(|c| {
+        if c.request_seq != req_seq {
+            return;
+        }
+        c.items = items;
+        c.total_count = pagination.total.max(c.items.len() as u64);
+        c.has_more = pagination.page < pagination.pages;
+        c.next_page = pagination.page.saturating_add(1);
+        c.loading = false;
+        c.loading_more = false;
+        c.error = None;
     });
 }
 
-pub fn set_comments(comments: Vec<EpisodeComment>) {
-    state().update(|s| s.comments = comments);
+pub fn apply_comments_more(
+    episode_seq: u64,
+    req_seq: u64,
+    incoming: Vec<EpisodeComment>,
+    pagination: PageInfo,
+) {
+    if current_episode_seq() != episode_seq {
+        return;
+    }
+    comments_state().update(|c| {
+        if c.request_seq != req_seq {
+            return;
+        }
+        for comment in incoming {
+            if !c.items.iter().any(|existing| existing.id == comment.id) {
+                c.items.push(comment);
+            }
+        }
+        c.total_count = pagination.total.max(c.items.len() as u64);
+        c.has_more = pagination.page < pagination.pages;
+        c.next_page = pagination.page.saturating_add(1);
+        c.loading_more = false;
+        c.error = None;
+    });
+}
+
+pub fn apply_comments_error(episode_seq: u64, req_seq: u64, initial: bool, message: String) {
+    if current_episode_seq() != episode_seq {
+        return;
+    }
+    comments_state().update(|c| {
+        if c.request_seq != req_seq {
+            return;
+        }
+        if initial {
+            c.loading = false;
+        } else {
+            c.loading_more = false;
+        }
+        c.error = Some(message);
+    });
+}
+
+pub fn set_scrub_preview(preview_secs: Option<u32>) {
+    progress_state().update(|p| {
+        if p.scrub_preview_secs != preview_secs {
+            p.scrub_preview_secs = preview_secs;
+        }
+    });
 }
 
 pub fn seek_to(position_secs: u32) {
-    state().update(|s| {
-        s.position_secs = position_secs;
-        s.seek_seq = s.seek_seq.saturating_add(1);
+    progress_state().update(|p| {
+        p.position_secs = position_secs;
+        p.seek_seq = p.seek_seq.saturating_add(1);
+        p.scrub_preview_secs = None;
     });
 }
 
 pub fn update_playback_progress(position_secs: u32, duration_secs: u32) {
-    state().update(|s| {
-        s.position_secs = position_secs;
+    progress_state().update(|p| {
+        p.position_secs = position_secs;
         if duration_secs > 0 {
-            s.duration_secs = duration_secs;
+            p.duration_secs = duration_secs;
         }
     });
 }
 
 pub fn mark_progress_reported(position_secs: u32) {
-    state().update(|s| s.last_reported_secs = Some(position_secs));
+    progress_state().update(|p| p.last_reported_secs = Some(position_secs));
 }
 
 pub fn set_bookmarked(bookmarked: bool) {
@@ -187,63 +454,86 @@ pub fn set_bookmarked(bookmarked: bool) {
 }
 
 pub fn set_mode(mode: PlaybackMode) {
-    state().update(|s| {
-        s.mode = mode;
-        s.popover = ActivePopover::None;
-    });
+    state().update(|s| s.mode = mode);
+    controls_state().update(|c| c.popover = ActivePopover::None);
 }
 
 pub fn set_aspect(aspect: AspectPreset) {
-    state().update(|s| {
-        s.aspect = aspect;
-        s.status_hint = Some(aspect.label().to_owned());
+    controls_state().update(|c| {
+        c.aspect = aspect;
+        c.status_hint = Some(aspect.label().to_owned());
     });
 }
 
+pub fn set_paused(paused: bool) {
+    let currently_paused = controls_state().with_untracked(|c| c.paused);
+    if currently_paused != paused {
+        controls_state().update(|c| c.paused = paused);
+    }
+}
+
 pub fn toggle_paused() {
-    state().update(|s| s.paused = !s.paused);
+    controls_state().update(|c| c.paused = !c.paused);
 }
 
 pub fn toggle_muted() {
-    state().update(|s| s.muted = !s.muted);
+    controls_state().update(|c| c.muted = !c.muted);
+}
+
+pub fn set_controls_hovered(hovered: bool) {
+    let current = controls_state().with_untracked(|c| c.controls_hovered);
+    if current != hovered {
+        controls_state().update(|c| c.controls_hovered = hovered);
+    }
 }
 
 #[must_use]
 pub fn should_show_controls() -> bool {
-    state().with(|s| s.controls_visible || s.paused || s.popover != ActivePopover::None)
+    controls_state().with(|c| {
+        c.controls_visible || c.paused || c.popover != ActivePopover::None || c.controls_hovered
+    }) || progress_state().with(|p| p.scrub_preview_secs.is_some())
 }
 
 #[must_use]
 pub fn should_keep_controls_visible() -> bool {
-    state().with(|s| s.paused || s.popover != ActivePopover::None)
+    controls_state().with(|c| c.paused || c.popover != ActivePopover::None || c.controls_hovered)
+        || progress_state().with(|p| p.scrub_preview_secs.is_some())
 }
 
 #[must_use]
 pub fn controls_activity_seq() -> u64 {
-    state().with(|s| s.controls_activity_seq)
+    controls_state().with(|c| c.controls_activity_seq)
 }
 
 pub fn reveal_controls() {
-    state().update(|s| {
-        s.controls_visible = true;
-        s.controls_activity_seq = s.controls_activity_seq.saturating_add(1);
+    controls_state().update(|c| {
+        c.controls_visible = true;
+        c.controls_activity_seq = c.controls_activity_seq.saturating_add(1);
     });
 }
 
 pub fn hide_controls() {
-    let visible = state().with_untracked(|s| s.controls_visible);
+    let visible = controls_state().with_untracked(|c| c.controls_visible);
     if visible {
-        state().update(|s| s.controls_visible = false);
+        controls_state().update(|c| c.controls_visible = false);
     }
+}
+
+pub fn leave_surface() {
+    controls_state().update(|c| {
+        c.controls_hovered = false;
+        c.controls_visible = false;
+    });
 }
 
 #[must_use]
 pub fn toggle_fullscreen() -> bool {
     let mut next = false;
-    state().update(|s| {
-        s.fullscreen = !s.fullscreen;
-        s.popover = ActivePopover::None;
-        next = s.fullscreen;
+    controls_state().update(|c| {
+        c.fullscreen = !c.fullscreen;
+        c.popover = ActivePopover::None;
+        c.controls_hovered = false;
+        next = c.fullscreen;
     });
     next
 }
@@ -269,8 +559,8 @@ pub fn set_episode_segment(index: usize) {
 }
 
 pub fn toggle_popover(target: ActivePopover) {
-    state().update(|s| {
-        s.popover = if s.popover == target {
+    controls_state().update(|c| {
+        c.popover = if c.popover == target {
             ActivePopover::None
         } else {
             target
@@ -279,7 +569,7 @@ pub fn toggle_popover(target: ActivePopover) {
 }
 
 pub fn close_popover() {
-    state().update(|s| s.popover = ActivePopover::None);
+    controls_state().update(|c| c.popover = ActivePopover::None);
 }
 
 pub fn open_comment_replies(comment_id: CommentId) {
@@ -310,24 +600,34 @@ pub fn is_batch_download_ready() -> bool {
 }
 
 pub fn set_volume(volume_percent: u8) {
-    state().update(|s| {
-        s.volume_percent = volume_percent;
-        s.status_hint = Some(format!("音量 {volume_percent}%"));
+    controls_state().update(|c| {
+        c.volume_percent = volume_percent;
+        c.status_hint = Some(format!("音量 {volume_percent}%"));
     });
 }
 
 pub fn set_rate(rate_hundredths: u16) {
-    state().update(|s| {
-        s.rate_hundredths = rate_hundredths;
-        s.popover = ActivePopover::None;
-        s.status_hint = Some(format!("{:.2}×", f32::from(rate_hundredths) / 100.0));
+    controls_state().update(|c| {
+        c.rate_hundredths = rate_hundredths;
+        c.popover = ActivePopover::None;
+        c.status_hint = Some(format!("{:.2}×", f32::from(rate_hundredths) / 100.0));
+    });
+}
+
+pub fn set_rate_silent(rate_hundredths: u16) {
+    controls_state().update(|c| {
+        c.rate_hundredths = rate_hundredths;
     });
 }
 
 pub fn set_hint(message: String) {
-    state().update(|s| s.status_hint = Some(message));
+    controls_state().update(|c| c.status_hint = Some(message));
 }
 
-pub fn set_error(message: String) {
-    state().update(|s| s.error = Some(message));
+pub fn set_error_if_seq(seq: u64, message: String) {
+    state().update(|s| {
+        if s.episode_seq == seq {
+            s.error = Some(message);
+        }
+    });
 }
