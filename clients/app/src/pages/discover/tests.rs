@@ -144,7 +144,7 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.wait_for("分页剧目 01").unwrap();
 
     app.scroll("分页剧目 01", Points(5000.0)).unwrap();
-    app.wait_for("分页剧目 28").unwrap();
+    app.wait_for("分页剧目 26").unwrap();
     assert!(!app.screen().shows("加载更多"));
 
     app.press("最近更新").unwrap();
@@ -157,7 +157,7 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.wait_for("分页剧目 01").unwrap();
     assert!(!app.screen().shows("加载更多"));
     app.scroll("分页剧目 01", Points(5000.0)).unwrap();
-    app.wait_for("分页剧目 28").unwrap();
+    app.wait_for("分页剧目 26").unwrap();
 }
 
 #[test]
@@ -198,7 +198,7 @@ fn discover_home_fullscreen_grows_visible_series() {
             "春风十里不及卿".to_owned(),
         ])
         .collect();
-    let count_visible_featured = |headless: &Headless| -> usize {
+    let count_visible_featured = |headless: &Headless, vp_width: f32| -> usize {
         let rank_top = node_bounds(headless, "排行榜").origin.y.0;
         let nodes = headless.screen().layout_nodes();
         all_titles
@@ -209,15 +209,19 @@ fn discover_home_fullscreen_grows_visible_series() {
                     .id(&format!("{title} >> nth=0"))
                     .ok()
                     .and_then(|id| nodes.iter().find(|n| n.id == id))
-                    .is_some_and(|n| n.bounds.origin.y.0 < rank_top)
+                    .is_some_and(|n| {
+                        n.bounds.origin.y.0 < rank_top
+                            && n.bounds.origin.x.0 + n.bounds.size.width.0 <= vp_width + 4.0
+                    })
             })
             .count()
     };
 
-    let base_featured = count_visible_featured(&app);
-    assert!(
-        base_featured >= 4,
-        "desktop base width should show a full row (got {base_featured})"
+    let base_featured = count_visible_featured(&app, 1240.0);
+    let base_card_w = node_bounds(&app, "label:分页剧目 20 >> nth=0").size.width.0;
+    assert_eq!(
+        base_featured, 4,
+        "desktop base width should show 4 cards across (got {base_featured})"
     );
     assert!(app.screen().shows("TOP 4"));
     assert!(!app.screen().shows("TOP 6"));
@@ -226,10 +230,15 @@ fn discover_home_fullscreen_grows_visible_series() {
         .unwrap();
     app.wait(Duration::from_millis(80)).unwrap();
 
-    let wide_featured = count_visible_featured(&app);
+    let wide_featured = count_visible_featured(&app, 1920.0);
+    let wide_card_w = node_bounds(&app, "label:分页剧目 20 >> nth=0").size.width.0;
+    assert_eq!(
+        wide_featured, 6,
+        "4K fullscreen must cap desktop columns at 6 (base={base_featured}, wide={wide_featured})"
+    );
     assert!(
-        wide_featured > base_featured && wide_featured >= 8,
-        "fullscreen must dynamically reveal more featured series even when /api/home caps at 5 (base={base_featured}, wide={wide_featured})"
+        wide_card_w >= base_card_w - 1.0,
+        "4K fullscreen poster cards must not shrink below base window width (base={base_card_w}, wide={wide_card_w})"
     );
     assert!(
         app.screen().shows("TOP 6"),
@@ -432,7 +441,7 @@ fn browse_pagination_virtualizes_and_preserves_visible_card_nodes() {
     app.wait_for("分页剧目 01").unwrap();
     let before_id = app.screen().id("分页剧目 01").unwrap();
 
-    app.scroll("分页剧目 01", Points(600.0)).unwrap();
+    app.scroll("分页剧目 01", Points(1800.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
     let after_id = app.screen().id("分页剧目 01").unwrap();
     assert_eq!(
@@ -451,9 +460,9 @@ fn large_viewport_adapts_page_size_and_fills_screen_on_resize() {
     app.wait(Duration::from_millis(40)).unwrap();
 
     app.press("查看最近更新全部").unwrap();
-    app.wait_for("分页剧目 40").unwrap();
+    app.wait_for("分页剧目 31").unwrap();
     assert!(
-        app.screen().shows("分页剧目 40"),
+        app.screen().shows("分页剧目 31"),
         "wide tall viewport must scale initial page size past 24 so half the screen is never left empty"
     );
 
@@ -464,15 +473,14 @@ fn large_viewport_adapts_page_size_and_fills_screen_on_resize() {
 
     app.press("查看热门短剧全部").unwrap();
     app.wait_for("分页剧目 01").unwrap();
-    assert!(!app.screen().shows("分页剧目 28"));
+    assert!(!app.screen().shows("分页剧目 24"));
 
     app.set_viewport(Size::new(Points(2560.0), Points(1440.0)))
         .unwrap();
-    app.wait_for("分页剧目 28").unwrap();
-    app.wait_for("已全部加载").unwrap();
+    app.wait_for("分页剧目 24").unwrap();
     assert_eq!(
         crate::features::discover::parts::adaptive_page_size(1240.0, 720.0, false),
         24
     );
-    assert!(crate::features::discover::parts::adaptive_page_size(2560.0, 1440.0, false) >= 48);
+    assert!(crate::features::discover::parts::adaptive_page_size(2560.0, 1440.0, false) >= 36);
 }

@@ -10,7 +10,7 @@ use super::super::parts::{dedup_append, sync_watched_series};
 use super::super::store;
 use crate::gateway;
 
-const HOME_SHELF_TARGET_ITEMS: usize = 16;
+const HOME_SHELF_TARGET_ITEMS: usize = 12;
 const HOME_RANKING_FETCH_SIZE: u16 = 12;
 
 fn first_page(size: u16) -> PageRequest {

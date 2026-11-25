@@ -13,7 +13,8 @@ use crate::ui::poster::{PosterWatchStatus, SeriesCardProps, SeriesFlags, series_
 use crate::ui::surface::empty_state;
 use crate::ui::token;
 
-pub const DESKTOP_CARD_MIN_WIDTH: f32 = 196.0;
+pub const DESKTOP_CARD_MIN_WIDTH: f32 = 236.0;
+pub const DESKTOP_MAX_COLUMNS: f32 = 6.0;
 pub const DESKTOP_GRID_GAP: f32 = 12.0;
 pub const MOBILE_CARD_MIN_WIDTH: f32 = 152.0;
 pub const MOBILE_GRID_GAP: f32 = 12.0;
@@ -35,12 +36,29 @@ pub fn ranking_grid_columns_for_width(container_width: f32) -> usize {
 }
 
 fn grid_columns_for(inner_width: f32, desktop_tracks: bool) -> usize {
-    let (min_w, gap) = if desktop_tracks {
-        (DESKTOP_CARD_MIN_WIDTH, DESKTOP_GRID_GAP)
+    let (min_w, gap, max_cols) = if desktop_tracks {
+        (
+            DESKTOP_CARD_MIN_WIDTH,
+            DESKTOP_GRID_GAP,
+            DESKTOP_MAX_COLUMNS,
+        )
     } else {
-        (MOBILE_CARD_MIN_WIDTH, MOBILE_GRID_GAP)
+        (MOBILE_CARD_MIN_WIDTH, MOBILE_GRID_GAP, 4.0)
     };
-    ((inner_width + gap) / (min_w + gap)).floor().max(2.0) as usize
+    ((inner_width + gap) / (min_w + gap))
+        .floor()
+        .clamp(2.0, max_cols) as usize
+}
+
+#[must_use]
+pub fn shelf_card_width(inner_width: f32, cols: usize) -> f32 {
+    let gap = if is_desktop() {
+        DESKTOP_GRID_GAP
+    } else {
+        MOBILE_GRID_GAP
+    };
+    let count = cols.max(2) as f32;
+    ((inner_width - gap * (count - 1.0)) / count).max(MOBILE_CARD_MIN_WIDTH)
 }
 
 fn visible_grid_rows(viewport_width: f32, viewport_height: f32) -> (u32, u32) {
@@ -157,8 +175,9 @@ pub fn series_card_from_summary(
     )
 }
 
-pub fn series_grid(
+pub fn series_horizontal_shelf(
     items: Vec<SeriesSummary>,
+    card_width: f32,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
     if items.is_empty() {
@@ -171,16 +190,21 @@ pub fn series_grid(
         .into_element();
     }
 
-    let grid = view().w_full().grid().gap_3();
-    let mut grid = if is_desktop() {
-        grid.grid_template_columns("repeat(auto-fill, minmax(196px, 1fr))")
-    } else {
-        grid.grid_template_columns("repeat(auto-fill, minmax(152px, 1fr))")
-    };
+    let mut row = view().flex_row().items_start().gap_3();
     for (index, item) in items.into_iter().enumerate() {
-        grid = grid.child(series_card_from_summary(item, index, on_open_series));
+        row = row.child(
+            view()
+                .w(px(card_width))
+                .flex_shrink_0()
+                .child(series_card_from_summary(item, index, on_open_series)),
+        );
     }
-    grid.into_element()
+    scroll()
+        .w_full()
+        .horizontal()
+        .scrollbar(false)
+        .child(row)
+        .into_element()
 }
 
 pub fn virtual_series_grid(
@@ -197,7 +221,7 @@ pub fn virtual_series_grid(
     } else {
         MOBILE_GRID_GAP
     };
-    let estimated_h = if is_desktop() { 340.0 } else { 290.0 };
+    let estimated_h = if is_desktop() { 430.0 } else { 290.0 };
 
     virtual_list(count, move |at: Position| {
         view().child(dynamic(move || {
