@@ -1,282 +1,80 @@
 mod batch_download;
 mod comment_replies;
 
-use std::num::NonZeroU64;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 use std::time::Duration;
 
-use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
-    ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
-    PagedResult, RankingEntry, SearchSeriesRequest, SearchSuggestion, SeriesDetail, SeriesSummary,
-    TagGroup,
-};
-use hg_contracts::ids::{CommentId, EpisodeKey, PageInfo, SeriesId};
-use hg_contracts::offline::{
-    ControlAllDownloadsAction, ControlDownloadRequest, DownloadPolicy, DownloadTaskView,
-    EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView,
-};
-use hg_contracts::viewing::{
-    PlaybackPreference, PlaybackSource, ReportWatchProgressRequest, ReportWatchProgressResult,
-    SearchHistoryEntry, SeriesBookmark, StorageOverview, WatchHistoryEntry,
-};
-use hg_gateway::contract::{AppGateway, GatewayFuture};
+use hg_contracts::ids::{EpisodeNumber, SeriesId};
+use hg_contracts::viewing::PlaybackPreference;
 use hg_gateway::mock::MockGateway;
 use nsh_core::geometry::point;
-use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Size};
+use nsh_engine::{ColorScheme, Points};
 use nsh_testing::Headless;
 
-use crate::root_with_gateway;
+use crate::pages::tests::{
+    DESKTOP_VIEWPORT, assert_above, assert_left_of, assert_node_stable, assert_visible_in_viewport,
+    emit_video_ended, emit_video_error, emit_video_progress, start_desktop,
+    start_desktop_manual_clock, start_mobile,
+};
 
-pub(super) fn start_and_open_first_series(scheme: ColorScheme) -> Headless {
-    start_with_gateway(
-        Arc::new(MockGateway::new()),
-        Os::MacOs,
-        scheme,
-        (1240.0, 800.0),
-    )
+pub(super) fn start_and_open_first_series(scheme: ColorScheme) -> (Arc<MockGateway>, Headless) {
+    start_with_gateway(Arc::new(MockGateway::new()), scheme)
 }
 
-fn start_with_gateway(
-    gw: Arc<dyn AppGateway>,
-    os: Os,
+pub(super) fn start_with_gateway(
+    gw: Arc<MockGateway>,
     scheme: ColorScheme,
-    viewport: (f32, f32),
-) -> Headless {
-    let environment = Environment {
-        os,
-        color_scheme: scheme,
-        ..Environment::default()
-    };
-    let mut app = Headless::start(EngineConfig {
-        viewport: Size::new(Points(viewport.0), Points(viewport.1)),
-        environment,
-        ..EngineConfig::new(root_with_gateway(gw))
-    })
-    .unwrap();
+) -> (Arc<MockGateway>, Headless) {
+    let mut app = start_desktop(Arc::clone(&gw), scheme);
     app.wait_for("云端之上：千金归来").unwrap();
     app.press("云端之上：千金归来 >> nth=0").unwrap();
     app.wait_for("选集 (3/68)").unwrap();
     app.press("1").unwrap();
     app.wait_for("选集 (1/68)").unwrap();
-    app
-}
-
-struct PagedCommentsGateway {
-    inner: MockGateway,
-    total_comments: u64,
-}
-
-impl PagedCommentsGateway {
-    fn new(total_comments: u64) -> Self {
-        Self {
-            inner: MockGateway::new(),
-            total_comments,
-        }
-    }
-}
-
-impl AppGateway for PagedCommentsGateway {
-    fn home_feed(&self) -> GatewayFuture<HomeFeed> {
-        self.inner.home_feed()
-    }
-    fn categories(&self) -> GatewayFuture<Vec<Category>> {
-        self.inner.categories()
-    }
-    fn tag_groups(&self) -> GatewayFuture<Vec<TagGroup>> {
-        self.inner.tag_groups()
-    }
-    fn list_series(&self, request: ListSeriesRequest) -> GatewayFuture<PagedResult<SeriesSummary>> {
-        self.inner.list_series(request)
-    }
-    fn list_ranking(
-        &self,
-        request: ListRankingRequest,
-    ) -> GatewayFuture<PagedResult<RankingEntry>> {
-        self.inner.list_ranking(request)
-    }
-    fn search_series(
-        &self,
-        request: SearchSeriesRequest,
-    ) -> GatewayFuture<PagedResult<SeriesSummary>> {
-        self.inner.search_series(request)
-    }
-    fn search_suggestions(&self, keyword: String) -> GatewayFuture<SearchSuggestion> {
-        self.inner.search_suggestions(keyword)
-    }
-    fn hot_keywords(&self) -> GatewayFuture<Vec<HotKeyword>> {
-        self.inner.hot_keywords()
-    }
-    fn hot_tags(&self) -> GatewayFuture<Vec<HotTag>> {
-        self.inner.hot_tags()
-    }
-    fn series_detail(&self, series_id: SeriesId) -> GatewayFuture<SeriesDetail> {
-        self.inner.series_detail(series_id)
-    }
-    fn list_episode_comments(
-        &self,
-        request: ListEpisodeCommentsRequest,
-    ) -> GatewayFuture<PagedResult<EpisodeComment>> {
-        let total = self.total_comments;
-        let page = request.page.page.get().max(1);
-        let size = request.page.size.get().max(1);
-        let size_u64 = u64::from(size);
-        let pages = u32::try_from(total.div_ceil(size_u64)).unwrap_or(1).max(1);
-        let start = u64::from(page - 1) * size_u64;
-        let end = (start + size_u64).min(total);
-        let items = (start..end)
-            .map(|idx| {
-                let id = idx + 1;
-                EpisodeComment {
-                    id: CommentId::new(NonZeroU64::new(id).unwrap_or(NonZeroU64::MIN)),
-                    nickname: format!("评论用户{id}"),
-                    avatar_color: "#0F766E".to_owned(),
-                    text: format!("分页评论内容 #{id}"),
-                    relative_time: "5 分钟前".to_owned(),
-                    like_count: 10,
-                    is_pinned: id == 1,
-                    ip_region: None,
-                    reply_count: if id == 1 { 3 } else { 0 },
-                    preview_replies: Vec::new(),
-                }
-            })
-            .collect();
-        Box::pin(async move {
-            Ok(PagedResult {
-                items,
-                pagination: PageInfo {
-                    page,
-                    pages,
-                    size: u32::from(size),
-                    total,
-                },
-            })
-        })
-    }
-    fn list_comment_replies(
-        &self,
-        request: ListCommentRepliesRequest,
-    ) -> GatewayFuture<PagedResult<CommentReply>> {
-        self.inner.list_comment_replies(request)
-    }
-    fn clear_catalog_cache(&self) -> GatewayFuture<()> {
-        self.inner.clear_catalog_cache()
-    }
-    fn prepare_episode_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
-        self.inner.prepare_episode_playback(key)
-    }
-    fn refresh_online_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
-        self.inner.refresh_online_playback(key)
-    }
-    fn report_watch_progress(
-        &self,
-        request: ReportWatchProgressRequest,
-    ) -> GatewayFuture<ReportWatchProgressResult> {
-        self.inner.report_watch_progress(request)
-    }
-    fn watch_history(&self) -> GatewayFuture<Vec<WatchHistoryEntry>> {
-        self.inner.watch_history()
-    }
-    fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        self.inner.remove_watch_history(series_id)
-    }
-    fn clear_watch_history(&self) -> GatewayFuture<()> {
-        self.inner.clear_watch_history()
-    }
-    fn bookmarks(&self) -> GatewayFuture<Vec<SeriesBookmark>> {
-        self.inner.bookmarks()
-    }
-    fn is_bookmarked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
-        self.inner.is_bookmarked(series_id)
-    }
-    fn bookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        self.inner.bookmark_series(series_id)
-    }
-    fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        self.inner.unbookmark_series(series_id)
-    }
-    fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {
-        self.inner.playback_preference()
-    }
-    fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()> {
-        self.inner.update_playback_preference(preference)
-    }
-    fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>> {
-        self.inner.search_history()
-    }
-    fn record_search_history(&self, keyword: String) -> GatewayFuture<()> {
-        self.inner.record_search_history(keyword)
-    }
-    fn remove_search_history(&self, keyword: String) -> GatewayFuture<()> {
-        self.inner.remove_search_history(keyword)
-    }
-    fn clear_search_history(&self) -> GatewayFuture<()> {
-        self.inner.clear_search_history()
-    }
-    fn clear_playback_cache(&self) -> GatewayFuture<()> {
-        self.inner.clear_playback_cache()
-    }
-    fn storage_overview(&self) -> GatewayFuture<StorageOverview> {
-        self.inner.storage_overview()
-    }
-    fn offline_library(&self) -> GatewayFuture<Vec<OfflineSeriesView>> {
-        self.inner.offline_library()
-    }
-    fn download_tasks(&self) -> GatewayFuture<Vec<DownloadTaskView>> {
-        self.inner.download_tasks()
-    }
-    fn enqueue_episode_downloads(
-        &self,
-        request: EnqueueEpisodeDownloadsRequest,
-    ) -> GatewayFuture<EnqueueEpisodeDownloadsResult> {
-        self.inner.enqueue_episode_downloads(request)
-    }
-    fn control_download(&self, request: ControlDownloadRequest) -> GatewayFuture<()> {
-        self.inner.control_download(request)
-    }
-    fn control_all_downloads(&self, action: ControlAllDownloadsAction) -> GatewayFuture<()> {
-        self.inner.control_all_downloads(action)
-    }
-    fn delete_offline_episode(&self, key: EpisodeKey) -> GatewayFuture<()> {
-        self.inner.delete_offline_episode(key)
-    }
-    fn delete_offline_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        self.inner.delete_offline_series(series_id)
-    }
-    fn download_policy(&self) -> GatewayFuture<DownloadPolicy> {
-        self.inner.download_policy()
-    }
-    fn update_download_policy(&self, policy: DownloadPolicy) -> GatewayFuture<()> {
-        self.inner.update_download_policy(policy)
-    }
+    (gw, app)
 }
 
 #[test]
-fn desktop_player_shows_clean_single_column_feed_without_mode_or_ratio_clutter() {
-    let app = start_and_open_first_series(ColorScheme::Light);
+fn desktop_player_layout_shows_clean_single_column_feed_without_clutter() {
+    let (_gw, app) = start_and_open_first_series(ColorScheme::Light);
     let screen = app.screen();
 
-    assert!(screen.shows("云端之上：千金归来"));
-    assert!(screen.shows("选集 (1/68)"));
-    assert!(screen.shows("评论 (2)"));
-    assert!(screen.shows("林深见鹿"));
-    assert!(screen.shows("共 2 条回复"));
-    assert!(screen.shows("离线下载"));
+    for expected in [
+        "云端之上：千金归来",
+        "选集 (1/68)",
+        "评论 (2)",
+        "林深见鹿",
+        "共 2 条回复",
+        "离线下载",
+    ] {
+        assert!(
+            screen.shows(expected),
+            "missing player element `{expected}`"
+        );
+    }
+    assert_visible_in_viewport(&app, "视频画面", DESKTOP_VIEWPORT);
+    assert_left_of(&app, "视频画面", "选集 (1/68)");
+    assert_above(&app, "选集 (1/68)", "评论 (2)");
 
-    assert!(!screen.shows("电影模式"));
-    assert!(!screen.shows("短剧模式"));
-    assert!(!screen.shows("正在播放"));
-    assert!(!screen.shows("比例 1"));
-    assert!(!screen.shows("完播并连播"));
+    for forbidden in ["电影模式", "短剧模式", "正在播放", "比例 1", "完播并连播"]
+    {
+        assert!(!screen.shows(forbidden), "unexpected clutter `{forbidden}`");
+    }
 }
 
 #[test]
-fn synopsis_and_episodes_fold_by_default_and_expand_in_place() {
-    let mut app = start_and_open_first_series(ColorScheme::Light);
+fn synopsis_and_episodes_fold_and_remain_stable_across_progress_ticks() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Light);
 
     assert!(!app.screen().shows("揭开当年真相"));
     app.press("展开简介").unwrap();
     app.wait_for("text:/揭开当年真相/").unwrap();
+    assert_node_stable(&mut app, "收起简介", |headless| {
+        for sec in 1..=5 {
+            emit_video_progress(headless, sec, 120);
+        }
+    });
     app.press("收起简介").unwrap();
     app.wait_for_gone("text:/揭开当年真相/", Duration::from_secs(2))
         .unwrap();
@@ -284,7 +82,6 @@ fn synopsis_and_episodes_fold_by_default_and_expand_in_place() {
     assert!(!app.screen().shows("51-68"));
     app.press("展开选集").unwrap();
     app.wait_for("51-68").unwrap();
-
     app.press("51-68").unwrap();
     app.wait_for("68").unwrap();
     app.press("68").unwrap();
@@ -297,8 +94,8 @@ fn synopsis_and_episodes_fold_by_default_and_expand_in_place() {
 }
 
 #[test]
-fn in_video_bottom_right_settings_and_speed_popovers_work() {
-    let mut app = start_and_open_first_series(ColorScheme::Dark);
+fn in_video_speed_and_settings_popovers_work_without_tick_remount() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Dark);
 
     assert!(!app.screen().shows("倍速"));
     app.hover("视频画面").unwrap();
@@ -306,6 +103,11 @@ fn in_video_bottom_right_settings_and_speed_popovers_work() {
 
     app.press("倍速").unwrap();
     app.wait_for("1.5×").unwrap();
+    assert_node_stable(&mut app, "1.5×", |headless| {
+        for sec in 10..=15 {
+            emit_video_progress(headless, sec, 120);
+        }
+    });
     app.press("1.5×").unwrap();
     app.wait_for("1.5×").unwrap();
 
@@ -320,8 +122,74 @@ fn in_video_bottom_right_settings_and_speed_popovers_work() {
 }
 
 #[test]
+fn player_applies_persisted_default_rate_and_honors_shortcuts() {
+    let gw = Arc::new(
+        MockGateway::new().with_playback_preference(PlaybackPreference {
+            default_rate_hundredths: 150,
+            ..PlaybackPreference::default()
+        }),
+    );
+    let (_gw, mut app) = start_with_gateway(gw, ColorScheme::Dark);
+
+    app.hover("视频画面").unwrap();
+    app.wait_for("1.5×").unwrap();
+
+    emit_video_progress(&mut app, 20, 120);
+    app.press_key("right").unwrap();
+    app.wait_for("text:/00:25/").unwrap();
+    app.press_key("left").unwrap();
+    app.wait_for("text:/00:20/").unwrap();
+
+    app.press_key("z").unwrap();
+    app.wait_for("倍速").unwrap();
+    app.press_key("c").unwrap();
+    app.wait_for("1.25×").unwrap();
+    app.press_key("x").unwrap();
+    app.wait_for("倍速").unwrap();
+
+    app.press_key("m").unwrap();
+    app.press_key("space").unwrap();
+    assert!(app.screen().shows("倍速"));
+}
+
+#[test]
+fn player_auto_advance_and_loop_single_only_fire_on_real_ended_event() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Dark);
+
+    emit_video_progress(&mut app, 0, 90);
+    emit_video_progress(&mut app, 88, 90);
+    app.wait(Duration::from_millis(80)).unwrap();
+    assert!(
+        app.screen().shows("选集 (1/68)"),
+        "98% progress must not prematurely skip before ended event"
+    );
+
+    emit_video_ended(&mut app);
+    app.wait_for("选集 (2/68)").unwrap();
+
+    app.hover("视频画面").unwrap();
+    app.press("播放设置").unwrap();
+    app.wait_for("单集循环").unwrap();
+    app.press("单集循环").unwrap();
+    emit_video_ended(&mut app);
+    app.wait(Duration::from_millis(80)).unwrap();
+    assert!(
+        app.screen().shows("选集 (2/68)"),
+        "loop-single must stay on episode 2 after ended event"
+    );
+}
+
+#[test]
+fn player_native_video_error_surfaces_feedback() {
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Dark);
+
+    emit_video_error(&mut app, "解码器初始化失败");
+    app.wait_for("text:/解码器初始化失败/").unwrap();
+}
+
+#[test]
 fn true_fullscreen_and_vertical_view_hide_chrome_and_restore_cleanly() {
-    let mut app = start_and_open_first_series(ColorScheme::Light);
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Light);
 
     app.hover("视频画面").unwrap();
     app.wait_for("倍速").unwrap();
@@ -342,37 +210,74 @@ fn true_fullscreen_and_vertical_view_hide_chrome_and_restore_cleanly() {
 }
 
 #[test]
-fn bookmark_and_offline_download_actions_update_state() {
-    let mut app = start_and_open_first_series(ColorScheme::Light);
+fn bookmark_button_toggles_red_brand_style_and_gateway_state() {
+    let (gw, mut app) = start_and_open_first_series(ColorScheme::Light);
 
     app.wait_for("已追剧").unwrap();
+    let active_bg = app.screen().view_style("role:button[已追剧]").unwrap();
+    let active_fg = app.screen().span_style("已追剧").unwrap();
+
     app.press("已追剧").unwrap();
     app.wait_for("追剧").unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    assert!(
+        !gw.snapshot_bookmarks()
+            .iter()
+            .any(|b| b.series_id.get() == 1001)
+    );
+    let inactive_bg = app.screen().view_style("role:button[追剧]").unwrap();
+    let inactive_fg = app
+        .screen()
+        .span_style("role:button[追剧] >> 追剧")
+        .unwrap();
+    assert_ne!(active_bg, inactive_bg);
+    assert_ne!(active_fg.color, inactive_fg.color);
+
     app.press("追剧").unwrap();
     app.wait_for("已追剧").unwrap();
-
-    app.press("离线下载").unwrap();
-    app.wait_for("选择离线下载分集").unwrap();
+    app.wait(Duration::from_millis(40)).unwrap();
+    assert!(
+        gw.snapshot_bookmarks()
+            .iter()
+            .any(|b| b.series_id.get() == 1001)
+    );
 }
 
 #[test]
-fn bottom_control_bar_auto_fades_after_three_seconds_of_inactivity() {
-    let mut app = start_and_open_first_series(ColorScheme::Dark);
+fn bottom_control_bar_auto_fades_via_manual_clock_even_during_ticks() {
+    let gw = Arc::new(MockGateway::new());
+    let mut app = start_desktop_manual_clock(gw, ColorScheme::Dark);
+    app.wait_for("云端之上：千金归来").unwrap();
+    app.press("云端之上：千金归来 >> nth=0").unwrap();
+    app.wait_for("选集 (3/68)").unwrap();
 
     assert!(!app.screen().shows("倍速"));
     app.hover("视频画面").unwrap();
     app.wait_for("倍速").unwrap();
-    app.wait_for_gone("倍速", Duration::from_secs(5)).unwrap();
+
+    emit_video_progress(&mut app, 10, 120);
+    app.fast_forward(Duration::from_secs(2)).unwrap();
+    assert!(app.screen().shows("倍速"));
+
+    app.fast_forward(Duration::from_secs(2)).unwrap();
+    assert!(
+        !app.screen().shows("倍速"),
+        "controls must hide once 3s elapse even after progress ticks"
+    );
 
     app.hover("视频画面").unwrap();
     app.wait_for("倍速").unwrap();
     app.press("播放或暂停").unwrap();
-    assert!(app.screen().shows("倍速"));
+    app.fast_forward(Duration::from_secs(5)).unwrap();
+    assert!(
+        app.screen().shows("倍速"),
+        "paused playback must keep control bar visible"
+    );
 }
 
 #[test]
 fn scrub_slider_drags_and_seeks_in_overlay() {
-    let mut app = start_and_open_first_series(ColorScheme::Dark);
+    let (_gw, mut app) = start_and_open_first_series(ColorScheme::Dark);
 
     app.hover("视频画面").unwrap();
     app.wait_for("播放进度").unwrap();
@@ -382,9 +287,11 @@ fn scrub_slider_drags_and_seeks_in_overlay() {
 }
 
 #[test]
-fn infinite_scroll_comments_shows_total_count_and_reply_link_without_load_more_button() {
-    let gw = Arc::new(PagedCommentsGateway::new(25));
-    let mut app = start_with_gateway(gw, Os::MacOs, ColorScheme::Light, (1240.0, 800.0));
+fn infinite_scroll_comments_shows_total_count_and_reply_link_without_load_more() {
+    let series_id = SeriesId::new(NonZeroU64::new(1001).unwrap());
+    let ep1 = EpisodeNumber::new(NonZeroU32::MIN);
+    let gw = Arc::new(MockGateway::new().with_paged_comments(series_id, ep1, 25));
+    let (_gw, mut app) = start_with_gateway(gw, ColorScheme::Light);
 
     app.wait_for("评论 (25)").unwrap();
     app.wait_for("共 3 条回复").unwrap();
@@ -400,16 +307,7 @@ fn infinite_scroll_comments_shows_total_count_and_reply_link_without_load_more_b
 #[test]
 fn android_system_back_closes_drawer_before_exiting_player() {
     let gw = Arc::new(MockGateway::new());
-    let mut app = Headless::start(EngineConfig {
-        viewport: Size::new(Points(390.0), Points(844.0)),
-        environment: Environment {
-            os: Os::Android,
-            color_scheme: ColorScheme::Light,
-            ..Environment::default()
-        },
-        ..EngineConfig::new(root_with_gateway(gw))
-    })
-    .unwrap();
+    let mut app = start_mobile(gw, ColorScheme::Light);
 
     app.wait_for("云端之上：千金归来").unwrap();
     app.press("云端之上：千金归来 >> nth=0").unwrap();

@@ -1,23 +1,24 @@
 mod seed;
 
+use std::collections::{HashMap, VecDeque};
 use std::future;
-use std::num::NonZeroU32;
+use std::num::{NonZeroU32, NonZeroU64};
 use std::sync::Arc;
 
 use hg_contracts::catalog::{
-    Category, CommentReply, EpisodeComment, HomeFeed, HotKeyword, HotTag,
+    Category, CommentReply, EpisodeComment, EpisodeSummary, HomeFeed, HotKeyword, HotTag,
     ListCommentRepliesRequest, ListEpisodeCommentsRequest, ListRankingRequest, ListSeriesRequest,
     PagedResult, RankingEntry, RankingKind, SearchSeriesRequest, SearchSuggestion, SeriesDetail,
-    SeriesFilter, SeriesSort, SeriesSummary, TagGroup,
+    SeriesFilter, SeriesSort, SeriesStats, SeriesSummary, TagGroup,
 };
 use hg_contracts::error::ContractError;
 use hg_contracts::ids::{
-    EpisodeKey, EpisodeNumber, PageInfo, PageRequest, SeriesId, StreamProfile,
+    CommentId, EpisodeKey, EpisodeNumber, PageInfo, PageRequest, SeriesId, StreamProfile,
 };
 use hg_contracts::offline::{
-    ControlAllDownloadsAction, ControlDownloadAction, ControlDownloadRequest, DownloadPolicy,
-    DownloadTaskState, DownloadTaskView, EnqueueEpisodeDownloadsRequest,
-    EnqueueEpisodeDownloadsResult, OfflineSeriesView, PauseReason,
+    ControlAllDownloadsAction, ControlDownloadAction, ControlDownloadRequest,
+    DownloadFailureReason, DownloadPolicy, DownloadTaskState, DownloadTaskView,
+    EnqueueEpisodeDownloadsRequest, EnqueueEpisodeDownloadsResult, OfflineSeriesView, PauseReason,
 };
 use hg_contracts::viewing::{
     OnlineStreamKind, PlaybackOrigin, PlaybackPreference, PlaybackSource,
@@ -25,14 +26,31 @@ use hg_contracts::viewing::{
     StorageOverview, WatchHistoryEntry, WatchProgress,
 };
 use parking_lot::Mutex;
+use tokio::sync::oneshot;
 
 use crate::contract::{AppGateway, GatewayFuture};
 use crate::mock::seed::{MockState, build_home_feed, build_initial_state};
+
+pub struct MethodGate {
+    tx: Option<oneshot::Sender<()>>,
+}
+
+impl MethodGate {
+    pub fn release(mut self) {
+        if let Some(tx) = self.tx.take()
+            && tx.send(()).is_err()
+        {}
+    }
+}
+
+type MethodGateMap = HashMap<&'static str, VecDeque<oneshot::Receiver<()>>>;
 
 #[derive(Clone)]
 pub struct MockGateway {
     state: Arc<Mutex<MockState>>,
     injected_error: Arc<Mutex<Option<ContractError>>>,
+    method_errors: Arc<Mutex<HashMap<&'static str, ContractError>>>,
+    method_gates: Arc<Mutex<MethodGateMap>>,
 }
 
 impl Default for MockGateway {
@@ -47,18 +65,273 @@ impl MockGateway {
         Self {
             state: Arc::new(Mutex::new(build_initial_state())),
             injected_error: Arc::new(Mutex::new(None)),
+            method_errors: Arc::new(Mutex::new(HashMap::new())),
+            method_gates: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    #[must_use]
+    pub fn with_paged_catalog(self, count: u64) -> Self {
+        let mut state = self.state.lock();
+        for idx in 1..=count {
+            let id = SeriesId::new(NonZeroU64::new(2000 + idx).unwrap_or(NonZeroU64::MIN));
+            let title = format!("分页剧目 {idx:02}");
+            let hot = 100_000_u64.saturating_sub(idx);
+            let episodes = (1..=12_u32)
+                .map(|n| EpisodeSummary {
+                    ep_num: EpisodeNumber::new(NonZeroU32::new(n).unwrap_or(NonZeroU32::MIN)),
+                    title: format!("第 {n} 集 · 分页剧情 {n}"),
+                    duration_secs: 95,
+                    playable: true,
+                })
+                .collect();
+            state.details.insert(
+                id,
+                SeriesDetail {
+                    summary: SeriesSummary {
+                        id,
+                        title,
+                        cover_url: "poster://amber-noir".to_owned(),
+                        score: 9.0,
+                        tags: vec!["都市".to_owned(), "悬疑".to_owned()],
+                        description: "分页测试剧目".to_owned(),
+                        episode_count: 12,
+                        is_finished: true,
+                        hot,
+                        badge: None,
+                    },
+                    total_episodes: 12,
+                    stats: SeriesStats {
+                        play_heat: hot,
+                        likes: 1000,
+                        bookmarks: 500,
+                        comments: 200,
+                    },
+                    episodes,
+                },
+            );
+        }
+        drop(state);
+        self
+    }
+
+    #[must_use]
+    pub fn with_paged_comments(
+        self,
+        series_id: SeriesId,
+        ep_num: EpisodeNumber,
+        total: u64,
+    ) -> Self {
+        let comments = (1..=total)
+            .map(|idx| {
+                let preview_replies = if idx == 1 {
+                    (1..=3_u64)
+                        .map(|r| CommentReply {
+                            id: CommentId::new(
+                                NonZeroU64::new(7000 + r).unwrap_or(NonZeroU64::MIN),
+                            ),
+                            nickname: format!("回复用户{r}"),
+                            avatar_color: "#0F766E".to_owned(),
+                            text: format!("分页回复内容 #{r}"),
+                            relative_time: "2 分钟前".to_owned(),
+                            like_count: 12,
+                            reply_to_nickname: Some("评论用户1".to_owned()),
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+                EpisodeComment {
+                    id: CommentId::new(NonZeroU64::new(6000 + idx).unwrap_or(NonZeroU64::MIN)),
+                    nickname: format!("评论用户{idx}"),
+                    avatar_color: "#0F766E".to_owned(),
+                    text: format!("分页评论内容 #{idx}"),
+                    relative_time: "5 分钟前".to_owned(),
+                    like_count: 10,
+                    is_pinned: idx == 1,
+                    ip_region: None,
+                    reply_count: if idx == 1 { 3 } else { 0 },
+                    preview_replies,
+                }
+            })
+            .collect();
+        self.state
+            .lock()
+            .comments
+            .insert(EpisodeKey::new(series_id, ep_num), comments);
+        self
+    }
+
+    #[must_use]
+    pub fn with_empty_download_queue(self) -> Self {
+        self.state.lock().download_tasks.clear();
+        self
+    }
+
+    #[must_use]
+    pub fn with_empty_offline_library(self) -> Self {
+        self.state.lock().offline_library.clear();
+        self
+    }
+
+    #[must_use]
+    pub fn with_empty_bookmarks(self) -> Self {
+        self.state.lock().bookmarks.clear();
+        self
+    }
+
+    #[must_use]
+    pub fn with_empty_watch_history(self) -> Self {
+        self.state.lock().watch_history.clear();
+        self
+    }
+
+    #[must_use]
+    pub fn with_empty_search_history(self) -> Self {
+        self.state.lock().search_history.clear();
+        self
+    }
+
+    #[must_use]
+    pub fn with_playback_preference(self, preference: PlaybackPreference) -> Self {
+        self.state.lock().playback_preference = preference;
+        self
+    }
+
+    #[must_use]
+    pub fn with_download_policy(self, policy: DownloadPolicy) -> Self {
+        self.state.lock().download_policy = policy;
+        self
+    }
+
+    #[must_use]
+    pub fn with_failed_download_task(self) -> Self {
+        let series_id = SeriesId::new(NonZeroU64::new(1003).unwrap_or(NonZeroU64::MIN));
+        let ep_num = EpisodeNumber::new(NonZeroU32::MIN);
+        self.state.lock().download_tasks.push(DownloadTaskView {
+            key: EpisodeKey::new(series_id, ep_num),
+            series_title: "重返 1998：科技大亨".to_owned(),
+            episode_title: "第 1 集 · 时代浪潮转折 1".to_owned(),
+            cover_url: "poster://slate-gold".to_owned(),
+            profile: StreamProfile::Hevc,
+            state: DownloadTaskState::Failed {
+                reason: DownloadFailureReason::NetworkError,
+                completed_segments: 4,
+                total_segments: 20,
+            },
+        });
+        self
+    }
+
+    #[must_use]
+    pub fn with_dirty_zero_total_episodes(self, series_id: SeriesId) -> Self {
+        if let Some(detail) = self.state.lock().details.get_mut(&series_id) {
+            detail.total_episodes = 0;
+        }
+        self
     }
 
     pub fn inject_error(&self, error: Option<ContractError>) {
         *self.injected_error.lock() = error;
     }
 
-    fn check_error(&self) -> Result<(), ContractError> {
+    pub fn inject_method_error(&self, method: &'static str, error: Option<ContractError>) {
+        let mut errors = self.method_errors.lock();
+        if let Some(err) = error {
+            errors.insert(method, err);
+        } else {
+            errors.remove(method);
+        }
+    }
+
+    #[must_use]
+    pub fn queue_method_gate(&self, method: &'static str) -> MethodGate {
+        let (tx, rx) = oneshot::channel();
+        self.method_gates
+            .lock()
+            .entry(method)
+            .or_default()
+            .push_back(rx);
+        MethodGate { tx: Some(tx) }
+    }
+
+    #[must_use]
+    pub fn snapshot_preference(&self) -> PlaybackPreference {
+        self.state.lock().playback_preference
+    }
+
+    #[must_use]
+    pub fn snapshot_download_policy(&self) -> DownloadPolicy {
+        self.state.lock().download_policy.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_bookmarks(&self) -> Vec<SeriesBookmark> {
+        self.state.lock().bookmarks.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_watch_history(&self) -> Vec<WatchHistoryEntry> {
+        self.state.lock().watch_history.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_search_history(&self) -> Vec<SearchHistoryEntry> {
+        self.state.lock().search_history.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_download_tasks(&self) -> Vec<DownloadTaskView> {
+        self.state.lock().download_tasks.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_offline_library(&self) -> Vec<OfflineSeriesView> {
+        self.state.lock().offline_library.clone()
+    }
+
+    #[must_use]
+    pub fn snapshot_storage(&self) -> StorageOverview {
+        let state = self.state.lock();
+        let offline_library_bytes = state
+            .offline_library
+            .iter()
+            .map(|s| s.total_size_bytes)
+            .sum();
+        StorageOverview {
+            offline_library_bytes,
+            playback_cache_bytes: state.playback_cache_bytes,
+            catalog_cache_bytes: state.catalog_cache_bytes,
+        }
+    }
+
+    fn check_error(&self, method: &'static str) -> Result<(), ContractError> {
+        if let Some(error) = self.method_errors.lock().get(method).cloned() {
+            return Err(error);
+        }
         if let Some(error) = self.injected_error.lock().clone() {
             return Err(error);
         }
         Ok(())
+    }
+
+    fn finish<T: Send + 'static>(
+        &self,
+        method: &'static str,
+        result: Result<T, ContractError>,
+    ) -> GatewayFuture<T> {
+        let gate = self
+            .method_gates
+            .lock()
+            .get_mut(method)
+            .and_then(VecDeque::pop_front);
+        match gate {
+            Some(rx) => Box::pin(async move {
+                drop(rx.await);
+                result
+            }),
+            None => Box::pin(future::ready(result)),
+        }
     }
 
     fn paginate<T: Clone>(items: &[T], request: PageRequest) -> PagedResult<T> {
@@ -103,39 +376,35 @@ impl MockGateway {
         let percent = u64::from(position_secs).saturating_mul(100) / u64::from(duration_secs);
         remaining <= 3 || percent >= 95
     }
-
-    fn ready<T: Send + 'static>(result: Result<T, ContractError>) -> GatewayFuture<T> {
-        Box::pin(future::ready(result))
-    }
 }
 
 impl AppGateway for MockGateway {
     fn home_feed(&self) -> GatewayFuture<HomeFeed> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("home_feed").map(|()| {
             let state = self.state.lock();
             build_home_feed(&state)
         });
-        Self::ready(result)
+        self.finish("home_feed", result)
     }
 
     fn categories(&self) -> GatewayFuture<Vec<Category>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("categories").map(|()| {
             let state = self.state.lock();
             state.categories.clone()
         });
-        Self::ready(result)
+        self.finish("categories", result)
     }
 
     fn tag_groups(&self) -> GatewayFuture<Vec<TagGroup>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("tag_groups").map(|()| {
             let state = self.state.lock();
             state.tag_groups.clone()
         });
-        Self::ready(result)
+        self.finish("tag_groups", result)
     }
 
     fn list_series(&self, request: ListSeriesRequest) -> GatewayFuture<PagedResult<SeriesSummary>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("list_series").map(|()| {
             let state = self.state.lock();
             let mut items: Vec<SeriesSummary> = state
                 .details
@@ -187,14 +456,14 @@ impl AppGateway for MockGateway {
 
             Self::paginate(&items, request.page)
         });
-        Self::ready(result)
+        self.finish("list_series", result)
     }
 
     fn list_ranking(
         &self,
         request: ListRankingRequest,
     ) -> GatewayFuture<PagedResult<RankingEntry>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("list_ranking").map(|()| {
             let state = self.state.lock();
             let mut items: Vec<SeriesSummary> =
                 state.details.values().map(|d| d.summary.clone()).collect();
@@ -224,14 +493,14 @@ impl AppGateway for MockGateway {
                 .collect();
             Self::paginate(&entries, request.page)
         });
-        Self::ready(result)
+        self.finish("list_ranking", result)
     }
 
     fn search_series(
         &self,
         request: SearchSeriesRequest,
     ) -> GatewayFuture<PagedResult<SeriesSummary>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("search_series").map(|()| {
             let state = self.state.lock();
             let needle = request.keyword.trim().to_lowercase();
             let items: Vec<SeriesSummary> = state
@@ -247,11 +516,11 @@ impl AppGateway for MockGateway {
                 .collect();
             Self::paginate(&items, request.page)
         });
-        Self::ready(result)
+        self.finish("search_series", result)
     }
 
     fn search_suggestions(&self, keyword: String) -> GatewayFuture<SearchSuggestion> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("search_suggestions").map(|()| {
             let state = self.state.lock();
             let needle = keyword.trim().to_lowercase();
             let series: Vec<SeriesSummary> = state
@@ -274,25 +543,25 @@ impl AppGateway for MockGateway {
                 tags,
             }
         });
-        Self::ready(result)
+        self.finish("search_suggestions", result)
     }
 
     fn hot_keywords(&self) -> GatewayFuture<Vec<HotKeyword>> {
         let result = self
-            .check_error()
+            .check_error("hot_keywords")
             .map(|()| self.state.lock().hot_keywords.clone());
-        Self::ready(result)
+        self.finish("hot_keywords", result)
     }
 
     fn hot_tags(&self) -> GatewayFuture<Vec<HotTag>> {
         let result = self
-            .check_error()
+            .check_error("hot_tags")
             .map(|()| self.state.lock().hot_tags.clone());
-        Self::ready(result)
+        self.finish("hot_tags", result)
     }
 
     fn series_detail(&self, series_id: SeriesId) -> GatewayFuture<SeriesDetail> {
-        let result = self.check_error().and_then(|()| {
+        let result = self.check_error("series_detail").and_then(|()| {
             let state = self.state.lock();
             state
                 .details
@@ -302,27 +571,27 @@ impl AppGateway for MockGateway {
                     resource: format!("series/{series_id}"),
                 })
         });
-        Self::ready(result)
+        self.finish("series_detail", result)
     }
 
     fn list_episode_comments(
         &self,
         request: ListEpisodeCommentsRequest,
     ) -> GatewayFuture<PagedResult<EpisodeComment>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("list_episode_comments").map(|()| {
             let state = self.state.lock();
             let key = EpisodeKey::new(request.series_id, request.ep_num);
             let items = state.comments.get(&key).cloned().unwrap_or_default();
             Self::paginate(&items, request.page)
         });
-        Self::ready(result)
+        self.finish("list_episode_comments", result)
     }
 
     fn list_comment_replies(
         &self,
         request: ListCommentRepliesRequest,
     ) -> GatewayFuture<PagedResult<CommentReply>> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("list_comment_replies").map(|()| {
             let state = self.state.lock();
             let replies: Vec<CommentReply> = state
                 .comments
@@ -334,19 +603,19 @@ impl AppGateway for MockGateway {
                 .unwrap_or_default();
             Self::paginate(&replies, request.page)
         });
-        Self::ready(result)
+        self.finish("list_comment_replies", result)
     }
 
     fn clear_catalog_cache(&self) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("clear_catalog_cache").map(|()| {
             let mut state = self.state.lock();
             state.catalog_cache_bytes = 0;
         });
-        Self::ready(result)
+        self.finish("clear_catalog_cache", result)
     }
 
     fn prepare_episode_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
-        let result = self.check_error().and_then(|()| {
+        let result = self.check_error("prepare_episode_playback").and_then(|()| {
             let state = self.state.lock();
             let detail =
                 state
@@ -389,7 +658,7 @@ impl AppGateway for MockGateway {
                 duration_secs: episode.duration_secs,
             })
         });
-        Self::ready(result)
+        self.finish("prepare_episode_playback", result)
     }
 
     fn refresh_online_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
@@ -400,7 +669,7 @@ impl AppGateway for MockGateway {
         &self,
         request: ReportWatchProgressRequest,
     ) -> GatewayFuture<ReportWatchProgressResult> {
-        let result = self.check_error().and_then(|()| {
+        let result = self.check_error("report_watch_progress").and_then(|()| {
             let mut state = self.state.lock();
             let detail = state
                 .details
@@ -447,54 +716,54 @@ impl AppGateway for MockGateway {
                 next_episode,
             })
         });
-        Self::ready(result)
+        self.finish("report_watch_progress", result)
     }
 
     fn watch_history(&self) -> GatewayFuture<Vec<WatchHistoryEntry>> {
         let result = self
-            .check_error()
+            .check_error("watch_history")
             .map(|()| self.state.lock().watch_history.clone());
-        Self::ready(result)
+        self.finish("watch_history", result)
     }
 
     fn remove_watch_history(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("remove_watch_history").map(|()| {
             self.state
                 .lock()
                 .watch_history
                 .retain(|e| e.series_id != series_id);
         });
-        Self::ready(result)
+        self.finish("remove_watch_history", result)
     }
 
     fn clear_watch_history(&self) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("clear_watch_history").map(|()| {
             self.state.lock().watch_history.clear();
         });
-        Self::ready(result)
+        self.finish("clear_watch_history", result)
     }
 
     fn bookmarks(&self) -> GatewayFuture<Vec<SeriesBookmark>> {
         let result = self
-            .check_error()
+            .check_error("bookmarks")
             .map(|()| self.state.lock().bookmarks.clone());
-        Self::ready(result)
+        self.finish("bookmarks", result)
     }
 
     fn is_bookmarked(&self, series_id: SeriesId) -> GatewayFuture<bool> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("is_bookmarked").map(|()| {
             self.state
                 .lock()
                 .bookmarks
                 .iter()
                 .any(|b| b.series_id == series_id)
         });
-        Self::ready(result)
+        self.finish("is_bookmarked", result)
     }
 
     fn bookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
         let result =
-            self.check_error().and_then(|()| {
+            self.check_error("bookmark_series").and_then(|()| {
                 let mut state = self.state.lock();
                 if state.bookmarks.iter().any(|b| b.series_id == series_id) {
                     return Ok(());
@@ -520,42 +789,42 @@ impl AppGateway for MockGateway {
                 );
                 Ok(())
             });
-        Self::ready(result)
+        self.finish("bookmark_series", result)
     }
 
     fn unbookmark_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("unbookmark_series").map(|()| {
             self.state
                 .lock()
                 .bookmarks
                 .retain(|b| b.series_id != series_id);
         });
-        Self::ready(result)
+        self.finish("unbookmark_series", result)
     }
 
     fn playback_preference(&self) -> GatewayFuture<PlaybackPreference> {
         let result = self
-            .check_error()
+            .check_error("playback_preference")
             .map(|()| self.state.lock().playback_preference);
-        Self::ready(result)
+        self.finish("playback_preference", result)
     }
 
     fn update_playback_preference(&self, preference: PlaybackPreference) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("update_playback_preference").map(|()| {
             self.state.lock().playback_preference = preference;
         });
-        Self::ready(result)
+        self.finish("update_playback_preference", result)
     }
 
     fn search_history(&self) -> GatewayFuture<Vec<SearchHistoryEntry>> {
         let result = self
-            .check_error()
+            .check_error("search_history")
             .map(|()| self.state.lock().search_history.clone());
-        Self::ready(result)
+        self.finish("search_history", result)
     }
 
     fn record_search_history(&self, keyword: String) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("record_search_history").map(|()| {
             let trimmed = keyword.trim();
             if trimmed.is_empty() {
                 return;
@@ -575,36 +844,36 @@ impl AppGateway for MockGateway {
             );
             state.search_history.truncate(20);
         });
-        Self::ready(result)
+        self.finish("record_search_history", result)
     }
 
     fn remove_search_history(&self, keyword: String) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("remove_search_history").map(|()| {
             let trimmed = keyword.trim();
             self.state
                 .lock()
                 .search_history
                 .retain(|entry| entry.keyword != trimmed);
         });
-        Self::ready(result)
+        self.finish("remove_search_history", result)
     }
 
     fn clear_search_history(&self) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("clear_search_history").map(|()| {
             self.state.lock().search_history.clear();
         });
-        Self::ready(result)
+        self.finish("clear_search_history", result)
     }
 
     fn clear_playback_cache(&self) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("clear_playback_cache").map(|()| {
             self.state.lock().playback_cache_bytes = 0;
         });
-        Self::ready(result)
+        self.finish("clear_playback_cache", result)
     }
 
     fn storage_overview(&self) -> GatewayFuture<StorageOverview> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("storage_overview").map(|()| {
             let state = self.state.lock();
             let offline_library_bytes: u64 = state
                 .offline_library
@@ -617,81 +886,83 @@ impl AppGateway for MockGateway {
                 catalog_cache_bytes: state.catalog_cache_bytes,
             }
         });
-        Self::ready(result)
+        self.finish("storage_overview", result)
     }
 
     fn offline_library(&self) -> GatewayFuture<Vec<OfflineSeriesView>> {
         let result = self
-            .check_error()
+            .check_error("offline_library")
             .map(|()| self.state.lock().offline_library.clone());
-        Self::ready(result)
+        self.finish("offline_library", result)
     }
 
     fn download_tasks(&self) -> GatewayFuture<Vec<DownloadTaskView>> {
         let result = self
-            .check_error()
+            .check_error("download_tasks")
             .map(|()| self.state.lock().download_tasks.clone());
-        Self::ready(result)
+        self.finish("download_tasks", result)
     }
 
     fn enqueue_episode_downloads(
         &self,
         request: EnqueueEpisodeDownloadsRequest,
     ) -> GatewayFuture<EnqueueEpisodeDownloadsResult> {
-        let result = self.check_error().and_then(|()| {
-            let mut state = self.state.lock();
-            let detail = state
-                .details
-                .get(&request.series_id)
-                .cloned()
-                .ok_or_else(|| ContractError::NotFound {
-                    resource: format!("series/{}", request.series_id),
-                })?;
-            let profile = state.download_policy.preferred_profile;
+        let result = self
+            .check_error("enqueue_episode_downloads")
+            .and_then(|()| {
+                let mut state = self.state.lock();
+                let detail = state
+                    .details
+                    .get(&request.series_id)
+                    .cloned()
+                    .ok_or_else(|| ContractError::NotFound {
+                        resource: format!("series/{}", request.series_id),
+                    })?;
+                let profile = state.download_policy.preferred_profile;
 
-            let mut queued = Vec::new();
-            let mut skipped_already_present = Vec::new();
+                let mut queued = Vec::new();
+                let mut skipped_already_present = Vec::new();
 
-            for ep in request.episodes {
-                let key = EpisodeKey::new(request.series_id, ep);
-                let already_offline = Self::has_offline_episode(&state, key).is_some();
-                let already_queued = state.download_tasks.iter().any(|t| {
-                    t.key == key
-                        && !matches!(
-                            t.state,
-                            DownloadTaskState::Cancelled | DownloadTaskState::Completed
-                        )
-                });
-                if already_offline || already_queued {
-                    skipped_already_present.push(key);
-                    continue;
+                for ep in request.episodes {
+                    let key = EpisodeKey::new(request.series_id, ep);
+                    let already_offline = Self::has_offline_episode(&state, key).is_some();
+                    let already_queued = state.download_tasks.iter().any(|t| {
+                        t.key == key
+                            && !matches!(
+                                t.state,
+                                DownloadTaskState::Cancelled | DownloadTaskState::Completed
+                            )
+                    });
+                    if already_offline || already_queued {
+                        skipped_already_present.push(key);
+                        continue;
+                    }
+                    let ep_title = detail
+                        .episodes
+                        .iter()
+                        .find(|e| e.ep_num == ep)
+                        .map_or_else(|| format!("第 {ep} 集"), |e| e.title.clone());
+                    state.download_tasks.push(DownloadTaskView {
+                        key,
+                        series_title: detail.summary.title.clone(),
+                        episode_title: ep_title,
+                        cover_url: detail.summary.cover_url.clone(),
+                        profile,
+                        state: DownloadTaskState::Queued,
+                    });
+                    queued.push(key);
                 }
-                let ep_title = detail
-                    .episodes
-                    .iter()
-                    .find(|e| e.ep_num == ep)
-                    .map_or_else(|| format!("第 {ep} 集"), |e| e.title.clone());
-                state.download_tasks.push(DownloadTaskView {
-                    key,
-                    series_title: detail.summary.title.clone(),
-                    episode_title: ep_title,
-                    cover_url: detail.summary.cover_url.clone(),
-                    profile,
-                    state: DownloadTaskState::Queued,
-                });
-                queued.push(key);
-            }
 
-            Ok(EnqueueEpisodeDownloadsResult {
-                queued,
-                skipped_already_present,
-            })
-        });
-        Self::ready(result)
+                Ok(EnqueueEpisodeDownloadsResult {
+                    queued,
+                    skipped_already_present,
+                })
+            });
+        self.finish("enqueue_episode_downloads", result)
     }
 
     fn control_download(&self, request: ControlDownloadRequest) -> GatewayFuture<()> {
-        let result = self.check_error().and_then(|()| {
+        let result = self.check_error("control_download").and_then(|()| {
             let mut state = self.state.lock();
             let task = state
                 .download_tasks
@@ -742,11 +1013,11 @@ impl AppGateway for MockGateway {
                 .retain(|t| !matches!(t.state, DownloadTaskState::Cancelled));
             Ok(())
         });
-        Self::ready(result)
+        self.finish("control_download", result)
     }
 
     fn control_all_downloads(&self, action: ControlAllDownloadsAction) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("control_all_downloads").map(|()| {
             let mut state = self.state.lock();
             for task in &mut state.download_tasks {
                 match action {
@@ -781,11 +1052,11 @@ impl AppGateway for MockGateway {
                 }
             }
         });
-        Self::ready(result)
+        self.finish("control_all_downloads", result)
     }
 
     fn delete_offline_episode(&self, key: EpisodeKey) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("delete_offline_episode").map(|()| {
             let mut state = self.state.lock();
             for series in &mut state.offline_library {
                 if series.series_id == key.series_id {
@@ -795,30 +1066,30 @@ impl AppGateway for MockGateway {
             }
             state.offline_library.retain(|s| !s.episodes.is_empty());
         });
-        Self::ready(result)
+        self.finish("delete_offline_episode", result)
     }
 
     fn delete_offline_series(&self, series_id: SeriesId) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("delete_offline_series").map(|()| {
             self.state
                 .lock()
                 .offline_library
                 .retain(|s| s.series_id != series_id);
         });
-        Self::ready(result)
+        self.finish("delete_offline_series", result)
     }
 
     fn download_policy(&self) -> GatewayFuture<DownloadPolicy> {
         let result = self
-            .check_error()
+            .check_error("download_policy")
             .map(|()| self.state.lock().download_policy.clone());
-        Self::ready(result)
+        self.finish("download_policy", result)
     }
 
     fn update_download_policy(&self, policy: DownloadPolicy) -> GatewayFuture<()> {
-        let result = self.check_error().map(|()| {
+        let result = self.check_error("update_download_policy").map(|()| {
             self.state.lock().download_policy = policy;
         });
-        Self::ready(result)
+        self.finish("update_download_policy", result)
     }
 }

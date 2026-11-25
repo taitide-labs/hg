@@ -22,6 +22,7 @@ nsh-platform-windows.workspace = true
 [dev-dependencies]
 nsh-engine.workspace = true
 nsh-testing.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -29,10 +29,15 @@
 - 等价：`SeriesBookmark`
 - 避免：离线剧目、观看历史
 
-**播放偏好**：约束观影体验的全局用户偏好，涵盖在线优先流档位与播放缓存容量上限。
+**播放偏好**：约束观影体验的全局用户偏好，涵盖在线优先流档位、默认播放倍速、外观模式、桌面侧边栏折叠与宽度状态及播放缓存容量上限。
 
 - 等价：`PlaybackPreference`
 - 避免：下载策略
+
+**搜索历史**：用户在当前设备上提交过的检索关键词记录，按最近检索时间倒序去重保留（上限 20 条）。
+
+- 等价：`SearchHistoryEntry`
+- 避免：热搜词、观看历史
 
 ## Workflow
 
@@ -45,5 +50,8 @@
 - `ClearWatchHistory`：`RequestClearWatchHistory` -> `WatchHistoryCleared`
 - `BookmarkSeries`：`AddSeriesBookmark` -> `SeriesBookmarked`
 - `UnbookmarkSeries`：`RemoveSeriesBookmark` -> `SeriesUnbookmarked`
+- `RecordSearchHistory`：`SaveSearchKeyword` -> `SearchHistoryRecorded`
+- `RemoveSearchHistory`：`DeleteSearchKeyword` -> `SearchHistoryEntryRemoved`
+- `ClearSearchHistory`：`RequestClearSearchHistory` -> `SearchHistoryCleared`
 - `ClearPlaybackCache`：`RequestClearPlaybackCache` -> `PlaybackCacheCleared`
 - `UpdatePlaybackPreference`：`SavePlaybackPreference` -> `PlaybackPreferenceUpdated`

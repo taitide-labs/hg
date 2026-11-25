@@ -317,3 +317,23 @@ async fn refreshes_online_playback_using_stored_preference_and_halts_series_sess
     loopback.shutdown();
     db.close().await;
 }
+
+#[tokio::test]
+#[ignore = "BUG: 在线回环代理直通流式转发，尚未写入 viewing_playback_cache_segments 或按 PlaybackPreference.playback_cache_limit_mb 自动淘汰"]
+async fn online_loopback_playback_caches_segments_within_configured_limit() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let storage = Arc::new(
+        StorageLayout::new(&temp.path().join("data"), &temp.path().join("cache")).expect("storage"),
+    );
+    storage.ensure_dirs().await.expect("ensure dirs");
+    let db = LocalDatabase::open_in_memory().await.expect("sqlite");
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM viewing_playback_cache_segments")
+        .fetch_one(db.pool())
+        .await
+        .expect("count playback cache segments");
+    assert!(
+        count.0 > 0,
+        "online playback segments must populate viewing_playback_cache_segments and honor cache limit"
+    );
+    db.close().await;
+}

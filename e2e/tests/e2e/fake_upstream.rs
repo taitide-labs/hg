@@ -671,19 +671,19 @@ fn dispatch_api_route(method: &str, path_with_query: &str, base_url: &str) -> (u
 fn dispatch_playback_route(path: &str, base_url: &str) -> (u16, Value) {
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     let Some(series_str) = parts.get(2).copied() else {
-        return (404, json!({ "status": 0, "msg": "剧集不存在" }));
+        return (404, json!({ "status": 0, "msg": "剧目不存在" }));
     };
     let Some(ep_str) = parts.get(4).copied() else {
         return (404, json!({ "status": 0, "msg": "分集不存在" }));
     };
     let Ok(series_id) = series_str.parse::<u64>() else {
-        return (404, json!({ "status": 0, "msg": "剧集不存在" }));
+        return (404, json!({ "status": 0, "msg": "剧目不存在" }));
     };
     let Ok(ep_num) = ep_str.parse::<u32>() else {
         return (404, json!({ "status": 0, "msg": "分集不存在" }));
     };
     if series_id != 101 && series_id != 102 {
-        return (404, json!({ "status": 0, "msg": "剧集不存在" }));
+        return (404, json!({ "status": 0, "msg": "剧目不存在" }));
     }
 
     let payload = json!({

@@ -391,3 +391,40 @@ async fn falls_back_hevc_to_main_persists_library_and_skips_completed_on_reenque
     assert_eq!(re_enqueued.queued, vec![key2]);
     assert_eq!(re_enqueued.skipped_already_present, vec![key1]);
 }
+
+#[tokio::test]
+#[ignore = "BUG: DownloadPolicy.wifi_only 已持久化但离线下载调度尚未接入网络类型检测，非 Wi-Fi 下不会挂起为 PauseReason::WifiOnlyBlocked"]
+async fn wifi_only_policy_pauses_tasks_when_network_is_metered() {
+    let series_id = SeriesId::try_from(202).expect("series");
+    let ep1 = EpisodeNumber::try_from(1).expect("ep1");
+    let ep2 = EpisodeNumber::try_from(2).expect("ep2");
+    let key1 = EpisodeKey::new(series_id, ep1);
+    let key2 = EpisodeKey::new(series_id, ep2);
+    let (catalog, fetcher) = build_main_fallback_fixture(series_id, key1, key2);
+    let (_temp, deps) = build_deps(catalog, fetcher).await;
+    update_download_policy(
+        &deps,
+        DownloadPolicy {
+            preferred_profile: StreamProfile::Hevc,
+            wifi_only: true,
+            max_concurrent_tasks: 2,
+            storage_directory: None,
+        },
+    )
+    .await
+    .expect("enable wifi_only");
+    enqueue_episode_downloads(
+        &deps,
+        EnqueueEpisodeDownloadsRequest {
+            series_id,
+            episodes: vec![ep1],
+        },
+    )
+    .await
+    .expect("enqueue");
+    let ran = execute_next_queued_task(&deps).await.expect("execute");
+    assert_eq!(
+        ran, None,
+        "metered network must pause task instead of downloading under wifi_only policy"
+    );
+}

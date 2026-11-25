@@ -78,3 +78,37 @@ fn encodes_video_player_events_for_nsh_bridge() {
     assert_eq!(err_name, "error");
     assert_eq!(err_payload.get("message"), Some(&json!("decode failed")));
 }
+
+#[test]
+fn handles_prop_reset_unknown_keys_and_boundary_clamping() {
+    let mut props = VideoPlayerProps::default();
+    assert_eq!(
+        props.apply_prop("src", Some(&json!("http://127.0.0.1:9000/a.m3u8"))),
+        PropChange::Source
+    );
+    assert_eq!(props.apply_prop("src", None), PropChange::Source);
+    assert_eq!(props.src, None);
+    assert_eq!(props.apply_prop("src", None), PropChange::Unchanged);
+
+    assert_eq!(
+        props.apply_prop("unknown_prop", Some(&json!(123))),
+        PropChange::Unchanged
+    );
+    assert_eq!(
+        props.apply_prop("rate", Some(&json!(99.0))),
+        PropChange::Rate
+    );
+    assert!(props.rate <= 4.0 && props.rate >= 0.25);
+
+    assert_eq!(
+        props.apply_prop("volume", Some(&json!(-5.0))),
+        PropChange::Volume
+    );
+    assert!((0.0..=1.0).contains(&props.volume));
+
+    assert_eq!(
+        props.apply_prop("aspect", Some(&json!("invalid-aspect"))),
+        PropChange::Unchanged
+    );
+    assert_eq!(props.aspect, VideoAspect::default());
+}

@@ -53,7 +53,7 @@ fn live_upstream_catalog_detail_and_playback_smoke() {
             .unwrap_or_else(|err| panic!("实网剧目详情 {} 失败: {err}", summary.id));
         assert!(
             !detail.episodes.is_empty(),
-            "实网剧目 {} 剧集列表不应为空",
+            "实网剧目 {} 分集列表不应为空",
             summary.id
         );
         assert!(

@@ -4,24 +4,20 @@ mod bookmarks_remove;
 use std::sync::Arc;
 
 use hg_gateway::mock::MockGateway;
-use nsh_engine::{ColorScheme, EngineConfig, Environment, Os, Points, Size};
+use nsh_engine::ColorScheme;
 use nsh_testing::Headless;
 
-use crate::root_with_gateway;
+use crate::pages::tests::start_desktop_on_home;
 
-pub(super) fn start_on_watchlist() -> Headless {
-    let environment = Environment {
-        os: Os::MacOs,
-        color_scheme: ColorScheme::Light,
-        ..Environment::default()
-    };
-    let mut app = Headless::start(EngineConfig {
-        viewport: Size::new(Points(1240.0), Points(800.0)),
-        environment,
-        ..EngineConfig::new(root_with_gateway(Arc::new(MockGateway::new())))
-    })
-    .unwrap();
-    app.wait_for("精选推荐").unwrap();
+pub(super) fn start_on_watchlist() -> (Arc<MockGateway>, Headless) {
+    start_on_watchlist_with(Arc::new(MockGateway::new()), ColorScheme::Light)
+}
+
+pub(super) fn start_on_watchlist_with(
+    gw: Arc<MockGateway>,
+    scheme: ColorScheme,
+) -> (Arc<MockGateway>, Headless) {
+    let mut app = start_desktop_on_home(Arc::clone(&gw), scheme);
     app.press("追剧").unwrap();
-    app
+    (gw, app)
 }
