@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.0](https://github.com/taitide-labs/hg/compare/v0.1.2...v0.2.0) (2026-11-25)
+
+
+### Features
+
+* **app:** 修复播放器与持久化缺陷并重构导航搜索离线布局 ([#83](https://github.com/taitide-labs/hg/issues/83)) ([91d7b95](https://github.com/taitide-labs/hg/commit/91d7b95af3cbe459e5406cbf2ddeadd87db607b8))
+
+
+### Bug Fixes
+
+* **app:** 补齐响应式扩容、播放器交互打磨、离线分集弹窗与二次确认 ([#87](https://github.com/taitide-labs/hg/issues/87)) ([4146a5e](https://github.com/taitide-labs/hg/commit/4146a5ecc00a80cc7287a2fa1dc6e56c927dec0e))
+* **workspace:** 修复重试任务取消缺陷并接线仅 Wi-Fi 策略与播放缓存淘汰 ([#86](https://github.com/taitide-labs/hg/issues/86)) ([3e6471f](https://github.com/taitide-labs/hg/commit/3e6471f4a07f2a234861e36ae2a9adacfe1ff746))
+
 ## [0.1.2](https://github.com/taitide-labs/hg/compare/v0.1.1...v0.1.2) (2026-11-24)
 
 

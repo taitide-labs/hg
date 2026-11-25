@@ -1327,7 +1327,7 @@ checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
 name = "hg-app"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-contracts",
  "hg-gateway",
@@ -1343,7 +1343,7 @@ dependencies = [
 
 [[package]]
 name = "hg-backend-contracts"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-contracts",
  "serde",
@@ -1352,14 +1352,14 @@ dependencies = [
 
 [[package]]
 name = "hg-catalog-domain"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "thiserror",
 ]
 
 [[package]]
 name = "hg-catalog-features"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aes",
  "cbc",
@@ -1377,14 +1377,14 @@ dependencies = [
 
 [[package]]
 name = "hg-contracts"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "hg-e2e"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aes-gcm",
  "base64 0.23.1",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "hg-gateway"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-contracts",
  "hg-runtime",
@@ -1424,7 +1424,7 @@ dependencies = [
 
 [[package]]
 name = "hg-infra"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -1452,7 +1452,7 @@ dependencies = [
 
 [[package]]
 name = "hg-native-player"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "block2",
  "libc",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "hg-offline-domain"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-backend-contracts",
  "hg-contracts",
@@ -1475,7 +1475,7 @@ dependencies = [
 
 [[package]]
 name = "hg-offline-features"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-backend-contracts",
  "hg-contracts",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "hg-runtime"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-backend-contracts",
  "hg-catalog-features",
@@ -1509,7 +1509,7 @@ dependencies = [
 
 [[package]]
 name = "hg-viewing-domain"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-backend-contracts",
  "hg-contracts",
@@ -1518,7 +1518,7 @@ dependencies = [
 
 [[package]]
 name = "hg-viewing-features"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "hg-backend-contracts",
  "hg-contracts",
