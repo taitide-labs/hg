@@ -10,7 +10,7 @@ use nsh_testing::DialogAnswer;
 
 use crate::pages::search::page::search_page;
 use crate::pages::tests::{
-    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, mount_desktop_page,
+    DESKTOP_VIEWPORT, assert_above, assert_visible_in_viewport, mount_desktop_page, node_bounds,
 };
 
 fn start_on_search(gw: Arc<MockGateway>, scheme: ColorScheme) -> nsh_testing::Headless {
@@ -299,4 +299,50 @@ fn search_tags_filter_using_chinese_tag_name_not_pinyin_slug() {
     app.wait_for("云端之上：千金归来").unwrap();
     app.wait_for("春风十里不及卿").unwrap();
     assert!(!app.screen().shows("全 80 集"));
+}
+
+#[test]
+fn search_hot_keywords_and_tag_chips_match_size_and_align_with_distinct_style() {
+    let gw = Arc::new(MockGateway::new().with_tag_groups(vec![TagGroup {
+        id: 28,
+        code: "djtc".to_owned(),
+        name: "短剧题材".to_owned(),
+        tags: vec![TagItem {
+            id: 58,
+            name: "都市".to_owned(),
+            slug: "dushi".to_owned(),
+            is_hot: false,
+        }],
+    }]));
+    let app = start_on_search(gw, ColorScheme::Dark);
+
+    let hot_chip = node_bounds(&app, "label:热搜 千金归来");
+    let tag_chip = node_bounds(&app, "label:标签 都市");
+    assert!(
+        (hot_chip.size.height.0 - tag_chip.size.height.0).abs() <= 0.5,
+        "hot keyword chip height ({}) must match tag chip height ({})",
+        hot_chip.size.height.0,
+        tag_chip.size.height.0
+    );
+    assert!(
+        (hot_chip.origin.x.0 - tag_chip.origin.x.0).abs() <= 1.0,
+        "hot keyword row x ({}) must align with multi-char group tag row x ({})",
+        hot_chip.origin.x.0,
+        tag_chip.origin.x.0
+    );
+
+    let hot_bg = app
+        .screen()
+        .view_style("label:热搜 千金归来")
+        .unwrap()
+        .map(|s| s.background_color);
+    let tag_bg = app
+        .screen()
+        .view_style("label:标签 都市")
+        .unwrap()
+        .map(|s| s.background_color);
+    assert_ne!(
+        hot_bg, tag_bg,
+        "hot keyword and category tag must differentiate by style/color instead of size"
+    );
 }

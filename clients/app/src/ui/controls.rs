@@ -200,42 +200,27 @@ pub fn sidebar_toggle_button(
         .child(icon(IconKind::PanelLeft, 14.0, token::fg))
 }
 
-pub fn tag_chip_button(
-    label: String,
-    active: impl Fn() -> bool + 'static,
+fn styled_chip_button(
+    a11y_label: String,
+    bg_fn: impl Fn() -> AdaptiveColor + 'static,
+    hover_bg_fn: impl Fn() -> AdaptiveColor + 'static,
+    content: impl IntoElement,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    let active = Rc::new(active);
-    let active_bg = Rc::clone(&active);
-    let active_hover = Rc::clone(&active);
-    let active_fg = active;
     button()
         .on_press(on_press)
+        .accessibility_label(a11y_label)
         .h(px(28.0))
         .px(px(10.0))
         .flex_row()
         .items_center()
         .justify_center()
+        .gap_1()
         .rounded(token::radius_control)
-        .bg(move || {
-            if active_bg() {
-                token::primary()
-            } else {
-                token::secondary()
-            }
-        })
+        .bg(bg_fn)
         .transition_colors()
         .duration(token::INSTANT_MS)
-        .hover(move |s| {
-            let active_hover = Rc::clone(&active_hover);
-            s.bg(move || {
-                if active_hover() {
-                    token::primary().opacity(0.9)
-                } else {
-                    token::accent()
-                }
-            })
-        })
+        .hover(move |s| s.bg(hover_bg_fn))
         .active(|s| {
             let s = s.opacity(0.88);
             if reduce_motion() {
@@ -245,18 +230,99 @@ pub fn tag_chip_button(
             }
         })
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
+        .child(content)
+}
+
+pub fn hot_keyword_chip(
+    label: &str,
+    highlighted: bool,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let icon_color = move || {
+        if highlighted {
+            token::brand_soft_fg()
+        } else {
+            token::muted_fg()
+        }
+    };
+    let text_color = move || {
+        if highlighted {
+            token::brand_soft_fg()
+        } else {
+            token::fg()
+        }
+    };
+    let content = view()
+        .flex_row()
+        .items_center()
+        .gap_1()
+        .child(icon(IconKind::Search, 12.0, icon_color))
         .child(
-            text(label)
+            text(label.to_owned())
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
-                .text_color(move || {
-                    if active_fg() {
-                        token::primary_fg()
-                    } else {
-                        token::fg()
-                    }
-                }),
-        )
+                .text_color(text_color),
+        );
+    styled_chip_button(
+        format!("热搜 {label}"),
+        move || {
+            if highlighted {
+                token::brand_soft()
+            } else {
+                token::surface_subtle()
+            }
+        },
+        move || {
+            if highlighted {
+                token::brand_soft().opacity(0.85)
+            } else {
+                token::accent()
+            }
+        },
+        content,
+        on_press,
+    )
+}
+
+pub fn tag_chip_button(
+    label: &str,
+    active: impl Fn() -> bool + 'static,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    let active = Rc::new(active);
+    let active_bg = Rc::clone(&active);
+    let active_hover = Rc::clone(&active);
+    let active_fg = active;
+    let content = text(label.to_owned())
+        .text_sm()
+        .font_weight(FontWeight::MEDIUM)
+        .text_color(move || {
+            if active_fg() {
+                token::primary_fg()
+            } else {
+                token::fg()
+            }
+        });
+    styled_chip_button(
+        format!("标签 {label}"),
+        move || {
+            if active_bg() {
+                token::primary()
+            } else {
+                token::secondary()
+            }
+        },
+        move || {
+            let active_hover = Rc::clone(&active_hover);
+            if active_hover() {
+                token::primary().opacity(0.9)
+            } else {
+                token::accent()
+            }
+        },
+        content,
+        on_press,
+    )
 }
 
 pub fn chip_remove_button(a11y_label: String, on_press: impl Fn() + 'static) -> impl IntoElement {

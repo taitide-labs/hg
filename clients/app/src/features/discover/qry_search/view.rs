@@ -11,8 +11,8 @@ use super::super::store::{self, SearchTarget};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button, text_link_button};
 use crate::ui::controls::{
-    chip_remove_button, confirm_destructive, selected_tag_chip, submit_button, tag_chip_button,
-    tag_fold_button,
+    chip_remove_button, confirm_destructive, hot_keyword_chip, selected_tag_chip, submit_button,
+    tag_chip_button, tag_fold_button,
 };
 use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
@@ -278,29 +278,33 @@ fn search_history_strip(
         .child(chips)
 }
 
+fn filter_row_label(label: impl IntoReactive<SharedString>) -> impl IntoElement {
+    view().w(px(64.0)).flex_shrink_0().child(
+        text(label)
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(token::muted_fg),
+    )
+}
+
 fn hot_keywords_strip(
     keywords: Vec<HotKeyword>,
     scroller: ElementRef,
     page_owner: Owner,
 ) -> impl IntoElement {
-    let mut row = view().flex_row().flex_wrap().items_center().gap_2().child(
-        text("热搜")
-            .text_xs()
-            .font_weight(FontWeight::MEDIUM)
-            .text_color(token::muted_fg),
-    );
-    for kw in keywords {
+    let mut row = view()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_2()
+        .child(filter_row_label("热搜"));
+    for (idx, kw) in keywords.into_iter().enumerate() {
         let word = kw.word;
         let query_word = word.clone();
-        row = row.child(app_button(
-            word,
-            ButtonVariant::Outline,
-            ControlSize::Sm,
-            move || {
-                scroller.scroll_to(point(px(0.0), px(0.0)), false);
-                page_owner.run(|| query::submit_keyword(&query_word));
-            },
-        ));
+        row = row.child(hot_keyword_chip(&word, idx < 3, move || {
+            scroller.scroll_to(point(px(0.0), px(0.0)), false);
+            page_owner.run(|| query::submit_keyword(&query_word));
+        }));
     }
     row
 }
@@ -356,18 +360,18 @@ fn tag_filter_strip(
             visible_cap
         };
 
-        let mut row = view().flex_row().flex_wrap().items_center().gap_2().child(
-            text(group.name.clone())
-                .text_xs()
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(token::muted_fg),
-        );
+        let mut row = view()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .child(filter_row_label(group.name.clone()));
         for tag in group.tags.iter().take(limit) {
             let slug = tag.slug.clone();
             let name_for_active = tag.name.clone();
             let name = tag.name.clone();
             row = row.child(tag_chip_button(
-                tag.name.clone(),
+                &tag.name,
                 move || {
                     let n = name_for_active.clone();
                     store::search_state().with(|st| {
