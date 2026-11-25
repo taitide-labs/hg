@@ -14,6 +14,7 @@ pub fn home_feed_view(
     on_open_browse: impl Fn(BrowseKind) + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
 ) -> impl IntoElement {
+    let page_owner = Owner::current();
     query::load_home();
     let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
 
@@ -36,7 +37,10 @@ pub fn home_feed_view(
                         IconKind::Discover,
                         "片库加载失败",
                         "请稍后重试刷新发现内容",
-                        Some(("重新加载", Box::new(query::load_home))),
+                        Some((
+                            "重新加载",
+                            Box::new(move || page_owner.run(query::load_home)),
+                        )),
                     )
                     .into_element();
                 }

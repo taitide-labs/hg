@@ -19,13 +19,15 @@ where
     H: IntoElement + 'static,
     R: IntoElement + 'static,
 {
+    let section_owner = Owner::current();
     query::load_queue();
-    view()
-        .w_full()
-        .child(dynamic(move || queue_body(header_action, task_action)))
+    view().w_full().child(dynamic(move || {
+        queue_body(section_owner, header_action, task_action)
+    }))
 }
 
 fn queue_body<H, R>(
+    section_owner: Owner,
     header_action: impl Fn() -> H + Copy + 'static,
     task_action: impl Fn(EpisodeKey, DownloadTaskState) -> R + Copy + 'static,
 ) -> impl IntoElement
@@ -37,7 +39,7 @@ where
     let summary = (!snap.tasks.is_empty()).then(|| queue_summary_text(&snap.tasks));
     let header = section_header_row(summary, !snap.tasks.is_empty(), header_action);
 
-    if snap.error.is_some() && snap.tasks.is_empty() {
+    if snap.queue_error.is_some() && snap.tasks.is_empty() {
         return view()
             .w_full()
             .pb_6()
@@ -47,7 +49,10 @@ where
                 IconKind::Download,
                 "下载队列加载失败",
                 "请稍后重试刷新下载任务",
-                Some(("重新加载", Box::new(query::load_queue))),
+                Some((
+                    "重新加载",
+                    Box::new(move || section_owner.run(query::load_queue)),
+                )),
             ))
             .into_element();
     }

@@ -12,7 +12,7 @@ pub fn load_library() {
     if should_mark_loading {
         store::state().update(|s| {
             s.loading_library = true;
-            s.error = None;
+            s.library_error = None;
         });
     }
 
@@ -23,7 +23,7 @@ pub fn load_library() {
             Err(err) => {
                 store::state().update(|s| {
                     s.loading_library = false;
-                    s.error = Some(err.to_string());
+                    s.library_error = Some(err.to_string());
                 });
             }
         }

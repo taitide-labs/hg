@@ -9,6 +9,7 @@ use hg_infra::clock::Clock;
 use hg_infra::db::LocalDatabase;
 use hg_infra::error::InfraError;
 use hg_infra::loopback_proxy::LoopbackProxyHandle;
+use hg_infra::network::{NetworkMonitor, SystemNetworkMonitor};
 use hg_infra::storage::StorageLayout;
 use hg_offline_features::OfflineDeps;
 use hg_offline_features::fetcher::OfflineSegmentFetcher;
@@ -56,7 +57,12 @@ impl BackendRuntime {
         let storage = Arc::new(StorageLayout::new(&config.data_root, &config.cache_root)?);
         storage.ensure_dirs().await?;
         let db = LocalDatabase::open_file(&config.db_path).await?;
-        let loopback = LoopbackProxyHandle::start(Arc::clone(&storage)).await?;
+        let loopback = LoopbackProxyHandle::start_with_cache(
+            Arc::clone(&storage),
+            db.clone(),
+            Arc::clone(&clock),
+        )
+        .await?;
 
         Ok(Self {
             db,
@@ -74,7 +80,12 @@ impl BackendRuntime {
         let storage = Arc::new(StorageLayout::new(data_root, cache_root)?);
         storage.ensure_dirs().await?;
         let db = LocalDatabase::open_in_memory().await?;
-        let loopback = LoopbackProxyHandle::start(Arc::clone(&storage)).await?;
+        let loopback = LoopbackProxyHandle::start_with_cache(
+            Arc::clone(&storage),
+            db.clone(),
+            Arc::clone(&clock),
+        )
+        .await?;
 
         Ok(Self {
             db,
@@ -125,6 +136,7 @@ impl BackendRuntime {
             db: self.db.clone(),
             storage: Arc::clone(&self.storage),
             clock: Arc::clone(&self.clock),
+            network: Arc::new(SystemNetworkMonitor) as Arc<dyn NetworkMonitor>,
             catalog_metadata: Arc::clone(&catalog_metadata) as _,
             catalog_tickets: Arc::clone(&catalog_tickets) as _,
             playback_halt,

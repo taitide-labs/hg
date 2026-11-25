@@ -9,14 +9,16 @@ use hg_contracts::offline::{
     DownloadFailureReason, DownloadPolicy, DownloadTaskState, EnqueueEpisodeDownloadsRequest,
     EnqueueEpisodeDownloadsResult,
 };
+use hg_infra::network::NetworkKind;
 use hg_infra::storage::StorageLayout;
 
 use crate::OfflineDeps;
 
 use super::store::{
     ClaimedTask, CompletedEpisodeCommit, claim_next_queued_task, commit_completed_episode,
-    fail_task, insert_queued_tasks, load_existing_episode_keys, load_policy_prefs, read_task_state,
-    transition_all_tasks, transition_single_task, update_task_progress, upsert_policy,
+    fail_task, insert_queued_tasks, load_existing_episode_keys, load_policy_prefs,
+    pause_tasks_for_wifi_only, read_task_state, resume_wifi_blocked_tasks, transition_all_tasks,
+    transition_single_task, update_task_progress, upsert_policy,
 };
 use super::workflow::{
     PlaylistAsset, RewrittenPlaylist, begin_or_advance_downloading, check_download_policy,
@@ -63,7 +65,7 @@ pub async fn enqueue_episode_downloads(
         });
     }
 
-    let (preferred_profile, _) = load_policy_prefs(deps.pool()).await?;
+    let prefs = load_policy_prefs(deps.pool()).await?;
     let series = deps
         .catalog_metadata
         .fetch_series_snapshot(request.series_id)
@@ -86,7 +88,14 @@ pub async fn enqueue_episode_downloads(
     }
 
     let now = deps.clock.now_epoch_secs();
-    insert_queued_tasks(deps.pool(), &series, &episodes, preferred_profile, now).await?;
+    insert_queued_tasks(
+        deps.pool(),
+        &series,
+        &episodes,
+        prefs.preferred_profile,
+        now,
+    )
+    .await?;
 
     Ok(EnqueueEpisodeDownloadsResult {
         queued: plan.to_queue,
@@ -119,22 +128,36 @@ pub async fn update_download_policy(
     policy: DownloadPolicy,
 ) -> Result<(), ContractError> {
     check_download_policy(&policy)?;
-    upsert_policy(deps.pool(), &policy).await
+    let wifi_only = policy.wifi_only;
+    upsert_policy(deps.pool(), &policy).await?;
+    let now = deps.clock.now_epoch_secs();
+    if wifi_only && deps.network.current_network() == NetworkKind::Metered {
+        pause_tasks_for_wifi_only(deps.pool(), now).await?;
+    } else if !wifi_only {
+        resume_wifi_blocked_tasks(deps.pool(), now).await?;
+    }
+    Ok(())
 }
 
 pub async fn execute_next_queued_task(
     deps: &OfflineDeps,
 ) -> Result<Option<EpisodeKey>, ContractError> {
-    let (preferred_profile, max_concurrent_tasks) = load_policy_prefs(deps.pool()).await?;
+    let prefs = load_policy_prefs(deps.pool()).await?;
     let now = deps.clock.now_epoch_secs();
+    if prefs.wifi_only && deps.network.current_network() == NetworkKind::Metered {
+        pause_tasks_for_wifi_only(deps.pool(), now).await?;
+        return Ok(None);
+    }
+    resume_wifi_blocked_tasks(deps.pool(), now).await?;
 
-    let Some(claimed) = claim_next_queued_task(deps.pool(), max_concurrent_tasks, now).await?
+    let Some(claimed) =
+        claim_next_queued_task(deps.pool(), prefs.max_concurrent_tasks, now).await?
     else {
         return Ok(None);
     };
 
     let key = claimed.key;
-    let prepared = match prepare_download(deps, &claimed, preferred_profile).await {
+    let prepared = match prepare_download(deps, &claimed, prefs.preferred_profile).await {
         Ok(item) => item,
         Err(reason) => {
             let now_fail = deps.clock.now_epoch_secs();
@@ -330,6 +353,11 @@ async fn run_download_and_commit(
     let mut downloaded_bytes = 0_u64;
 
     for asset in &rewritten.assets {
+        let prefs = load_policy_prefs(deps.pool()).await?;
+        if prefs.wifi_only && deps.network.current_network() == NetworkKind::Metered {
+            pause_tasks_for_wifi_only(deps.pool(), deps.clock.now_epoch_secs()).await?;
+            return Ok(());
+        }
         let Some(current) = read_task_state(deps.pool(), key).await? else {
             return Ok(());
         };

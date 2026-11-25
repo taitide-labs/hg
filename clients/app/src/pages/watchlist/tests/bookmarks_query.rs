@@ -32,7 +32,6 @@ fn empty_bookmarks_shows_empty_state() {
 }
 
 #[test]
-#[ignore = "BUG: 追剧页错误态内的「重新加载」位于 dynamic 子树，点击后切换 loading_bookmarks 导致父 dynamic 卸载并取消刚 spawn 的 bookmarks 异步任务，页面永久卡在加载态"]
 fn bookmarks_error_recovers_on_retry() {
     let gw = Arc::new(MockGateway::new());
     gw.inject_method_error(

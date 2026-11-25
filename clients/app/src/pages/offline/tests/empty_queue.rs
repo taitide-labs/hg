@@ -27,12 +27,11 @@ fn empty_offline_library_and_queue_shows_unified_empty_state() {
     );
     let (_gw, mut app) = start_on_offline_with(gw, ColorScheme::Dark);
 
-    app.wait_for("暂无离线剧集").unwrap();
+    app.wait_for("暂无离线剧目").unwrap();
     assert!(!app.screen().shows("下载中"));
 }
 
 #[test]
-#[ignore = "BUG: 离线页队列与片库错误态内的「重新加载」位于 dynamic 子树，点击后触发子树卸载并取消异步刷新任务，页面误显示空态"]
 fn offline_queue_and_library_errors_recover_on_retry() {
     let gw = Arc::new(MockGateway::new());
     gw.inject_method_error(

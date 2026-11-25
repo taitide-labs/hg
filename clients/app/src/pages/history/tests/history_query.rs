@@ -34,7 +34,6 @@ fn empty_watch_history_shows_empty_state_without_clear_button() {
 }
 
 #[test]
-#[ignore = "BUG: 历史页错误态内的「重新加载」位于 dynamic 子树，点击后切换 loading_history 导致父 dynamic 卸载并取消刚 spawn 的 watch_history 异步任务，页面永久卡在加载态"]
 fn watch_history_error_recovers_on_retry() {
     let gw = Arc::new(MockGateway::new());
     gw.inject_method_error(

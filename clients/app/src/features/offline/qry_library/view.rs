@@ -19,14 +19,15 @@ pub fn offline_library_section<R>(
 where
     R: IntoElement + 'static,
 {
+    let section_owner = Owner::current();
     query::load_library();
-    view()
-        .w_full()
-        .gap_3()
-        .child(dynamic(move || library_body(on_open_series, series_action)))
+    view().w_full().gap_3().child(dynamic(move || {
+        library_body(section_owner, on_open_series, series_action)
+    }))
 }
 
 fn library_body<R>(
+    section_owner: Owner,
     on_open_series: impl Fn(SeriesId, Option<EpisodeNumber>) + Copy + 'static,
     series_action: impl Fn(SeriesId, String) -> R + Copy + 'static,
 ) -> impl IntoElement
@@ -45,7 +46,7 @@ where
     };
     let header = section_header_row(summary);
 
-    if snap.error.is_some() && snap.library.is_empty() {
+    if snap.library_error.is_some() && snap.library.is_empty() {
         return view()
             .w_full()
             .gap_3()
@@ -54,7 +55,10 @@ where
                 IconKind::Download,
                 "离线片库加载失败",
                 "请稍后重试刷新本地已下载内容",
-                Some(("重新加载", Box::new(query::load_library))),
+                Some((
+                    "重新加载",
+                    Box::new(move || section_owner.run(query::load_library)),
+                )),
             ))
             .into_element();
     }
@@ -78,7 +82,7 @@ where
         let empty = if snap.tasks.is_empty() {
             empty_state(
                 IconKind::Download,
-                "暂无离线剧集",
+                "暂无离线剧目",
                 "在播放页选择分集离线下载后，可在此断网观看",
                 None,
             )
@@ -88,7 +92,7 @@ where
                 .py_6()
                 .items_center()
                 .child(
-                    text("暂无已下载剧集，下载完成后将自动归档至此")
+                    text("暂无已下载剧目，下载完成后将自动归档至此")
                         .text_sm()
                         .text_color(token::muted_fg),
                 )

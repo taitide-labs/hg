@@ -20,7 +20,7 @@ pub(super) fn remove_episode_from_library(library: &mut Vec<OfflineSeriesView>, 
 
 #[must_use]
 pub(super) fn delete_series_a11y_label(title: &str) -> String {
-    format!("删除 {title} 离线剧集")
+    format!("删除 {title} 离线剧目")
 }
 
 #[must_use]

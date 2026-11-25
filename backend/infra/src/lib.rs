@@ -3,6 +3,7 @@ pub mod db;
 pub mod edge_crypto;
 pub mod error;
 pub mod loopback_proxy;
+pub mod network;
 pub mod storage;
 
 #[cfg(test)]

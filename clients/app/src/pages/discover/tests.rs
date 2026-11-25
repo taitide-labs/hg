@@ -28,7 +28,6 @@ fn discover_home_layout_invariants_and_no_embedded_search_or_hero() {
 }
 
 #[test]
-#[ignore = "BUG: 发现页错误态内的「重新加载」位于 dynamic 子树，点击后切换 loading 导致父 dynamic 卸载并取消刚 spawn 的 home_feed 异步任务，页面永久白屏"]
 fn discover_home_error_state_recovers_on_retry() {
     let gw = Arc::new(MockGateway::new());
     gw.inject_method_error(

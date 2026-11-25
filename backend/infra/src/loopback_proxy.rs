@@ -20,6 +20,8 @@ use parking_lot::Mutex;
 use tokio::net::TcpListener;
 use tokio::sync::oneshot;
 
+use crate::clock::Clock;
+use crate::db::LocalDatabase;
 use crate::error::InfraError;
 use crate::storage::StorageLayout;
 
@@ -27,7 +29,7 @@ mod cover;
 mod online;
 
 use cover::{build_cover_proxy_url, proxy_cover_request};
-use online::{OnlineStreamSession, build_online_session, proxy_online_request};
+use online::{OnlineStreamSession, PlaybackCacheStore, build_online_session, proxy_online_request};
 
 #[derive(Debug, Clone)]
 enum SessionTarget {
@@ -50,6 +52,7 @@ struct SessionRegistry {
 struct LoopbackInner {
     addr: SocketAddr,
     storage: Arc<StorageLayout>,
+    playback_cache: Option<PlaybackCacheStore>,
     http_client: reqwest::Client,
     registry: Mutex<SessionRegistry>,
     next_token: AtomicU64,
@@ -63,6 +66,28 @@ pub struct LoopbackProxyHandle {
 
 impl LoopbackProxyHandle {
     pub async fn start(storage: Arc<StorageLayout>) -> Result<Self, InfraError> {
+        Self::start_inner(storage, None).await
+    }
+
+    pub async fn start_with_cache(
+        storage: Arc<StorageLayout>,
+        db: LocalDatabase,
+        clock: Arc<dyn Clock>,
+    ) -> Result<Self, InfraError> {
+        let cache = PlaybackCacheStore::new(db, Arc::clone(&storage), clock);
+        Self::start_inner(storage, Some(cache)).await
+    }
+
+    pub fn set_playback_cache_limit_override(&self, limit_bytes: Option<u64>) {
+        if let Some(cache) = &self.inner.playback_cache {
+            cache.set_limit_override(limit_bytes);
+        }
+    }
+
+    async fn start_inner(
+        storage: Arc<StorageLayout>,
+        playback_cache: Option<PlaybackCacheStore>,
+    ) -> Result<Self, InfraError> {
         let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0))).await?;
         let addr = listener.local_addr()?;
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
@@ -77,6 +102,7 @@ impl LoopbackProxyHandle {
         let inner = Arc::new(LoopbackInner {
             addr,
             storage,
+            playback_cache,
             http_client,
             registry: Mutex::new(SessionRegistry::default()),
             next_token: AtomicU64::new(1),
@@ -251,6 +277,7 @@ async fn handle_request(req: Request<Incoming>, inner: &LoopbackInner) -> Respon
         };
         return proxy_online_request(
             &inner.http_client,
+            inner.playback_cache.as_ref(),
             req.method(),
             token,
             subpath,
