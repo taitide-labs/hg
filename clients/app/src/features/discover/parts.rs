@@ -23,6 +23,17 @@ pub fn series_grid_columns_for_width(inner_width: f32) -> usize {
     grid_columns_for(inner_width, is_desktop())
 }
 
+#[must_use]
+pub fn ranking_grid_columns_for_width(container_width: f32) -> usize {
+    if container_width >= 1360.0 {
+        3
+    } else if container_width >= 700.0 {
+        2
+    } else {
+        1
+    }
+}
+
 fn grid_columns_for(inner_width: f32, desktop_tracks: bool) -> usize {
     let (min_w, gap) = if desktop_tracks {
         (DESKTOP_CARD_MIN_WIDTH, DESKTOP_GRID_GAP)
@@ -50,9 +61,10 @@ fn visible_grid_rows(viewport_width: f32, viewport_height: f32) -> (u32, u32) {
 #[must_use]
 pub fn adaptive_page_size(viewport_width: f32, viewport_height: f32, is_ranking: bool) -> u16 {
     if is_ranking {
-        let visible_rows = (viewport_height / 102.0).ceil().max(4.0);
-        let target = (visible_rows * 2.5).ceil() as u16;
-        return target.clamp(24, 60);
+        let cols = ranking_grid_columns_for_width(viewport_width.max(0.0)) as u32;
+        let visible_rows = (viewport_height / 132.0).ceil().max(4.0) as u32;
+        let aligned = cols.saturating_mul(visible_rows.saturating_mul(2));
+        return u16::try_from(aligned.clamp(24, 60)).unwrap_or(60);
     }
     let (cols, visible_rows) = visible_grid_rows(viewport_width, viewport_height);
     let desired_rows = visible_rows.saturating_mul(2).max(4);
@@ -67,7 +79,9 @@ pub fn min_items_to_fill_viewport(
     is_ranking: bool,
 ) -> usize {
     if is_ranking {
-        return ((viewport_height / 102.0).ceil() as usize).saturating_add(2);
+        let cols = ranking_grid_columns_for_width(viewport_width.max(0.0));
+        let visible_rows = (viewport_height / 132.0).ceil().max(2.0) as usize;
+        return cols.saturating_mul(visible_rows.saturating_add(1));
     }
     let (cols, visible_rows) = visible_grid_rows(viewport_width, viewport_height);
     (cols as usize).saturating_mul((visible_rows as usize).saturating_add(1))

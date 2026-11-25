@@ -3,7 +3,10 @@ use hg_contracts::ids::SeriesId;
 use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
-use super::super::parts::{pagination_footer, series_grid_columns_for_width, virtual_series_grid};
+use super::super::parts::{
+    pagination_footer, ranking_grid_columns_for_width, series_grid_columns_for_width,
+    virtual_series_grid,
+};
 use super::super::store::{self, BrowseKind, RankingTab};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button, app_icon_text_button};
@@ -83,6 +86,7 @@ pub fn browse_view(
         ranking_list(
             scroller,
             page_owner,
+            container_width,
             on_back,
             on_open_series,
             header_block,
@@ -325,9 +329,29 @@ fn tag_filter_strip(groups: &[TagGroup]) -> impl IntoElement {
     container
 }
 
+fn format_ranking_metric(label: &str, value: u64) -> Option<String> {
+    let trimmed = label.trim();
+    if trimmed.is_empty() && value == 0 {
+        return None;
+    }
+    let formatted_value = if value >= 10_000 {
+        let whole = value / 10_000;
+        let tenths = (value % 10_000) / 1_000;
+        format!("{whole}.{tenths}万")
+    } else {
+        value.to_string()
+    };
+    if trimmed.is_empty() {
+        Some(formatted_value)
+    } else {
+        Some(format!("{trimmed} {formatted_value}"))
+    }
+}
+
 fn ranking_list(
     scroller: ElementRef,
     page_owner: Owner,
+    container_width: Signal<f32>,
     on_back: impl Fn() + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
     header_view: impl IntoElement,
@@ -356,6 +380,8 @@ fn ranking_list(
                             entry.series.tags.join(" · "),
                             entry.series.episode_count
                         );
+                        let metric_text =
+                            format_ranking_metric(&entry.metric_label, entry.metric_value);
                         let description = (!entry.series.description.is_empty())
                             .then_some(entry.series.description);
                         ranking_list_row(
@@ -364,6 +390,7 @@ fn ranking_list(
                                 title: entry.series.title,
                                 cover_url: entry.series.cover_url,
                                 badge_text: entry.series.badge,
+                                metric_text,
                                 meta,
                                 description,
                             },
@@ -384,10 +411,13 @@ fn ranking_list(
                 .collect::<Vec<_>>()
         })
     })
-    .columns(1)
-    .row_gap(px(10.0))
+    .columns(move || {
+        u32::try_from(ranking_grid_columns_for_width(container_width.get())).unwrap_or(1)
+    })
+    .column_gap(px(14.0))
+    .row_gap(px(12.0))
     .content_padding(px(24.0))
-    .estimated_item_size(px(92.0))
+    .estimated_item_size(px(122.0))
     .load_more_threshold(1.0)
     .on_load_more(move || page_owner.run(query::load_next_browse_page))
     .header(header_view)

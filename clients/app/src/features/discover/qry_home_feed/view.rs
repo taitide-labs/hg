@@ -183,6 +183,7 @@ fn ranking_preview_card(
             title: entry.series.title,
             cover_url: entry.series.cover_url,
             badge_text: entry.series.badge,
+            metric_text: None,
             meta,
             description: None,
         },

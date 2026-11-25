@@ -217,6 +217,7 @@ pub struct RankingCardProps {
     pub title: String,
     pub cover_url: String,
     pub badge_text: Option<String>,
+    pub metric_text: Option<String>,
     pub meta: String,
     pub description: Option<String>,
 }
@@ -305,53 +306,79 @@ pub fn ranking_list_row(
         .on_press(on_press)
         .accessibility_label(a11y)
         .w_full()
+        .min_w_0()
         .p_3()
         .rounded(token::radius_card)
         .bg(token::card)
         .border_1()
         .border_color(token::border)
         .flex_row()
-        .items_center()
-        .gap_3p5()
+        .items_start()
+        .gap_3()
         .transition_colors()
         .duration(token::INSTANT_MS)
         .hover(|s| s.bg(token::surface_subtle))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(token::ring))
-        .child(badge(rank_label, tone))
         .child(
             view()
-                .w(px(48.0))
-                .h(px(64.0))
+                .w(px(72.0))
+                .h(px(96.0))
                 .flex_shrink_0()
                 .relative()
                 .overflow_hidden()
                 .rounded(token::radius)
                 .bg(move || token::poster_surface(&cover_key))
-                .children(image_layer),
+                .children(image_layer)
+                .child(view().absolute().top_1().left_1().child(badge(
+                    rank_label,
+                    if props.rank <= 3 {
+                        BadgeTone::CinemaBrand
+                    } else {
+                        BadgeTone::Cinema
+                    },
+                ))),
         )
         .child(
             view()
                 .flex_1()
                 .min_w_0()
-                .gap_1()
+                .gap_1p5()
                 .child(
                     view()
                         .flex_row()
                         .items_center()
-                        .gap_2()
+                        .gap_1p5()
                         .child(
                             text(props.title)
+                                .flex_1()
+                                .min_w_0()
                                 .text_sm()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(token::card_fg),
+                                .text_color(token::card_fg)
+                                .truncate(),
                         )
                         .children(props.badge_text.map(|label| badge(label, BadgeTone::Brand))),
                 )
-                .child(text(props.meta).text_xs().text_color(token::muted_fg))
-                .children(
-                    props
-                        .description
-                        .map(|desc| text(desc).text_xs().text_color(token::muted_fg).truncate()),
-                ),
+                .child(
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .flex_wrap()
+                        .gap_1p5()
+                        .children(props.metric_text.map(|m| badge(m, tone)))
+                        .child(
+                            text(props.meta)
+                                .text_xs()
+                                .text_color(token::muted_fg)
+                                .truncate(),
+                        ),
+                )
+                .children(props.description.map(|desc| {
+                    text(desc)
+                        .text_xs()
+                        .text_color(token::muted_fg)
+                        .number_of_lines(2u32)
+                        .text_overflow(nsh_core::EllipsizeMode::Tail)
+                })),
         )
 }

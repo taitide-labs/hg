@@ -155,8 +155,6 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.wait_for("分页剧目 01").unwrap();
     assert!(!app.screen().shows("加载更多"));
     app.scroll("分页剧目 01", Points(5000.0)).unwrap();
-    app.wait_for("分页剧目 19").unwrap();
-    app.scroll("分页剧目 19", Points(5000.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
 }
 
@@ -311,6 +309,45 @@ fn ranking_views_display_series_badge() {
     app.press("查看排行榜全部").unwrap();
     app.wait_for("#1").unwrap();
     app.wait_for("热播 Top 1").unwrap();
+}
+
+#[test]
+fn ranking_list_uses_responsive_multicolumn_high_density_cards() {
+    let gw = Arc::new(MockGateway::new());
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+
+    app.press("查看排行榜全部").unwrap();
+    app.wait_for("#1").unwrap();
+    app.wait_for("#2").unwrap();
+    app.wait_for("热度 98.4万").unwrap();
+
+    let b1 = node_bounds(&app, "label:#1 云端之上：千金归来");
+    let b2 = node_bounds(&app, "label:#2 长安暗夜行");
+    assert!(
+        (b1.origin.y.0 - b2.origin.y.0).abs() < 4.0 && b2.origin.x.0 > b1.origin.x.0 + 100.0,
+        "1240px desktop ranking list should place #1 and #2 side-by-side (b1={b1:?}, b2={b2:?})"
+    );
+
+    app.set_viewport(Size::new(Points(1920.0), Points(1080.0)))
+        .unwrap();
+    app.wait(Duration::from_millis(60)).unwrap();
+    let w1 = node_bounds(&app, "label:#1 云端之上：千金归来");
+    let w2 = node_bounds(&app, "label:#2 长安暗夜行");
+    let w3 = node_bounds(&app, "label:#3 重返 1998：科技大亨");
+    assert!(
+        (w1.origin.y.0 - w3.origin.y.0).abs() < 4.0 && w3.origin.x.0 > w2.origin.x.0 + 100.0,
+        "1920px wide ranking list should place #1..#3 in 3 columns (w1={w1:?}, w2={w2:?}, w3={w3:?})"
+    );
+
+    app.set_viewport(Size::new(Points(560.0), Points(800.0)))
+        .unwrap();
+    app.wait(Duration::from_millis(60)).unwrap();
+    let n1 = node_bounds(&app, "label:#1 云端之上：千金归来");
+    let n2 = node_bounds(&app, "label:#2 长安暗夜行");
+    assert!(
+        n2.origin.y.0 > n1.origin.y.0 + 40.0,
+        "narrow viewport should collapse ranking list to 1 column (n1={n1:?}, n2={n2:?})"
+    );
 }
 
 #[test]
