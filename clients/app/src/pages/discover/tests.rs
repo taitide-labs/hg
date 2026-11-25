@@ -613,3 +613,18 @@ fn discover_returning_from_browse_preserves_home_scroll_and_card_nodes() {
         "returning from browse must preserve home scroll position (before={home_y_before}, after={home_y_after})"
     );
 }
+
+#[test]
+fn discover_home_shows_skeleton_placeholders_while_feed_is_loading() {
+    let gw = Arc::new(MockGateway::new());
+    let gate = gw.queue_method_gate("home_feed");
+    let (mut app, _opened) = mount_discover(gw, ColorScheme::Dark);
+
+    app.wait_for("label:发现页加载占位").unwrap();
+    assert!(!app.screen().shows("最近更新"));
+
+    gate.release();
+    app.wait_for("最近更新").unwrap();
+    app.wait_for_gone("label:发现页加载占位", Duration::from_secs(2))
+        .unwrap();
+}
