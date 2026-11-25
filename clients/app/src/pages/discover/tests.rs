@@ -148,6 +148,8 @@ fn discover_browse_and_ranking_paginate_via_infinite_scroll_and_adapt_columns() 
     app.wait_for("分页剧目 01").unwrap();
     assert!(!app.screen().shows("加载更多"));
     app.scroll("分页剧目 01", Points(5000.0)).unwrap();
+    app.wait_for("分页剧目 19").unwrap();
+    app.scroll("分页剧目 19", Points(5000.0)).unwrap();
     app.wait_for("分页剧目 28").unwrap();
 }
 
@@ -288,5 +290,25 @@ fn desktop_series_cards_use_roomy_poster_width_and_spacing() {
     assert!(
         horizontal_gap >= 19.0,
         "desktop series grid spacing should be >= 20pt (gap_5), got {horizontal_gap}"
+    );
+}
+
+#[test]
+fn browse_pagination_virtualizes_and_preserves_visible_card_nodes() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(30));
+    let (mut app, _opened) = mount_discover_ready(gw, ColorScheme::Light);
+    app.set_viewport(Size::new(Points(1240.0), Points(1600.0)))
+        .unwrap();
+
+    app.press("查看精选推荐全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+    let before_id = app.screen().id("分页剧目 01").unwrap();
+
+    app.scroll("分页剧目 01", Points(600.0)).unwrap();
+    app.wait_for("分页剧目 28").unwrap();
+    let after_id = app.screen().id("分页剧目 01").unwrap();
+    assert_eq!(
+        after_id, before_id,
+        "appending page 2 must not teardown and remount existing page 1 cards"
     );
 }

@@ -100,13 +100,13 @@ fn returning_from_player_preserves_browse_sort_and_category_context() {
         .unwrap();
     app.wait_for("分页剧目 02").unwrap();
 
-    app.press("分页剧目 30 >> nth=0").unwrap();
+    app.press("分页剧目 02 >> nth=0").unwrap();
     app.wait_for("选集 (1/12)").unwrap();
 
     app.press("返回").unwrap();
-    app.wait_for("分页剧目 30").unwrap();
+    app.wait_for("分页剧目 02").unwrap();
     assert!(
-        app.screen().shows("分页剧目 02"),
-        "returning from player must preserve loaded browse pages and sort instead of resetting to 最热"
+        app.screen().shows("分页剧目 01") && !app.screen().shows("分页剧目 30"),
+        "returning from player must preserve scrolled position, loaded pages, and 最近更新 sort"
     );
 }

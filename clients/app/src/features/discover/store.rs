@@ -165,11 +165,6 @@ pub fn browse_meta_snapshot() -> BrowseMetaState {
 }
 
 #[must_use]
-pub fn browse_snapshot() -> DiscoverBrowseState {
-    browse_state().get()
-}
-
-#[must_use]
 pub fn search_snapshot() -> DiscoverSearchState {
     search_state().get()
 }

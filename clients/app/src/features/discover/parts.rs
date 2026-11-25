@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::hash::Hash;
 
 use hg_contracts::catalog::SeriesSummary;
 use hg_contracts::ids::SeriesId;
@@ -34,6 +35,33 @@ pub async fn sync_watched_series() {
     }
 }
 
+pub fn series_card_from_summary(
+    item: SeriesSummary,
+    index: usize,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+) -> impl IntoElement {
+    let id = item.id;
+    let status = if item.is_finished {
+        format!("全 {} 集", item.episode_count)
+    } else {
+        format!("更新至 {} 集", item.episode_count)
+    };
+    let subtitle = item.tags.join(" · ");
+    series_card(
+        SeriesCardProps {
+            title: item.title,
+            cover_url: item.cover_url,
+            score: item.score,
+            subtitle,
+            episode_label: status,
+            badge_text: item.badge,
+            watched: store::is_series_watched(id),
+            index,
+        },
+        move || on_open_series(id),
+    )
+}
+
 pub fn series_grid(
     items: Vec<SeriesSummary>,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
@@ -57,34 +85,59 @@ pub fn series_grid(
             .gap_4()
     };
     for (index, item) in items.into_iter().enumerate() {
-        let id = item.id;
-        let status = if item.is_finished {
-            format!("全 {} 集", item.episode_count)
-        } else {
-            format!("更新至 {} 集", item.episode_count)
-        };
-        let subtitle = item.tags.join(" · ");
-        grid = grid.child(series_card(
-            SeriesCardProps {
-                title: item.title,
-                cover_url: item.cover_url,
-                score: item.score,
-                subtitle,
-                episode_label: status,
-                badge_text: item.badge,
-                watched: store::is_series_watched(id),
-                index,
-            },
-            move || on_open_series(id),
-        ));
+        grid = grid.child(series_card_from_summary(item, index, on_open_series));
     }
     grid.into_element()
 }
 
-pub fn dedup_append<T, K: Eq>(existing: &mut Vec<T>, incoming: Vec<T>, key: impl Fn(&T) -> K) {
+pub fn virtual_series_grid(
+    count: impl Fn() -> usize + Copy + 'static,
+    keys: impl Fn() -> Vec<SeriesId> + Copy + 'static,
+    item_at: impl Fn(usize) -> Option<SeriesSummary> + Copy + 'static,
+    columns: impl Fn() -> u32 + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    on_load_more: impl Fn() + Copy + 'static,
+    empty_view: impl Fn() -> AnyElement + Copy + 'static,
+) -> VirtualList {
+    let gap = if is_desktop() {
+        DESKTOP_GRID_GAP
+    } else {
+        MOBILE_GRID_GAP
+    };
+    let estimated_h = if is_desktop() { 340.0 } else { 290.0 };
+
+    virtual_list(count, move |at: Position| {
+        view().child(dynamic(move || {
+            let idx = at.index();
+            match item_at(idx) {
+                Some(item) => series_card_from_summary(item, idx, on_open_series).into_element(),
+                None => view().into_element(),
+            }
+        }))
+    })
+    .keys(keys)
+    .columns(columns)
+    .row_gap(px(gap))
+    .column_gap(px(gap))
+    .content_padding(px(24.0))
+    .estimated_item_size(px(estimated_h))
+    .load_more_threshold(1.0)
+    .on_load_more(on_load_more)
+    .empty(dynamic(empty_view))
+    .flex_1()
+    .w_full()
+    .min_h_0()
+}
+
+pub fn dedup_append<T, K: Eq + Hash>(
+    existing: &mut Vec<T>,
+    incoming: Vec<T>,
+    key: impl Fn(&T) -> K,
+) {
+    let mut seen: HashSet<K> = existing.iter().map(&key).collect();
     for item in incoming {
         let k = key(&item);
-        if !existing.iter().any(|cur| key(cur) == k) {
+        if seen.insert(k) {
             existing.push(item);
         }
     }

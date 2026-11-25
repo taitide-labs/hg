@@ -1,19 +1,19 @@
-use hg_contracts::catalog::{HotKeyword, RankingEntry, RankingKind, SeriesSort, TagGroup};
+use hg_contracts::catalog::{HotKeyword, RankingKind, SeriesSort, TagGroup};
 use hg_contracts::ids::SeriesId;
+use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
-use super::super::parts::{pagination_footer, series_grid};
+use super::super::parts::{pagination_footer, series_grid_columns_for_width, virtual_series_grid};
 use super::super::store::{self, BrowseKind, RankingTab};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button, app_icon_text_button};
 use crate::ui::icons::IconKind;
 use crate::ui::input::search_input;
+use crate::ui::platform::is_desktop;
 use crate::ui::poster::{RankingCardProps, ranking_list_row};
 use crate::ui::surface::empty_state;
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
-
-const INFINITE_SCROLL_THRESHOLD_PX: f32 = 240.0;
 
 pub fn browse_view(
     initial_kind: BrowseKind,
@@ -25,52 +25,132 @@ pub fn browse_view(
         initial_kind,
         BrowseKind::Search { .. } | BrowseKind::Tag { .. }
     );
+    let is_ranking_kind = matches!(initial_kind, BrowseKind::Ranking(_));
     if is_search_mode {
         query::load_meta();
     }
     query::load_browse(initial_kind);
     let search_sig = store::search_input_signal();
-    let is_ranking = computed(|| matches!(store::browse_snapshot().kind, BrowseKind::Ranking(_)));
+    let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
     let is_sortable = computed(|| {
-        matches!(
-            store::browse_snapshot().kind,
-            BrowseKind::Featured
-                | BrowseKind::Latest
-                | BrowseKind::Category { .. }
-                | BrowseKind::Tag { .. }
-        )
+        store::browse_state().with(|s| {
+            matches!(
+                s.kind,
+                BrowseKind::Featured
+                    | BrowseKind::Latest
+                    | BrowseKind::Category { .. }
+                    | BrowseKind::Tag { .. }
+            )
+        })
     });
+    let footer_state =
+        computed(|| store::browse_state().with(|s| (s.loading_more, s.load_more_error.clone())));
+    let scroller = element_ref();
 
-    scroll()
-        .flex_1()
-        .on_scroll(move |e: &ScrollEvent| {
-            if e.content_size.height > px(0.0)
-                && e.offset.y + e.size.height
-                    >= e.content_size.height - px(INFINITE_SCROLL_THRESHOLD_PX)
-            {
+    let header_block = view()
+        .w_full()
+        .gap_5()
+        .pb_5()
+        .child(browse_header(is_search_mode, search_sig, on_back))
+        .children(is_search_mode.then(|| dynamic(browse_filters_panel)))
+        .child(when(
+            move || store::browse_state().with(|s| matches!(s.kind, BrowseKind::Ranking(_))),
+            move || ranking_tabs(scroller),
+        ))
+        .child(when(move || is_sortable.get(), move || sort_tabs(scroller)));
+
+    let footer_block = view()
+        .w_full()
+        .pt_4()
+        .pb_safe_area()
+        .child(dynamic(move || {
+            let (loading_more, load_more_error) = footer_state.get();
+            pagination_footer(loading_more, load_more_error, move || {
                 page_owner.run(query::load_next_browse_page);
+            })
+        }));
+
+    let list_element = if is_ranking_kind {
+        ranking_list(
+            scroller,
+            page_owner,
+            on_back,
+            on_open_series,
+            header_block,
+            footer_block,
+        )
+        .into_element()
+    } else {
+        series_browse_list(
+            scroller,
+            page_owner,
+            container_width,
+            on_back,
+            on_open_series,
+            header_block,
+            footer_block,
+        )
+        .into_element()
+    };
+
+    view()
+        .flex_1()
+        .min_h_0()
+        .on_layout(move |bounds: &Bounds<Points>| {
+            let w = bounds.size.width.0;
+            if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
+                container_width.set(w);
             }
         })
-        .child(
-            view()
-                .w_full()
-                .p_6()
-                .gap_5()
-                .pb_safe_area_plus(px(24.0))
-                .child(browse_header(is_search_mode, search_sig, on_back))
-                .children(is_search_mode.then(|| dynamic(browse_filters_panel)))
-                .child(when(move || is_ranking.get(), ranking_tabs))
-                .child(when(move || is_sortable.get(), sort_tabs))
-                .child(dynamic(move || {
-                    browse_results_panel(on_back, on_open_series)
-                }))
-                .child(dynamic(move || {
-                    let snap = store::browse_snapshot();
-                    pagination_footer(snap.loading_more, snap.load_more_error, move || {
-                        page_owner.run(query::load_next_browse_page);
-                    })
-                })),
-        )
+        .child(list_element)
+}
+
+fn series_browse_list(
+    scroller: ElementRef,
+    page_owner: Owner,
+    container_width: Signal<f32>,
+    on_back: impl Fn() + Copy + 'static,
+    on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    header_view: impl IntoElement,
+    footer_view: impl IntoElement,
+) -> impl IntoElement {
+    virtual_series_grid(
+        || store::browse_state().with(|s| if s.error.is_some() { 0 } else { s.items.len() }),
+        || store::browse_state().with(|s| s.items.iter().map(|i| i.id).collect()),
+        |idx| store::browse_state().with_untracked(|s| s.items.get(idx).cloned()),
+        move || {
+            let inner_w = (container_width.get() - 48.0).max(0.0);
+            series_grid_columns_for_width(inner_w) as u32
+        },
+        on_open_series,
+        move || page_owner.run(query::load_next_browse_page),
+        move || {
+            let (has_error, loading) =
+                store::browse_state().with(|s| (s.error.is_some(), s.loading));
+            if has_error {
+                empty_state(
+                    IconKind::Search,
+                    "列表加载失败",
+                    "请稍后重试或返回发现首页",
+                    Some(("返回发现", Box::new(on_back))),
+                )
+                .into_element()
+            } else if loading {
+                view().into_element()
+            } else {
+                empty_state(
+                    IconKind::Search,
+                    "暂无匹配剧目",
+                    "尝试更换关键词或筛选条件",
+                    None,
+                )
+                .into_element()
+            }
+        },
+    )
+    .header(header_view)
+    .footer(footer_view)
+    .element_ref(&scroller)
 }
 
 fn browse_filters_panel() -> impl IntoElement {
@@ -80,31 +160,6 @@ fn browse_filters_panel() -> impl IntoElement {
         .children((!meta.hot_keywords.is_empty()).then(|| hot_keywords_strip(meta.hot_keywords)))
         .children((!meta.tag_groups.is_empty()).then(|| tag_filter_strip(&meta.tag_groups)))
         .into_element()
-}
-
-fn browse_results_panel(
-    on_back: impl Fn() + Copy + 'static,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    let snap = store::browse_snapshot();
-    if snap.error.is_some() {
-        return empty_state(
-            IconKind::Search,
-            "列表加载失败",
-            "请稍后重试或返回发现首页",
-            Some(("返回发现", Box::new(on_back))),
-        )
-        .into_element();
-    }
-
-    match snap.kind {
-        BrowseKind::Ranking(_) => ranking_list(snap.ranking_items, on_open_series).into_element(),
-        BrowseKind::Featured
-        | BrowseKind::Latest
-        | BrowseKind::Category { .. }
-        | BrowseKind::Tag { .. }
-        | BrowseKind::Search { .. } => series_grid(snap.items, on_open_series).into_element(),
-    }
 }
 
 fn browse_header(
@@ -159,14 +214,16 @@ fn browse_header(
 }
 
 fn title_bar() -> impl IntoElement {
-    text(move || match store::browse_snapshot().kind {
-        BrowseKind::Featured => "精选推荐".to_owned(),
-        BrowseKind::Latest => "最近更新".to_owned(),
-        BrowseKind::Ranking(_) => "排行榜".to_owned(),
-        BrowseKind::Category { name, .. } => name,
-        BrowseKind::Tag { name, .. } => format!("标签 · {name}"),
-        BrowseKind::Search { query } if query.trim().is_empty() => "搜索与标签筛选".to_owned(),
-        BrowseKind::Search { query } => format!("搜索 “{query}”"),
+    text(move || {
+        store::browse_state().with(|s| match &s.kind {
+            BrowseKind::Featured => "精选推荐".to_owned(),
+            BrowseKind::Latest => "最近更新".to_owned(),
+            BrowseKind::Ranking(_) => "排行榜".to_owned(),
+            BrowseKind::Category { name, .. } => name.clone(),
+            BrowseKind::Tag { name, .. } => format!("标签 · {name}"),
+            BrowseKind::Search { query } if query.trim().is_empty() => "搜索与标签筛选".to_owned(),
+            BrowseKind::Search { query } => format!("搜索 “{query}”"),
+        })
     })
     .role(AccessibilityRole::Header)
     .text_lg()
@@ -174,16 +231,19 @@ fn title_bar() -> impl IntoElement {
     .text_color(token::fg)
 }
 
-fn sort_tabs() -> impl IntoElement {
+fn sort_tabs(scroller: ElementRef) -> impl IntoElement {
     let tabs = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
     segmented_tabs(
         tabs,
-        move || store::browse_snapshot().sort,
-        query::switch_sort,
+        move || store::browse_state().with(|s| s.sort),
+        move |next| {
+            scroller.scroll_to(point(px(0.0), px(0.0)), false);
+            query::switch_sort(next);
+        },
     )
 }
 
-fn ranking_tabs() -> impl IntoElement {
+fn ranking_tabs(scroller: ElementRef) -> impl IntoElement {
     let active = store::ranking_tab_signal();
     let tabs = vec![
         (RankingTab::Hot, "热播榜"),
@@ -193,7 +253,8 @@ fn ranking_tabs() -> impl IntoElement {
     segmented_tabs(
         tabs,
         move || active.get(),
-        |tab| {
+        move |tab| {
+            scroller.scroll_to(point(px(0.0), px(0.0)), false);
             query::switch_ranking(RankingKind::from(tab));
         },
     )
@@ -253,36 +314,90 @@ fn tag_filter_strip(groups: &[TagGroup]) -> impl IntoElement {
 }
 
 fn ranking_list(
-    entries: Vec<RankingEntry>,
+    scroller: ElementRef,
+    page_owner: Owner,
+    on_back: impl Fn() + Copy + 'static,
     on_open_series: impl Fn(SeriesId) + Copy + 'static,
+    header_view: impl IntoElement,
+    footer_view: impl IntoElement,
 ) -> impl IntoElement {
-    if entries.is_empty() {
-        return empty_state(IconKind::Flame, "暂无榜单数据", "请切换其他榜单查看", None)
-            .into_element();
-    }
-
-    let mut list = view().w_full().gap_2p5();
-    for entry in entries {
-        let id = entry.series.id;
-        let meta = format!(
-            "{:.1} 分 · {} · {} 集",
-            entry.series.score,
-            entry.series.tags.join(" · "),
-            entry.series.episode_count
-        );
-        let description =
-            (!entry.series.description.is_empty()).then_some(entry.series.description);
-        list = list.child(ranking_list_row(
-            RankingCardProps {
-                rank: entry.rank,
-                title: entry.series.title,
-                cover_url: entry.series.cover_url,
-                badge_text: entry.series.badge,
-                meta,
-                description,
-            },
-            move || on_open_series(id),
-        ));
-    }
-    list.into_element()
+    virtual_list(
+        || {
+            store::browse_state().with(|s| {
+                if s.error.is_some() {
+                    0
+                } else {
+                    s.ranking_items.len()
+                }
+            })
+        },
+        move |at: Position| {
+            view().child(dynamic(move || {
+                let entry = store::browse_state()
+                    .with_untracked(|s| s.ranking_items.get(at.index()).cloned());
+                match entry {
+                    Some(entry) => {
+                        let id = entry.series.id;
+                        let meta = format!(
+                            "{:.1} 分 · {} · {} 集",
+                            entry.series.score,
+                            entry.series.tags.join(" · "),
+                            entry.series.episode_count
+                        );
+                        let description = (!entry.series.description.is_empty())
+                            .then_some(entry.series.description);
+                        ranking_list_row(
+                            RankingCardProps {
+                                rank: entry.rank,
+                                title: entry.series.title,
+                                cover_url: entry.series.cover_url,
+                                badge_text: entry.series.badge,
+                                meta,
+                                description,
+                            },
+                            move || on_open_series(id),
+                        )
+                        .into_element()
+                    }
+                    None => view().into_element(),
+                }
+            }))
+        },
+    )
+    .keys(|| {
+        store::browse_state().with(|s| {
+            s.ranking_items
+                .iter()
+                .map(|r| r.series.id)
+                .collect::<Vec<_>>()
+        })
+    })
+    .columns(1)
+    .row_gap(px(10.0))
+    .content_padding(px(24.0))
+    .estimated_item_size(px(92.0))
+    .load_more_threshold(1.0)
+    .on_load_more(move || page_owner.run(query::load_next_browse_page))
+    .header(header_view)
+    .footer(footer_view)
+    .empty(dynamic(move || {
+        let (has_error, loading) = store::browse_state().with(|s| (s.error.is_some(), s.loading));
+        if has_error {
+            empty_state(
+                IconKind::Search,
+                "列表加载失败",
+                "请稍后重试或返回发现首页",
+                Some(("返回发现", Box::new(on_back))),
+            )
+            .into_element()
+        } else if loading {
+            view().into_element()
+        } else {
+            empty_state(IconKind::Flame, "暂无榜单数据", "请切换其他榜单查看", None).into_element()
+        }
+    }))
+    .element_ref(&scroller)
+    .flex_1()
+    .w_full()
+    .min_h_0()
 }

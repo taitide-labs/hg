@@ -3,9 +3,10 @@ use std::collections::BTreeSet;
 use hg_contracts::catalog::{HotKeyword, SeriesSort, TagGroup, TagItem};
 use hg_contracts::ids::SeriesId;
 use hg_contracts::viewing::SearchHistoryEntry;
+use nsh_core::geometry::point;
 use nsh_core::prelude::*;
 
-use super::super::parts::{pagination_footer, series_grid};
+use super::super::parts::{pagination_footer, series_grid_columns_for_width, virtual_series_grid};
 use super::super::store::{self, SearchTarget};
 use super::query;
 use crate::ui::button::{ButtonVariant, ControlSize, app_button, text_link_button};
@@ -19,7 +20,6 @@ use crate::ui::surface::empty_state;
 use crate::ui::tabs::segmented_tabs;
 use crate::ui::token;
 
-const INFINITE_SCROLL_THRESHOLD_PX: f32 = 240.0;
 const TAG_GROUP_LABEL_RESERVE_PX: f32 = 76.0;
 const TAG_FOLD_BUTTON_RESERVE_PX: f32 = 38.0;
 
@@ -29,55 +29,99 @@ pub fn search_view(on_open_series: impl Fn(SeriesId) + Copy + 'static) -> impl I
     let search_sig = store::search_input_signal();
     let container_width = signal(if is_desktop() { 960.0_f32 } else { 360.0_f32 });
     let expanded_groups = signal(BTreeSet::<u32>::new());
+    let scroller = element_ref();
+    let is_tag = computed(|| {
+        store::search_state().with(|s| matches!(s.target, Some(SearchTarget::Tag { .. })))
+    });
 
-    scroll()
-        .flex_1()
-        .on_scroll(move |e: &ScrollEvent| {
-            if e.content_size.height > px(0.0)
-                && e.offset.y + e.size.height
-                    >= e.content_size.height - px(INFINITE_SCROLL_THRESHOLD_PX)
-            {
-                page_owner.run(query::load_next_search_page);
-            }
-        })
+    let header_block = view()
+        .w_full()
+        .gap_5()
+        .pb_5()
+        .child(search_bar_row(search_sig, page_owner))
         .child(
             view()
                 .w_full()
-                .p_6()
-                .gap_5()
-                .pb_safe_area_plus(px(24.0))
-                .on_layout(move |bounds: &Bounds<Points>| {
-                    let w = bounds.size.width.0;
-                    if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
-                        container_width.set(w);
-                    }
-                })
-                .child(search_bar_row(search_sig, page_owner))
-                .child(
-                    view()
-                        .w_full()
-                        .gap_3()
-                        .child(dynamic(move || search_history_section(page_owner)))
-                        .child(dynamic(move || hot_keywords_section(page_owner)))
-                        .child(dynamic(move || {
-                            tag_filter_section(
-                                (container_width.get() - 48.0).max(240.0),
-                                expanded_groups,
-                                page_owner,
-                            )
-                        })),
-                )
-                .child(dynamic(move || results_panel(page_owner, on_open_series)))
+                .gap_3()
+                .child(dynamic(move || search_history_section(page_owner)))
+                .child(dynamic(move || hot_keywords_section(page_owner)))
                 .child(dynamic(move || {
-                    let snap = store::search_snapshot();
-                    if snap.target.is_none() {
-                        return view().into_element();
-                    }
-                    pagination_footer(snap.loading_more, snap.load_more_error, move || {
-                        page_owner.run(query::load_next_search_page);
-                    })
-                    .into_element()
+                    tag_filter_section(
+                        (container_width.get() - 48.0).max(240.0),
+                        expanded_groups,
+                        page_owner,
+                    )
                 })),
+        )
+        .child(when(
+            move || is_tag.get(),
+            move || {
+                let sort_items = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
+                segmented_tabs(
+                    sort_items,
+                    move || store::search_state().with(|s| s.sort),
+                    move |next| {
+                        scroller.scroll_to(point(px(0.0), px(0.0)), false);
+                        page_owner.run(move || query::switch_sort(next));
+                    },
+                )
+            },
+        ));
+
+    let footer_block = view()
+        .w_full()
+        .pt_4()
+        .pb_safe_area()
+        .child(dynamic(move || {
+            let (has_target, loading_more, load_more_error) = store::search_state().with(|s| {
+                (
+                    s.target.is_some(),
+                    s.loading_more,
+                    s.load_more_error.clone(),
+                )
+            });
+            if !has_target {
+                return view().into_element();
+            }
+            pagination_footer(loading_more, load_more_error, move || {
+                page_owner.run(query::load_next_search_page);
+            })
+            .into_element()
+        }));
+
+    view()
+        .flex_1()
+        .min_h_0()
+        .on_layout(move |bounds: &Bounds<Points>| {
+            let w = bounds.size.width.0;
+            if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
+                container_width.set(w);
+            }
+        })
+        .child(
+            virtual_series_grid(
+                || {
+                    store::search_state().with(|s| {
+                        if s.target.is_none() || s.error.is_some() {
+                            0
+                        } else {
+                            s.items.len()
+                        }
+                    })
+                },
+                || store::search_state().with(|s| s.items.iter().map(|i| i.id).collect()),
+                |idx| store::search_state().with_untracked(|s| s.items.get(idx).cloned()),
+                move || {
+                    let inner_w = (container_width.get() - 48.0).max(0.0);
+                    series_grid_columns_for_width(inner_w) as u32
+                },
+                on_open_series,
+                move || page_owner.run(query::load_next_search_page),
+                move || search_empty_view(page_owner),
+            )
+            .header(header_block)
+            .footer(footer_block)
+            .element_ref(&scroller),
         )
 }
 
@@ -311,16 +355,13 @@ fn tag_filter_strip(
     container
 }
 
-fn results_panel(
-    page_owner: Owner,
-    on_open_series: impl Fn(SeriesId) + Copy + 'static,
-) -> impl IntoElement {
-    let snap = store::search_snapshot();
-    let Some(target) = snap.target else {
+fn search_empty_view(page_owner: Owner) -> AnyElement {
+    let (target, has_error, loading) =
+        store::search_state().with(|s| (s.target.clone(), s.error.is_some(), s.loading));
+    let Some(target) = target else {
         return view().into_element();
     };
-
-    if snap.error.is_some() {
+    if has_error {
         return empty_state(
             IconKind::Search,
             "搜索加载失败",
@@ -339,30 +380,19 @@ fn results_panel(
         )
         .into_element();
     }
-
-    let is_tag = matches!(target, SearchTarget::Tag { .. });
-    let mut container = view().w_full().gap_4();
-    if is_tag {
-        let sort_items = vec![(SeriesSort::Hot, "最热"), (SeriesSort::New, "最近更新")];
-        container = container.child(segmented_tabs(
-            sort_items,
-            move || store::search_snapshot().sort,
-            move |next| page_owner.run(move || query::switch_sort(next)),
-        ));
-    }
-
-    if snap.loading && snap.items.is_empty() {
-        return container
-            .child(
-                view()
-                    .py_6()
-                    .items_center()
-                    .child(text("正在搜索...").text_sm().text_color(token::muted_fg)),
-            )
-            .into_element();
-    }
-
-    container
-        .child(series_grid(snap.items, on_open_series))
+    if loading {
+        view()
+            .py_6()
+            .items_center()
+            .child(text("正在搜索...").text_sm().text_color(token::muted_fg))
+            .into_element()
+    } else {
+        empty_state(
+            IconKind::Search,
+            "暂无匹配剧目",
+            "尝试更换关键词或筛选条件",
+            None,
+        )
         .into_element()
+    }
 }
