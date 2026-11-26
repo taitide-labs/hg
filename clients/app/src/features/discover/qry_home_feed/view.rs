@@ -55,51 +55,56 @@ pub fn home_feed_view(
         (has_error, snap.feed.is_some(), categories)
     });
 
-    scroll().flex_1().child(
-        view()
-            .w_full()
-            .p_6()
-            .gap_6()
-            .pb_safe_area_plus(px(24.0))
-            .on_layout(move |bounds: &Bounds<Points>| {
-                let w = bounds.size.width.0;
-                let h = bounds.size.height.0;
-                store::set_viewport_size(w, h);
-                if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
-                    container_width.set(w);
-                }
-            })
-            .child(dynamic(move || {
-                let (has_error, has_feed, category_meta) = shell_meta.get();
-                untracked(|| {
-                    if has_error {
-                        return empty_state(
-                            IconKind::Discover,
-                            "片库加载失败",
-                            "请稍后重试刷新发现内容",
-                            Some((
-                                "重新加载",
-                                Box::new(move || page_owner.run(query::load_home)),
-                            )),
-                        )
-                        .into_element();
-                    }
+    view()
+        .flex_1()
+        .min_h_0()
+        .on_layout(move |bounds: &Bounds<Points>| {
+            let w = bounds.size.width.0;
+            let h = bounds.size.height.0;
+            store::set_viewport_size(w, h);
+            if w > 0.0 && (container_width.get_untracked() - w).abs() > 1.0 {
+                container_width.set(w);
+            }
+        })
+        .child(
+            scroll().flex_1().child(
+                view()
+                    .w_full()
+                    .p_6()
+                    .gap_6()
+                    .pb_safe_area_plus(px(24.0))
+                    .child(dynamic(move || {
+                        let (has_error, has_feed, category_meta) = shell_meta.get();
+                        untracked(|| {
+                            if has_error {
+                                return empty_state(
+                                    IconKind::Discover,
+                                    "片库加载失败",
+                                    "请稍后重试刷新发现内容",
+                                    Some((
+                                        "重新加载",
+                                        Box::new(move || page_owner.run(query::load_home)),
+                                    )),
+                                )
+                                .into_element();
+                            }
 
-                    if !has_feed {
-                        return home_skeleton_view(card_width).into_element();
-                    }
+                            if !has_feed {
+                                return home_skeleton_view(card_width).into_element();
+                            }
 
-                    render_home_shelves(
-                        category_meta,
-                        card_width,
-                        on_open_browse,
-                        on_open_series,
-                        &context_actions,
-                    )
-                    .into_element()
-                })
-            })),
-    )
+                            render_home_shelves(
+                                category_meta,
+                                card_width,
+                                on_open_browse,
+                                on_open_series,
+                                &context_actions,
+                            )
+                            .into_element()
+                        })
+                    })),
+            ),
+        )
 }
 
 fn render_home_shelves(

@@ -760,3 +760,99 @@ fn discover_home_horizontal_shelves_virtualize_offscreen_cards() {
     app.scroll("TOP 1", Points(1800.0)).unwrap();
     app.wait_for("TOP 12").unwrap();
 }
+
+#[test]
+fn browse_category_scrolls_through_all_pages_to_bottom() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(120));
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Dark);
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+
+    for _ in 0..12 {
+        if app.screen().shows("分页剧目 120") {
+            break;
+        }
+        app.scroll("text:/分页剧目 / >> nth=0", Points(3000.0))
+            .unwrap();
+        app.wait(Duration::from_millis(80)).unwrap();
+    }
+    app.wait_for("分页剧目 120").unwrap();
+}
+
+#[test]
+fn browse_pagination_locks_page_size_across_home_layout_and_resize() {
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(120));
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+
+    app.set_viewport(Size::new(Points(1240.0), Points(1440.0)))
+        .unwrap();
+    app.wait(Duration::from_millis(60)).unwrap();
+
+    for _ in 0..8 {
+        if app.screen().shows("分页剧目 120") {
+            break;
+        }
+        app.scroll("text:/分页剧目 / >> nth=0", Points(3000.0))
+            .unwrap();
+        app.wait(Duration::from_millis(60)).unwrap();
+    }
+    app.wait_for("分页剧目 120").unwrap();
+
+    let sizes: Vec<(u32, u16)> = gw
+        .snapshot_list_series_requests()
+        .into_iter()
+        .filter(|req| {
+            matches!(
+                &req.filter,
+                hg_contracts::catalog::SeriesFilter::CategoryRoute { route } if route == "duanju"
+            )
+        })
+        .map(|req| (req.page.page.get(), req.page.size.get()))
+        .collect();
+    assert!(
+        sizes.len() >= 2,
+        "expected multi-page browse requests, got {sizes:?}"
+    );
+    let page1_size = sizes.first().map_or(0, |&(_, size)| size);
+    assert!(page1_size > 0, "expected non-zero page 1 size in {sizes:?}");
+    let max_desktop_size = crate::features::discover::parts::adaptive_page_size(
+        DESKTOP_VIEWPORT.width.0,
+        DESKTOP_VIEWPORT.height.0,
+        false,
+    );
+    assert!(
+        page1_size <= max_desktop_size,
+        "discover home must not poison page 1 size above viewport estimate ({max_desktop_size}), got {page1_size} in {sizes:?}"
+    );
+    assert!(
+        sizes.iter().all(|&(_, size)| size == page1_size),
+        "all browse pages must lock page 1 size ({page1_size}), got {sizes:?}"
+    );
+}
+
+#[test]
+fn browse_pagination_advances_past_zero_growth_duplicate_page() {
+    let gw = Arc::new(
+        MockGateway::new()
+            .with_paged_catalog(80)
+            .with_duplicate_browse_page(2),
+    );
+    let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
+
+    app.press("查看热门短剧全部").unwrap();
+    app.wait_for("分页剧目 01").unwrap();
+
+    for _ in 0..10 {
+        if app.screen().shows("分页剧目 80") {
+            break;
+        }
+        app.scroll("text:/分页剧目 / >> nth=0", Points(3000.0))
+            .unwrap();
+        app.wait(Duration::from_millis(80)).unwrap();
+    }
+    app.wait_for("分页剧目 80").unwrap();
+}
