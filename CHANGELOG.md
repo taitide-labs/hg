@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/taitide-labs/hg/compare/v0.4.0...v0.4.1) (2026-11-26)
+
+
+### Bug Fixes
+
+* **discover:** 修复分类浏览分页尺寸漂移及后续页加载中断问题 ([#95](https://github.com/taitide-labs/hg/issues/95)) ([ab0dff3](https://github.com/taitide-labs/hg/commit/ab0dff303e51126b6efe0633958f6fbd5639015d))
+
 ## [0.4.0](https://github.com/taitide-labs/hg/compare/v0.3.0...v0.4.0) (2026-11-25)
 
 
