@@ -1,27 +1,15 @@
-use std::num::{NonZeroU16, NonZeroU32};
-
 use hg_contracts::catalog::{
     ListRankingRequest, ListSeriesRequest, RankingKind, SearchSeriesRequest, SeriesFilter,
     SeriesSort,
 };
-use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_poster_preferences,
+    build_page_request, dedup_append, min_items_to_fill_viewport, sync_poster_preferences,
     sync_watched_series,
 };
 use super::super::store::{self, BrowseKind, RankingTab};
 use crate::gateway;
-
-fn page_request(page: u32, is_ranking: bool) -> PageRequest {
-    let (w, h) = store::viewport_size_untracked();
-    let size = adaptive_page_size(w, h, is_ranking);
-    PageRequest::new(
-        NonZeroU32::new(page.max(1)).unwrap_or(NonZeroU32::MIN),
-        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
-    )
-}
 
 pub fn ensure_viewport_filled() {
     let (w, h) = store::viewport_size_untracked();
@@ -112,7 +100,7 @@ fn load_browse_with_sort(kind: BrowseKind, sort: SeriesSort) {
         s.error = None;
         s.load_more_error = None;
     });
-    fetch_browse_page(kind, sort, 1, seq, true);
+    fetch_browse_page(kind, sort, 1, None, seq, true);
 }
 
 pub fn load_next_browse_page() {
@@ -128,11 +116,12 @@ pub fn load_next_browse_page() {
             s.kind.clone(),
             s.sort,
             page_info.page.saturating_add(1),
+            page_info.size,
             s.request_seq,
         ))
     });
 
-    let Some((kind, sort, next_page, seq)) = params else {
+    let Some((kind, sort, next_page, locked_size, seq)) = params else {
         return;
     };
 
@@ -142,13 +131,20 @@ pub fn load_next_browse_page() {
             s.load_more_error = None;
         }
     });
-    fetch_browse_page(kind, sort, next_page, seq, false);
+    fetch_browse_page(kind, sort, next_page, Some(locked_size), seq, false);
 }
 
-fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64, initial: bool) {
+fn fetch_browse_page(
+    kind: BrowseKind,
+    sort: SeriesSort,
+    page_num: u32,
+    locked_size: Option<u32>,
+    seq: u64,
+    initial: bool,
+) {
     let gw = gateway::current();
     let is_ranking = matches!(kind, BrowseKind::Ranking(_));
-    let page = page_request(page_num, is_ranking);
+    let page = build_page_request(page_num, locked_size, is_ranking);
 
     spawn(async move {
         match kind {
@@ -164,6 +160,7 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
                 let req = ListRankingRequest { kind: rk, page };
                 match gw.list_ranking(req).await {
                     Ok(paged) => {
+                        let mut empty_append_with_more = false;
                         store::browse_state().update(|s| {
                             if s.request_seq != seq {
                                 return;
@@ -173,14 +170,21 @@ fn fetch_browse_page(kind: BrowseKind, sort: SeriesSort, page_num: u32, seq: u64
                                 s.items.clear();
                                 s.loading = false;
                             } else {
+                                let before = s.ranking_items.len();
                                 dedup_append(&mut s.ranking_items, paged.items, |r| r.series.id);
+                                empty_append_with_more = s.ranking_items.len() == before
+                                    && paged.pagination.page < paged.pagination.pages;
                                 s.loading_more = false;
                             }
                             s.pagination = Some(paged.pagination);
                             s.error = None;
                             s.load_more_error = None;
                         });
-                        ensure_viewport_filled();
+                        if empty_append_with_more {
+                            load_next_browse_page();
+                        } else {
+                            ensure_viewport_filled();
+                        }
                     }
                     Err(err) => apply_error(seq, initial, err.to_string()),
                 }
@@ -232,6 +236,7 @@ fn apply_series_result(
 ) {
     match result {
         Ok(paged) => {
+            let mut empty_append_with_more = false;
             store::browse_state().update(|s| {
                 if s.request_seq != seq {
                     return;
@@ -241,14 +246,21 @@ fn apply_series_result(
                     s.ranking_items.clear();
                     s.loading = false;
                 } else {
+                    let before = s.items.len();
                     dedup_append(&mut s.items, paged.items, |item| item.id);
+                    empty_append_with_more =
+                        s.items.len() == before && paged.pagination.page < paged.pagination.pages;
                     s.loading_more = false;
                 }
                 s.pagination = Some(paged.pagination);
                 s.error = None;
                 s.load_more_error = None;
             });
-            ensure_viewport_filled();
+            if empty_append_with_more {
+                load_next_browse_page();
+            } else {
+                ensure_viewport_filled();
+            }
         }
         Err(err) => apply_error(seq, initial, err.to_string()),
     }

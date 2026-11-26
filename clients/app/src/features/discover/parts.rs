@@ -1,9 +1,10 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::hash::Hash;
+use std::num::{NonZeroU16, NonZeroU32};
 use std::rc::Rc;
 
 use hg_contracts::catalog::SeriesSummary;
-use hg_contracts::ids::SeriesId;
+use hg_contracts::ids::{PageRequest, SeriesId};
 use nsh_core::prelude::*;
 
 use super::store::{self, SeriesWatchStatus, WatchedSeriesSnapshot};
@@ -75,6 +76,21 @@ pub fn adaptive_page_size(viewport_width: f32, viewport_height: f32, _is_ranking
     let desired_rows = visible_rows.saturating_mul(2).saturating_add(1).max(4);
     let aligned = cols.saturating_mul(desired_rows);
     u16::try_from(aligned.clamp(24, 60)).unwrap_or(60)
+}
+
+#[must_use]
+pub fn build_page_request(page: u32, size_override: Option<u32>, is_ranking: bool) -> PageRequest {
+    let size = size_override
+        .and_then(|s| u16::try_from(s).ok())
+        .filter(|&s| s > 0)
+        .unwrap_or_else(|| {
+            let (w, h) = store::viewport_size_untracked();
+            adaptive_page_size(w, h, is_ranking)
+        });
+    PageRequest::new(
+        NonZeroU32::new(page.max(1)).unwrap_or(NonZeroU32::MIN),
+        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
+    )
 }
 
 #[must_use]
