@@ -55,6 +55,8 @@ pub struct MockGateway {
     method_counts: Arc<Mutex<HashMap<&'static str, usize>>>,
     home_feed_cap: Option<usize>,
     cached_snapshot: Arc<Mutex<Option<HomeSnapshot>>>,
+    list_series_requests: Arc<Mutex<Vec<ListSeriesRequest>>>,
+    duplicate_browse_page: Option<u32>,
 }
 
 impl Default for MockGateway {
@@ -74,7 +76,15 @@ impl MockGateway {
             method_counts: Arc::new(Mutex::new(HashMap::new())),
             home_feed_cap: None,
             cached_snapshot: Arc::new(Mutex::new(None)),
+            list_series_requests: Arc::new(Mutex::new(Vec::new())),
+            duplicate_browse_page: None,
         }
+    }
+
+    #[must_use]
+    pub const fn with_duplicate_browse_page(mut self, page: u32) -> Self {
+        self.duplicate_browse_page = Some(page);
+        self
     }
 
     #[must_use]
@@ -394,6 +404,11 @@ impl MockGateway {
         }
     }
 
+    #[must_use]
+    pub fn snapshot_list_series_requests(&self) -> Vec<ListSeriesRequest> {
+        self.list_series_requests.lock().clone()
+    }
+
     fn check_error(&self, method: &'static str) -> Result<(), ContractError> {
         if let Some(error) = self.method_errors.lock().get(method).cloned() {
             return Err(error);
@@ -515,6 +530,8 @@ impl AppGateway for MockGateway {
     }
 
     fn list_series(&self, request: ListSeriesRequest) -> GatewayFuture<PagedResult<SeriesSummary>> {
+        self.list_series_requests.lock().push(request.clone());
+        let dup_page = self.duplicate_browse_page;
         let result = self.check_error("list_series").map(|()| {
             let state = self.state.lock();
             let mut items: Vec<SeriesSummary> = state
@@ -565,7 +582,12 @@ impl AppGateway for MockGateway {
                 SeriesSort::Random => items.reverse(),
             }
 
-            Self::paginate(&items, request.page)
+            let mut paged = Self::paginate(&items, request.page);
+            if dup_page == Some(request.page.page.get()) {
+                let page_one = PageRequest::new(NonZeroU32::MIN, request.page.size);
+                paged.items = Self::paginate(&items, page_one).items;
+            }
+            paged
         });
         self.finish("list_series", result)
     }

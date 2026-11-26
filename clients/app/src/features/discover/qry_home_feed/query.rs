@@ -17,7 +17,7 @@ use crate::gateway;
 const HOME_CANDIDATE_FETCH_SIZE: u16 = 20;
 const HOME_RANKING_FETCH_SIZE: u16 = 20;
 const HOME_SHELF_MIN_ITEMS: usize = 10;
-const HOME_TOPUP_FETCH_SIZE: u16 = 10;
+const HOME_TOPUP_FETCH_SIZE: u16 = 12;
 const HOME_REFILL_VISIBLE_TARGET: usize = 8;
 
 fn first_page(size: u16) -> PageRequest {

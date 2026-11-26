@@ -1,27 +1,15 @@
-use std::num::{NonZeroU16, NonZeroU32};
-
 use hg_contracts::catalog::{
     ListSeriesRequest, PagedResult, SearchSeriesRequest, SeriesFilter, SeriesSort, SeriesSummary,
 };
 use hg_contracts::error::ContractError;
-use hg_contracts::ids::PageRequest;
 use nsh_core::prelude::*;
 
 use super::super::parts::{
-    adaptive_page_size, dedup_append, min_items_to_fill_viewport, sync_poster_preferences,
+    build_page_request, dedup_append, min_items_to_fill_viewport, sync_poster_preferences,
     sync_watched_series,
 };
 use super::super::store::{self, SearchTarget};
 use crate::gateway;
-
-fn page_request(page: u32) -> PageRequest {
-    let (w, h) = store::viewport_size_untracked();
-    let size = adaptive_page_size(w, h, false);
-    PageRequest::new(
-        NonZeroU32::new(page.max(1)).unwrap_or(NonZeroU32::MIN),
-        NonZeroU16::new(size).unwrap_or(NonZeroU16::MIN),
-    )
-}
 
 pub fn ensure_viewport_filled() {
     let (w, h) = store::viewport_size_untracked();
@@ -142,6 +130,7 @@ pub fn submit_keyword(raw: &str) {
         SearchTarget::Keyword(trimmed),
         SeriesSort::Hot,
         1,
+        None,
         seq,
         true,
     );
@@ -183,7 +172,7 @@ fn select_tag_internal(slug: String, name: String) {
         s.load_more_error = None;
     });
 
-    fetch_search_page(SearchTarget::Tag { slug, name }, sort, 1, seq, true);
+    fetch_search_page(SearchTarget::Tag { slug, name }, sort, 1, None, seq, true);
 }
 
 pub fn switch_sort(sort: SeriesSort) {
@@ -208,7 +197,7 @@ pub fn switch_sort(sort: SeriesSort) {
         s.load_more_error = None;
     });
 
-    fetch_search_page(SearchTarget::Tag { slug, name }, sort, 1, seq, true);
+    fetch_search_page(SearchTarget::Tag { slug, name }, sort, 1, None, seq, true);
 }
 
 pub fn load_next_search_page() {
@@ -225,11 +214,12 @@ pub fn load_next_search_page() {
             target,
             s.sort,
             page_info.page.saturating_add(1),
+            page_info.size,
             s.request_seq,
         ))
     });
 
-    let Some((target, sort, next_page, seq)) = params else {
+    let Some((target, sort, next_page, locked_size, seq)) = params else {
         return;
     };
 
@@ -239,7 +229,7 @@ pub fn load_next_search_page() {
             s.load_more_error = None;
         }
     });
-    fetch_search_page(target, sort, next_page, seq, false);
+    fetch_search_page(target, sort, next_page, Some(locked_size), seq, false);
 }
 
 pub fn remove_history(keyword: String) {
@@ -278,11 +268,12 @@ fn fetch_search_page(
     target: SearchTarget,
     sort: SeriesSort,
     page_num: u32,
+    locked_size: Option<u32>,
     seq: u64,
     initial: bool,
 ) {
     let gw = gateway::current();
-    let page = page_request(page_num);
+    let page = build_page_request(page_num, locked_size, false);
 
     spawn(async move {
         let res = match target {
@@ -310,6 +301,7 @@ fn apply_search_result(
 ) {
     match result {
         Ok(paged) => {
+            let mut empty_append_with_more = false;
             store::search_state().update(|s| {
                 if s.request_seq != seq {
                     return;
@@ -318,14 +310,21 @@ fn apply_search_result(
                     s.items = paged.items;
                     s.loading = false;
                 } else {
+                    let before = s.items.len();
                     dedup_append(&mut s.items, paged.items, |item| item.id);
+                    empty_append_with_more =
+                        s.items.len() == before && paged.pagination.page < paged.pagination.pages;
                     s.loading_more = false;
                 }
                 s.pagination = Some(paged.pagination);
                 s.error = None;
                 s.load_more_error = None;
             });
-            ensure_viewport_filled();
+            if empty_append_with_more {
+                load_next_search_page();
+            } else {
+                ensure_viewport_filled();
+            }
         }
         Err(err) => {
             store::search_state().update(|s| {
