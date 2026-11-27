@@ -5,6 +5,8 @@ message: "禁止在源码保留普通行内注释；请删除赘述或借口注�
 files:
   - "backend/**/*.rs"
   - "clients/**/*.rs"
+  - "contracts/**/*.rs"
+  - "e2e/**/*.rs"
 rule:
   kind: line_comment
   not:

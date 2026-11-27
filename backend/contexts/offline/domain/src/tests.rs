@@ -9,9 +9,9 @@ use hg_contracts::offline::{
 use crate::error::OfflineError;
 use crate::policy::{default_download_policy, validate_download_policy};
 use crate::task::{
-    plan_episode_enqueue, select_download_stream, transition_to_cancelled, transition_to_completed,
-    transition_to_downloading, transition_to_failed, transition_to_fetching, transition_to_paused,
-    transition_to_resumed, transition_to_retried,
+    plan_episode_enqueue, select_download_stream, state_label, transition_to_cancelled,
+    transition_to_completed, transition_to_downloading, transition_to_failed,
+    transition_to_fetching, transition_to_paused, transition_to_resumed, transition_to_retried,
 };
 
 #[test]
@@ -82,6 +82,38 @@ fn enforces_seven_state_download_lifecycle() {
 
     assert_eq!(s, DownloadTaskState::Completed);
     assert!(transition_to_cancelled(s).is_err());
+
+    assert_eq!(state_label(DownloadTaskState::Queued), "queued");
+    assert_eq!(
+        state_label(DownloadTaskState::FetchingSource),
+        "fetching_source"
+    );
+    assert_eq!(
+        state_label(DownloadTaskState::Downloading {
+            completed_segments: 1,
+            total_segments: 2,
+            downloaded_bytes: 100,
+        }),
+        "downloading"
+    );
+    assert_eq!(
+        state_label(DownloadTaskState::Paused {
+            reason: PauseReason::UserRequested,
+            completed_segments: 1,
+            total_segments: 2,
+        }),
+        "paused"
+    );
+    assert_eq!(
+        state_label(DownloadTaskState::Failed {
+            reason: DownloadFailureReason::NetworkError,
+            completed_segments: 1,
+            total_segments: 2,
+        }),
+        "failed"
+    );
+    assert_eq!(state_label(DownloadTaskState::Completed), "completed");
+    assert_eq!(state_label(DownloadTaskState::Cancelled), "cancelled");
 }
 
 #[test]

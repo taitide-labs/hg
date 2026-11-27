@@ -50,10 +50,57 @@ fn routes_public_dynamic_and_playback_scopes_correctly() {
 }
 
 #[test]
+fn covers_edge_scope_labels_and_single_segment_prefixes() {
+    assert_eq!(
+        resolve_edge_scope("POST", "/api/home/recommends"),
+        EdgeScope::Dynamic
+    );
+    assert_eq!(
+        resolve_edge_scope("GET", "/api/videos/14288/episodes/1/playback"),
+        EdgeScope::Dynamic
+    );
+
+    assert_eq!(EdgeScope::Public.as_str(), "public");
+    assert_eq!(EdgeScope::Dynamic.as_str(), "dynamic");
+    assert_eq!(EdgeScope::Playback.as_str(), "playback");
+    assert_eq!(EdgeScope::Public.endpoint_path(), "/api/public/request");
+    assert_eq!(EdgeScope::Dynamic.endpoint_path(), "/api/dynamic/request");
+    assert_eq!(EdgeScope::Playback.endpoint_path(), "/api/playback/request");
+
+    for path in [
+        "/api/ranks/daily",
+        "/api/topics/featured",
+        "/api/videos/category/anime",
+        "/api/videos/sort/hot",
+        "/api/videos/tag/action",
+    ] {
+        assert_eq!(resolve_edge_scope("GET", path), EdgeScope::Public);
+    }
+
+    assert_eq!(resolve_edge_scope("GET", "/api/ranks/"), EdgeScope::Dynamic);
+    assert_eq!(
+        resolve_edge_scope("GET", "/api/ranks/daily/extra"),
+        EdgeScope::Dynamic
+    );
+}
+
+#[test]
 fn parses_auth_key_timestamp_and_evaluates_expiry() {
     let url = "https://cdn.example.com/v/1.m3u8?auth_key=1730000000-abc-0-deadbeef";
     let issued = parse_auth_key_issued_at(url).expect("should parse auth_key");
     assert_eq!(issued, 1_730_000_000);
+    assert_eq!(
+        parse_auth_key_issued_at("https://cdn.example.com/v/1.m3u8?auth_key=12345-abc"),
+        None
+    );
+    assert_eq!(
+        parse_auth_key_issued_at("https://cdn.example.com/v/1.m3u8?auth_key=111111111111-a"),
+        None
+    );
+    assert_eq!(
+        parse_auth_key_issued_at("https://cdn.example.com/v/1.m3u8?auth_key=173000000a-abc"),
+        None
+    );
 
     let expires = compute_ticket_expiry(issued);
     assert!(!is_ticket_near_expiry(expires, issued + 100));
