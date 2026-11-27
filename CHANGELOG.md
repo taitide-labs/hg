@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.4](https://github.com/taitide-labs/hg/compare/v0.4.3...v0.4.4) (2026-11-27)
+
+
+### Bug Fixes
+
+* **app:** 修复窗口缩放防抖测试竞态与 Windows 发版打包脚本 ([#104](https://github.com/taitide-labs/hg/issues/104)) ([90bc8be](https://github.com/taitide-labs/hg/commit/90bc8be915732f6c0121677d5b0d3b7b40f73136))
+
 ## [0.4.3](https://github.com/taitide-labs/hg/compare/v0.4.2...v0.4.3) (2026-11-27)
 
 
