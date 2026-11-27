@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/taitide-labs/hg/compare/v0.4.1...v0.4.2) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ci:** 对齐 kitcode 基建并启用合并队列与缓存预热 ([#97](https://github.com/taitide-labs/hg/issues/97)) ([b49cbff](https://github.com/taitide-labs/hg/commit/b49cbffb2fe2e7170e22aea4e7f4e6d6ce28f97a))
+
 ## [0.4.1](https://github.com/taitide-labs/hg/compare/v0.4.0...v0.4.1) (2026-11-26)
 
 
