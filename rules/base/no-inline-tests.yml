@@ -4,6 +4,8 @@ severity: error
 files:
   - "backend/**/*.rs"
   - "clients/**/*.rs"
+  - "contracts/**/*.rs"
+  - "e2e/**/*.rs"
 ignores:
   - "**/tests.rs"
   - "**/tests/**/*.rs"

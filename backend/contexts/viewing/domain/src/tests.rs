@@ -105,11 +105,49 @@ fn marks_tail_completed_and_returns_next_episode() {
     let last_ep = evaluate_watch_progress(sample_key(14288, 10), 118, 120, 10);
     assert!(last_ep.progress.completed);
     assert_eq!(last_ep.next_episode, None);
+
+    let unknown_dur = evaluate_watch_progress(key, 42, 0, 10);
+    assert_eq!(unknown_dur.progress.position_secs, 42);
+    assert!(!unknown_dur.progress.completed);
+
+    let clamped = evaluate_watch_progress(key, 150, 100, 10);
+    assert_eq!(clamped.progress.position_secs, 100);
+    assert!(clamped.progress.completed);
 }
 
 #[test]
 fn validates_playback_preference_and_plans_lru_eviction() {
     assert!(validate_playback_preference(&default_playback_preference()).is_ok());
+
+    let min_cache = PlaybackPreference {
+        playback_cache_limit_mb: 64,
+        ..PlaybackPreference::default()
+    };
+    assert!(validate_playback_preference(&min_cache).is_ok());
+
+    let valid_window = PlaybackPreference {
+        window_placement: Some(hg_contracts::viewing::WindowPlacementPref {
+            mode: hg_contracts::viewing::WindowPlacementMode::Normal,
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 720,
+        }),
+        ..PlaybackPreference::default()
+    };
+    assert!(validate_playback_preference(&valid_window).is_ok());
+
+    let bad_height_window = PlaybackPreference {
+        window_placement: Some(hg_contracts::viewing::WindowPlacementPref {
+            mode: hg_contracts::viewing::WindowPlacementMode::Normal,
+            x: 0,
+            y: 0,
+            width: 1280,
+            height: 0,
+        }),
+        ..PlaybackPreference::default()
+    };
+    assert!(validate_playback_preference(&bad_height_window).is_err());
 
     let bad = PlaybackPreference {
         playback_cache_limit_mb: 32,

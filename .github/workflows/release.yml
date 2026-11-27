@@ -191,7 +191,7 @@ jobs:
             trap 'rm -f "$keystore_path"' EXIT
             extra_args+=(--keystore "$keystore_path" --key-alias "$ANDROID_KEY_ALIAS")
           fi
-          mise x -- nsh package clients/app \
+          mise x "github:longbridge/nsh" -- nsh package clients/app \
             --target "$NSH_TARGET" \
             --app-version "${TAG#v}" \
             "${extra_args[@]}" \
