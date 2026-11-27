@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.7](https://github.com/taitide-labs/hg/compare/v0.4.6...v0.4.7) (2026-11-27)
+
+
+### Bug Fixes
+
+* **ci:** 关闭发版测试与打包阶段的 Cargo 增量编译 ([#116](https://github.com/taitide-labs/hg/issues/116)) ([cba975e](https://github.com/taitide-labs/hg/commit/cba975eb32f32dc7a7a33774749290277c7d82bc))
+
 ## [0.4.6](https://github.com/taitide-labs/hg/compare/v0.4.5...v0.4.6) (2026-11-27)
 
 
