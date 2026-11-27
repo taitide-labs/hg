@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.5](https://github.com/taitide-labs/hg/compare/v0.4.4...v0.4.5) (2026-11-27)
+
+
+### Bug Fixes
+
+* **release:** 移除重复构建校验并精简发现页慢测试 ([#107](https://github.com/taitide-labs/hg/issues/107)) ([d46e023](https://github.com/taitide-labs/hg/commit/d46e023ab3f55ef5ab346be8efb7e51eee517fc3))
+
 ## [0.4.4](https://github.com/taitide-labs/hg/compare/v0.4.3...v0.4.4) (2026-11-27)
 
 
