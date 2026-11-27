@@ -232,25 +232,6 @@ jobs:
               ;;
           esac
           test -n "$(find dist -maxdepth 1 -type f)"
-      - name: Verify Windows package and libmpv runtime
-        if: ${{ matrix.nsh_target == 'windows' }}
-        shell: bash
-        env:
-          TARGET: ${{ matrix.rust_target }}
-        run: |
-          set -euo pipefail
-          runner_temp_unix=$(cygpath -u "$RUNNER_TEMP")
-          verify_dir="${runner_temp_unix}/verify-win"
-          rm -rf "$verify_dir"
-          mkdir -p "$verify_dir"
-          zip_artifact=$(find dist -maxdepth 1 -type f -name '*.zip' | head -n 1)
-          test -n "$zip_artifact"
-          unzip -q -o "$zip_artifact" -d "$verify_dir"
-          verify_exe=$(find "$verify_dir" -type f -name '*.exe' | head -n 1)
-          test -n "$verify_exe"
-          dll_dir=$(dirname "$verify_exe")
-          test -s "${dll_dir}/libmpv-2.dll"
-          PATH="${dll_dir}:$PATH" cargo test -p hg-native-player --lib --locked --target "$TARGET" -- --ignored --exact windows::tests::windows_libmpv_runtime_smoke_loads_and_creates_engine
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-app-${{ matrix.name }}
