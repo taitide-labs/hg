@@ -41,7 +41,7 @@ steps {
 
   ["zizmor"] {
     profiles = List("security", "!fmt")
-    glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+    glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml", ".github/actions/**/*.yml", ".github/actions/**/*.yaml")
     check = "zizmor --offline --quiet {{files}}"
   }
 
