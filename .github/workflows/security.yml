@@ -81,13 +81,22 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust toolchain
+        id: rustup
+        background: true
         run: rustup install --profile minimal
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+        with:
+          install: false
+          cache_save: false
+      - name: Install mutation testing tools
+        run: |
+          mise install --locked "github:nextest-rs/nextest"
+          mise install "github:sourcefrog/cargo-mutants@27.1.0"
+      - name: Wait for Rust toolchain
+        wait: rustup
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           prefix-key: mutants
-      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
-        with:
-          tool: cargo-mutants,cargo-nextest
       - name: Run mutation tests on contracts and domain crates
         run: |
           mapfile -t pkgs < <(cargo metadata --no-deps --format-version 1 \
@@ -99,4 +108,4 @@ jobs:
                 )
               | ("-p", .name)')
           test "${#pkgs[@]}" -gt 0
-          cargo mutants --in-place "${pkgs[@]}"
+          mise x "github:sourcefrog/cargo-mutants@27.1.0" "github:nextest-rs/nextest" -- cargo mutants --in-place "${pkgs[@]}"
