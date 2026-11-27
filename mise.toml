@@ -29,7 +29,7 @@ run = "hk check --all -q -n"
 
 [tasks.test]
 description = "Run tests via nextest (supports -p <crate>, <filter>, or -E <expr>)"
-run = "cargo nextest run --workspace --locked --no-tests=pass --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
+run = "cargo nextest run --workspace --locked --no-tests=pass --cargo-quiet --status-level=slow --final-status-level=slow --show-progress=none"
 
 [tasks.audit]
 description = "Audit dependencies for vulnerabilities and license compliance"
@@ -41,11 +41,11 @@ run = "nsh run clients/app"
 
 [tasks.e2e]
 description = "Run deterministic end-to-end integration test suite"
-run = "cargo nextest run -p hg-e2e --locked --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
+run = "cargo nextest run -p hg-e2e --locked --cargo-quiet --status-level=slow --final-status-level=slow --show-progress=none"
 
 [tasks."e2e:live"]
 description = "Run live upstream smoke test"
-run = "cargo nextest run -p hg-e2e --locked --run-ignored ignored-only live_ --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
+run = "cargo nextest run -p hg-e2e --locked --run-ignored ignored-only live_ --cargo-quiet --status-level=slow --final-status-level=slow --show-progress=none"
 
 [tasks."visual:capture"]
 description = "Capture on-demand macOS screenshots of key screens into .visual-shots/"

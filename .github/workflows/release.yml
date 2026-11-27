@@ -39,6 +39,55 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/.release-please-manifest.json
 
+  test-app:
+    name: Test Release App (${{ matrix.name }})
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-latest
+            rust_target: aarch64-apple-darwin
+          - name: windows-x86_64
+            runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Rust toolchain
+        id: rustup
+        shell: bash
+        background: true
+        env:
+          TARGET: ${{ matrix.rust_target }}
+        run: rustup install --profile minimal && rustup target add "$TARGET"
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+        with:
+          install: false
+          cache_save: false
+      - name: Install test runner
+        shell: bash
+        run: mise install --locked "github:nextest-rs/nextest"
+      - name: Wait for Rust toolchain
+        wait: rustup
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: test-${{ matrix.rust_target }}
+      - name: Run cross-platform checks
+        shell: bash
+        env:
+          TARGET: ${{ matrix.rust_target }}
+        run: |
+          cargo clippy -q --workspace --all-targets --locked --target "$TARGET" -- -D warnings
+          mise x -- cargo nextest run --workspace --locked --target "$TARGET" --no-tests=pass --cargo-quiet --status-level=slow --final-status-level=slow --show-progress=none
+
   build-app:
     name: Build Release App (${{ matrix.name }})
     needs: release-please
@@ -53,23 +102,20 @@ jobs:
             nsh_target: macos
             nsh_args: "--arch arm64"
             ext: tar.gz
-            run_tests: true
           - name: windows-x86_64
             runner: windows-latest
             rust_target: x86_64-pc-windows-msvc
             nsh_target: windows
             nsh_args: ""
             ext: zip
-            run_tests: true
           - name: android-arm64
             runner: ubuntu-24.04
             rust_target: aarch64-linux-android
             nsh_target: android
             nsh_args: "--abi arm64-v8a"
             ext: apk
-            run_tests: false
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -82,32 +128,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y clang llvm
       - name: Setup Rust toolchain
+        id: rustup
         shell: bash
+        background: true
         env:
           TARGET: ${{ matrix.rust_target }}
         run: rustup install --profile minimal && rustup target add "$TARGET"
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: ${{ matrix.rust_target }}
       - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
         with:
           install: false
           cache_save: false
       - name: Install release tools
         shell: bash
-        env:
-          RUN_TESTS: ${{ matrix.run_tests }}
-        run: |
-          mise install --locked "github:longbridge/nsh"
-          if [ "$RUN_TESTS" = "true" ]; then
-            mise install --locked "github:nextest-rs/nextest"
-          fi
-      - name: Run cross-platform tests
-        if: ${{ matrix.run_tests }}
-        shell: bash
-        env:
-          TARGET: ${{ matrix.rust_target }}
-        run: mise x -- cargo nextest run --workspace --locked --target "$TARGET" --no-tests=pass --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none
+        run: mise install --locked "github:longbridge/nsh"
+      - name: Wait for Rust toolchain
+        wait: rustup
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: pkg-${{ matrix.rust_target }}
       - name: Package client artifact
         shell: bash
         env:
@@ -169,7 +207,7 @@ jobs:
 
   upload-assets:
     name: Upload & Attest Release Assets
-    needs: [release-please, build-app]
+    needs: [release-please, test-app, build-app]
     if: ${{ needs.release-please.outputs.release_created == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
