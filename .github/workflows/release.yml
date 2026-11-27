@@ -154,16 +154,17 @@ jobs:
           MPV_SHA256: "273c079b11ea5575822f972756f4c9a71149a5c10130353abeb8586738938452"
         run: |
           set -euo pipefail
-          mpv_archive="${RUNNER_TEMP}/mpv-dev.7z"
-          mpv_extract="${RUNNER_TEMP}/mpv-dev"
+          runner_temp_unix=$(cygpath -u "$RUNNER_TEMP")
+          mpv_archive="${runner_temp_unix}/mpv-dev.7z"
+          mpv_extract="${runner_temp_unix}/mpv-dev"
           curl -fsSL -o "$mpv_archive" "$MPV_URL"
           printf '%s  %s\n' "$MPV_SHA256" "$mpv_archive" | sha256sum -c -
           rm -rf "$mpv_extract"
-          7z x -y "$mpv_archive" "-o$mpv_extract" >/dev/null
+          7z x -y -bd "$mpv_archive" "-o${mpv_extract}"
           libmpv_dll=$(find "$mpv_extract" -type f -name 'libmpv-2.dll' | head -n 1)
           test -s "$libmpv_dll"
-          mkdir -p "${RUNNER_TEMP}/win-runtime"
-          cp "$libmpv_dll" "${RUNNER_TEMP}/win-runtime/libmpv-2.dll"
+          mkdir -p "${runner_temp_unix}/win-runtime"
+          cp "$libmpv_dll" "${runner_temp_unix}/win-runtime/libmpv-2.dll"
       - name: Package client artifact
         shell: bash
         env:
@@ -181,6 +182,7 @@ jobs:
             | jq -r '.packages[] | select(.manifest_path | gsub("\\\\"; "/") | endswith("/clients/app/Cargo.toml")) | .name' \
             | tr -d '\r')
           test -n "$app_pkg"
+          rm -rf out_tmp dist
           mkdir -p out_tmp dist
           read -ra extra_args <<< "$NSH_ARGS"
           if [ "$NSH_TARGET" = "android" ] && [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
@@ -201,18 +203,24 @@ jobs:
               cp "$apk_file" "dist/${app_pkg}-${PKG_LABEL}.apk"
               ;;
             zip)
-              rm -rf out_stage
-              mkdir -p out_stage
-              zip_file=$(find out_tmp -maxdepth 1 -type f -name '*.zip' | head -n 1)
-              if [ -n "$zip_file" ]; then
-                7z x -y "$zip_file" -out_stage >/dev/null
+              runner_temp_unix=$(cygpath -u "$RUNNER_TEMP")
+              app_dir=$(find out_tmp -mindepth 1 -maxdepth 1 -type d | head -n 1)
+              if [ -n "$app_dir" ]; then
+                exe_file=$(find "$app_dir" -maxdepth 2 -type f -name '*.exe' | head -n 1)
+                test -n "$exe_file"
+                cp "${runner_temp_unix}/win-runtime/libmpv-2.dll" "$(dirname "$exe_file")/libmpv-2.dll"
+                7z a -bd "dist/${app_pkg}-${PKG_LABEL}.zip" "./${app_dir}"
               else
-                cp -R out_tmp/. out_stage/
+                zip_file=$(find out_tmp -maxdepth 1 -type f -name '*.zip' | head -n 1)
+                test -n "$zip_file"
+                rm -rf out_stage
+                mkdir -p out_stage
+                unzip -q -o "$zip_file" -d out_stage
+                exe_file=$(find out_stage -type f -name '*.exe' | head -n 1)
+                test -n "$exe_file"
+                cp "${runner_temp_unix}/win-runtime/libmpv-2.dll" "$(dirname "$exe_file")/libmpv-2.dll"
+                (cd out_stage && 7z a -bd "../dist/${app_pkg}-${PKG_LABEL}.zip" .)
               fi
-              exe_file=$(find out_stage -type f -name '*.exe' | head -n 1)
-              test -n "$exe_file"
-              cp "${RUNNER_TEMP}/win-runtime/libmpv-2.dll" "$(dirname "$exe_file")/libmpv-2.dll"
-              (cd out_stage && 7z a "../dist/${app_pkg}-${PKG_LABEL}.zip" . >/dev/null)
               ;;
             *)
               tar_file=$(find out_tmp -maxdepth 1 -type f -name '*.tar.gz' | head -n 1)
@@ -231,18 +239,18 @@ jobs:
           TARGET: ${{ matrix.rust_target }}
         run: |
           set -euo pipefail
-          verify_dir="${RUNNER_TEMP}/verify-win"
+          runner_temp_unix=$(cygpath -u "$RUNNER_TEMP")
+          verify_dir="${runner_temp_unix}/verify-win"
           rm -rf "$verify_dir"
           mkdir -p "$verify_dir"
           zip_artifact=$(find dist -maxdepth 1 -type f -name '*.zip' | head -n 1)
           test -n "$zip_artifact"
-          7z x -y "$zip_artifact" "-o$verify_dir" >/dev/null
+          unzip -q -o "$zip_artifact" -d "$verify_dir"
           verify_exe=$(find "$verify_dir" -type f -name '*.exe' | head -n 1)
           test -n "$verify_exe"
           dll_dir=$(dirname "$verify_exe")
           test -s "${dll_dir}/libmpv-2.dll"
-          dll_unix_dir=$(cygpath -u "$dll_dir")
-          PATH="${dll_unix_dir}:$PATH" cargo test -p hg-native-player --lib --locked --target "$TARGET" -- --ignored --exact windows::tests::windows_libmpv_runtime_smoke_loads_and_creates_engine
+          PATH="${dll_dir}:$PATH" cargo test -p hg-native-player --lib --locked --target "$TARGET" -- --ignored --exact windows::tests::windows_libmpv_runtime_smoke_loads_and_creates_engine
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist-app-${{ matrix.name }}
