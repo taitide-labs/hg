@@ -94,9 +94,9 @@ jobs:
           mise install "github:sourcefrog/cargo-mutants@27.1.0"
       - name: Wait for Rust toolchain
         wait: rustup
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: $/.github/actions/cargo-cache
         with:
-          prefix-key: mutants
+          cache: mutants
       - name: Run mutation tests on contracts and domain crates
         run: |
           mapfile -t pkgs < <(cargo metadata --no-deps --format-version 1 \

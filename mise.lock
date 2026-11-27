@@ -184,6 +184,53 @@ checksum_source = "mise-versions"
 url = "https://github.com/huacnlee/autocorrect/releases/download/v2.16.3/autocorrect-windows-amd64.zip"
 url_api = "https://api.github.com/repos/huacnlee/autocorrect/releases/assets/335756986"
 
+[[tools."github:huacnlee/cargo"]]
+version = "0.103.0-1"
+backend = "github:huacnlee/cargo"
+specifiers = ["0.103.0-1"]
+
+[tools."github:huacnlee/cargo"."platforms.linux-arm64"]
+checksum = "sha256:8d7c1faed104151b272fbf1b9b637a3902daf074c9d2017d3ff5d2beb7f43ca9"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157323"
+
+[tools."github:huacnlee/cargo"."platforms.linux-arm64-musl"]
+checksum = "sha256:8d7c1faed104151b272fbf1b9b637a3902daf074c9d2017d3ff5d2beb7f43ca9"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-aarch64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157323"
+
+[tools."github:huacnlee/cargo"."platforms.linux-x64"]
+checksum = "sha256:681505dec73335d593da1ae4e0492423344799757ef505193233f68b3bc6e103"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157382"
+
+[tools."github:huacnlee/cargo"."platforms.linux-x64-musl"]
+checksum = "sha256:681505dec73335d593da1ae4e0492423344799757ef505193233f68b3bc6e103"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-x86_64-unknown-linux-gnu.tar.gz"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157382"
+
+[tools."github:huacnlee/cargo"."platforms.macos-arm64"]
+checksum = "sha256:4c9634493bfb3d6fc926a5cee14271afa2e33008a7793932148e31c4b4d543dd"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157324"
+
+[tools."github:huacnlee/cargo"."platforms.macos-x64"]
+checksum = "sha256:db3ce46bbe20f0e9eb79975dab2d51dc29c574e2184a1ce85777ea96a70bc4ba"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157327"
+
+[tools."github:huacnlee/cargo"."platforms.windows-x64"]
+checksum = "sha256:2e75dd9bab896b5ccdf02b6cddd15ac4a866b62fd6d7b7da0729cc9c690153cf"
+checksum_source = "mise-versions"
+url = "https://github.com/huacnlee/cargo/releases/download/v0.103.0-1/cargo-0.103.0-1-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/huacnlee/cargo/releases/assets/754157325"
+
 [[tools."github:longbridge/nsh"]]
 version = "0.6.1"
 backend = "github:longbridge/nsh"
