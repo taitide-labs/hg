@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.3](https://github.com/taitide-labs/hg/compare/v0.4.2...v0.4.3) (2026-11-27)
+
+
+### Bug Fixes
+
+* **player-windows:** 随包集成 libmpv 运行时并修复引擎初始化吞错 ([#101](https://github.com/taitide-labs/hg/issues/101)) ([ffb0d14](https://github.com/taitide-labs/hg/commit/ffb0d14a6e44bb285e5db5b5815400a29550ba81))
+
 ## [0.4.2](https://github.com/taitide-labs/hg/compare/v0.4.1...v0.4.2) (2026-11-27)
 
 
