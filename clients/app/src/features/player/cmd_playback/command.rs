@@ -229,6 +229,18 @@ pub fn format_rate_trigger(rate_hundredths: u16) -> String {
 }
 
 #[must_use]
+pub fn should_refresh_stream_on_player_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    !(lower.contains("unable to load libmpv runtime")
+        || lower.contains("mpv_create")
+        || lower.contains("mpv_initialize")
+        || lower.contains("mpv_render_context_create")
+        || lower.contains("missing symbol")
+        || lower.contains("player layer")
+        || lower.contains("avfoundation"))
+}
+
+#[must_use]
 pub fn nickname_initial(nickname: &str) -> String {
     nickname
         .chars()

@@ -2,10 +2,10 @@
 
 ## 补充必要上下文
 
-- 当仓库存在 `context.md` 或 `context-map.md` 时，先读取并按需查看所需上下文的 `backend/contexts/<context>/context.md`。
-- 当仓库存在 `docs/adr/` 或 `backend/contexts/<context>/docs/adr/` 时，先列出文件名并按需读取。
+- 当仓库存在 `context.md` 或 `context-map.md` 时，先读取定位模块边界，再按需阅读对应 crate 文档。
+- 当仓库存在 `docs/adr/` 时，先列出文件名并按需读取。
 - 列出 `rules/` 下的 `ast-grep` 规则文件名并按需读取。
-- 执行 `mise tasks` 查看已有命令；仅当需要修改规则时再读取配置细节，以避免浪费上下文。
+- 查看 `mise.toml` 查看已有命令；仅当需要修改规则时再读取内部配置细节，以避免浪费上下文。
 
 ## 编码规范
 

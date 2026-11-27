@@ -32,7 +32,7 @@ use super::super::store;
 use super::command::{
     AspectPreset, ResumePlan, adjacent_episode, clamp_seek, episode_segment_ranges,
     episode_switch_resume_secs, folded_episode_window, format_rate_trigger, is_tail_completed,
-    resume_plan, step_rate,
+    resume_plan, should_refresh_stream_on_player_error, step_rate,
 };
 use super::handler;
 use crate::gateway;
@@ -85,6 +85,7 @@ struct TestGateway {
     comments_total: AtomicU64,
     reported_calls: AtomicU32,
     last_reported_pos: AtomicU32,
+    refresh_calls: AtomicU32,
 }
 
 impl TestGateway {
@@ -97,6 +98,7 @@ impl TestGateway {
             comments_total: AtomicU64::new(comments_total),
             reported_calls: AtomicU32::new(0),
             last_reported_pos: AtomicU32::new(0),
+            refresh_calls: AtomicU32::new(0),
         }
     }
 
@@ -231,6 +233,7 @@ impl AppGateway for TestGateway {
         fut
     }
     fn refresh_online_playback(&self, key: EpisodeKey) -> GatewayFuture<PlaybackSource> {
+        self.refresh_calls.fetch_add(1, Ordering::SeqCst);
         self.inner.refresh_online_playback(key)
     }
     fn report_watch_progress(
@@ -535,6 +538,15 @@ fn harness_actions(gw_release: Arc<TestGateway>) -> impl IntoElement {
             nsh_base::button()
                 .on_press(store::leave_surface)
                 .child(text("leave_surface")),
+        )
+        .child(
+            nsh_base::button()
+                .on_press(|| {
+                    handler::on_playback_error(
+                        "unable to load libmpv runtime (libmpv-2.dll: missing)".to_owned(),
+                    );
+                })
+                .child(text("emit_libmpv_error")),
         )
 }
 
@@ -882,4 +894,22 @@ fn episode_switch_resets_progress_and_follows_industry_resume_rules() {
     app.wait_for("ep=2").unwrap();
     assert!(app.screen().shows("pos=0"));
     assert!(app.screen().shows("seek=0"));
+}
+
+#[test]
+fn player_runtime_init_error_shows_hint_without_refreshing_stream() {
+    assert!(!should_refresh_stream_on_player_error(
+        "unable to load libmpv runtime (libmpv-2.dll: missing)"
+    ));
+    assert!(should_refresh_stream_on_player_error(
+        "HTTP 403 upstream auth expired"
+    ));
+
+    let gw = Arc::new(TestGateway::new(100, 0));
+    let mut app = start_harness(Arc::clone(&gw));
+
+    app.press("emit_libmpv_error").unwrap();
+    app.wait_for("hint=unable to load libmpv runtime (libmpv-2.dll: missing)")
+        .unwrap();
+    assert_eq!(gw.refresh_calls.load(Ordering::SeqCst), 0);
 }
