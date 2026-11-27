@@ -11,7 +11,7 @@ use nsh_engine::ColorScheme;
 
 use crate::support::{
     DESKTOP_VIEWPORT, MOBILE_VIEWPORT, assert_left_of, assert_visible_in_viewport, node_bounds,
-    start_desktop_on_home, start_mobile,
+    start_desktop_on_home, start_desktop_with_manual_clock, start_mobile,
 };
 
 #[test]
@@ -226,7 +226,8 @@ fn desktop_window_placement_persists_fullscreen_and_restores_on_startup() {
 #[test]
 fn desktop_window_resize_debounces_before_persisting_latest_bounds() {
     let gw = Arc::new(MockGateway::new());
-    let mut app = start_desktop_on_home(Arc::clone(&gw), ColorScheme::Dark);
+    let mut app = start_desktop_with_manual_clock(Arc::clone(&gw), ColorScheme::Dark);
+    app.wait_for("最近更新").unwrap();
 
     for (w, h) in [(1320.0, 820.0), (1380.0, 860.0), (1440.0, 900.0)] {
         let state = WindowState::new(
@@ -240,7 +241,7 @@ fn desktop_window_resize_debounces_before_persisting_latest_bounds() {
             env.window_state = Some(state);
         })
         .unwrap();
-        app.wait(Duration::from_millis(20)).unwrap();
+        app.run_for(Duration::from_millis(20)).unwrap();
     }
 
     assert_ne!(
@@ -255,15 +256,20 @@ fn desktop_window_resize_debounces_before_persisting_latest_bounds() {
         "continuous drag resizes must debounce instead of writing every frame"
     );
 
-    app.wait(Duration::from_millis(450)).unwrap();
-    assert_eq!(
-        gw.snapshot_preference().window_placement,
-        Some(WindowPlacementPref {
-            mode: WindowPlacementMode::Normal,
-            x: 60,
-            y: 40,
-            width: 1440,
-            height: 900,
-        })
-    );
+    app.run_for(Duration::from_millis(450)).unwrap();
+    app.wait_until(
+        "debounced window placement persisted",
+        Duration::from_secs(2),
+        |_| {
+            gw.snapshot_preference().window_placement
+                == Some(WindowPlacementPref {
+                    mode: WindowPlacementMode::Normal,
+                    x: 60,
+                    y: 40,
+                    width: 1440,
+                    height: 900,
+                })
+        },
+    )
+    .unwrap();
 }

@@ -12,7 +12,22 @@ pub(crate) const DESKTOP_VIEWPORT: Size<Points> = Size::new(Points(1240.0), Poin
 pub(crate) const MOBILE_VIEWPORT: Size<Points> = Size::new(Points(390.0), Points(844.0));
 
 pub(crate) fn start_desktop(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
-    start_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT)
+    start_with_options(gw, Os::MacOs, scheme, DESKTOP_VIEWPORT, None)
+}
+
+pub(crate) fn start_desktop_with_manual_clock(
+    gw: Arc<MockGateway>,
+    scheme: ColorScheme,
+) -> Headless {
+    start_with_options(
+        gw,
+        Os::MacOs,
+        scheme,
+        DESKTOP_VIEWPORT,
+        Some(nsh_core::time::Clock::manual(
+            std::time::SystemTime::UNIX_EPOCH,
+        )),
+    )
 }
 
 pub(crate) fn start_desktop_on_home(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
@@ -22,7 +37,7 @@ pub(crate) fn start_desktop_on_home(gw: Arc<MockGateway>, scheme: ColorScheme) -
 }
 
 pub(crate) fn start_mobile(gw: Arc<MockGateway>, scheme: ColorScheme) -> Headless {
-    start_with_options(gw, Os::Android, scheme, MOBILE_VIEWPORT)
+    start_with_options(gw, Os::Android, scheme, MOBILE_VIEWPORT, None)
 }
 
 fn start_with_options(
@@ -30,6 +45,7 @@ fn start_with_options(
     os: Os,
     scheme: ColorScheme,
     viewport: Size<Points>,
+    clock: Option<nsh_core::time::Clock>,
 ) -> Headless {
     let gw_trait: Arc<dyn AppGateway> = gw;
     let environment = Environment {
@@ -37,11 +53,14 @@ fn start_with_options(
         color_scheme: scheme,
         ..Environment::default()
     };
-    let config = EngineConfig {
+    let mut config = EngineConfig {
         viewport,
         environment,
         ..EngineConfig::new(root_with_gateway(gw_trait))
     };
+    if let Some(clock) = clock {
+        config.clock = clock;
+    }
     Headless::start(config).unwrap()
 }
 
