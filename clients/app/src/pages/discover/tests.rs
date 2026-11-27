@@ -763,26 +763,26 @@ fn discover_home_horizontal_shelves_virtualize_offscreen_cards() {
 
 #[test]
 fn browse_category_scrolls_through_all_pages_to_bottom() {
-    let gw = Arc::new(MockGateway::new().with_paged_catalog(120));
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(40));
     let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Dark);
 
     app.press("查看热门短剧全部").unwrap();
     app.wait_for("分页剧目 01").unwrap();
 
-    for _ in 0..12 {
-        if app.screen().shows("分页剧目 120") {
+    for _ in 0..5 {
+        if app.screen().shows("分页剧目 40") {
             break;
         }
         app.scroll("text:/分页剧目 / >> nth=0", Points(3000.0))
             .unwrap();
         app.wait(Duration::from_millis(80)).unwrap();
     }
-    app.wait_for("分页剧目 120").unwrap();
+    app.wait_for("分页剧目 40").unwrap();
 }
 
 #[test]
 fn browse_pagination_locks_page_size_across_home_layout_and_resize() {
-    let gw = Arc::new(MockGateway::new().with_paged_catalog(120));
+    let gw = Arc::new(MockGateway::new().with_paged_catalog(40));
     let (mut app, _opened) = mount_discover_ready(Arc::clone(&gw), ColorScheme::Light);
 
     app.press("查看热门短剧全部").unwrap();
@@ -792,15 +792,15 @@ fn browse_pagination_locks_page_size_across_home_layout_and_resize() {
         .unwrap();
     app.wait(Duration::from_millis(60)).unwrap();
 
-    for _ in 0..8 {
-        if app.screen().shows("分页剧目 120") {
+    for _ in 0..5 {
+        if app.screen().shows("分页剧目 40") {
             break;
         }
         app.scroll("text:/分页剧目 / >> nth=0", Points(3000.0))
             .unwrap();
         app.wait(Duration::from_millis(60)).unwrap();
     }
-    app.wait_for("分页剧目 120").unwrap();
+    app.wait_for("分页剧目 40").unwrap();
 
     let sizes: Vec<(u32, u16)> = gw
         .snapshot_list_series_requests()

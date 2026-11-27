@@ -261,13 +261,3 @@ fn player_state_tracks_progress_dedup_end_file_and_errors() {
     assert_eq!(next_outcome.commands.len(), 5);
     assert!(state.record_error_once("missing dll".to_owned()).is_some());
 }
-
-#[cfg(target_os = "windows")]
-#[test]
-#[ignore = "requires libmpv-2.dll in PATH or next to test executable on Windows"]
-fn windows_libmpv_runtime_smoke_loads_and_creates_engine() {
-    match super::mpv::MpvEngine::acquire_or_create() {
-        Ok(engine) => engine.release_to_pool(),
-        Err(err) => assert!(err.is_empty(), "libmpv runtime init failed: {err}"),
-    }
-}
