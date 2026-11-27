@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.6](https://github.com/taitide-labs/hg/compare/v0.4.5...v0.4.6) (2026-11-27)
+
+
+### Bug Fixes
+
+* **deps:** update all non-major dependencies to v1.11.1 ([#110](https://github.com/taitide-labs/hg/issues/110)) ([1ff16dc](https://github.com/taitide-labs/hg/commit/1ff16dc09cc7a64a4090acb1b7116976215635cc))
+
 ## [0.4.5](https://github.com/taitide-labs/hg/compare/v0.4.4...v0.4.5) (2026-11-27)
 
 
