@@ -48,10 +48,7 @@ impl WindowsVideoPlayer {
                 Some(engine)
             }
             Err(message) => {
-                let initial_error = state.lock().record_error_once(message);
-                if let Some(event) = initial_error {
-                    emit_video_event(&context, event);
-                }
+                record_and_emit_error(&context, &state, message);
                 None
             }
         };
@@ -70,10 +67,7 @@ impl WindowsVideoPlayer {
         };
         for command in commands {
             if let Err(message) = engine.execute_command(command) {
-                let event = self.state.lock().record_error_once(message);
-                if let Some(ev) = event {
-                    emit_video_event(&self.context, ev);
-                }
+                record_and_emit_error(&self.context, &self.state, message);
             }
         }
     }
@@ -82,11 +76,16 @@ impl WindowsVideoPlayer {
         if self.engine.is_some() {
             return;
         }
-        if let Ok(engine) = MpvEngine::acquire_or_create() {
-            engine.attach_sink(self.context.clone(), Arc::clone(&self.state));
-            let attach_commands = commands_for_attach(self.state.lock().props());
-            self.engine = Some(engine);
-            self.execute_commands(&attach_commands);
+        match MpvEngine::acquire_or_create() {
+            Ok(engine) => {
+                engine.attach_sink(self.context.clone(), Arc::clone(&self.state));
+                let attach_commands = commands_for_attach(self.state.lock().props());
+                self.engine = Some(engine);
+                self.execute_commands(&attach_commands);
+            }
+            Err(message) => {
+                record_and_emit_error(&self.context, &self.state, message);
+            }
         }
     }
 
@@ -229,6 +228,17 @@ impl NativeComponent for WindowsVideoPlayer {
         if outcome.needs_redraw {
             self.context.redraw();
         }
+    }
+}
+
+fn record_and_emit_error(
+    context: &ComponentContext,
+    state: &Mutex<WindowsPlayerState>,
+    message: String,
+) {
+    let event = state.lock().record_error_once(message);
+    if let Some(ev) = event {
+        emit_video_event(context, ev);
     }
 }
 

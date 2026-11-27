@@ -10,7 +10,7 @@ use nsh_core::prelude::*;
 use super::super::store;
 use super::command::{
     adjacent_episode, clamp_seek, episode_switch_resume_secs, is_tail_completed, resume_plan,
-    step_rate, step_volume,
+    should_refresh_stream_on_player_error, step_rate, step_volume,
 };
 use crate::gateway;
 
@@ -220,8 +220,9 @@ pub fn on_playback_error(message: String) {
     }
     let snap = store::snapshot_untracked();
     let seq = snap.episode_seq;
-    if let (Some(detail), Some(ep_num), Some(source)) =
-        (snap.detail, snap.current_episode, snap.source)
+    if should_refresh_stream_on_player_error(&message)
+        && let (Some(detail), Some(ep_num), Some(source)) =
+            (snap.detail, snap.current_episode, snap.source)
         && matches!(source.origin, PlaybackOrigin::OnlineStream { .. })
     {
         let gw = gateway::current();
