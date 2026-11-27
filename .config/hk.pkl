@@ -1,46 +1,54 @@
-amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.pkl"
-import "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Builtins.pkl"
+amends "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.13.0/hk@2.13.0#/Builtins.pkl"
 
-profiles = List("docs", "code")
+profiles = List("docs", "code", "security")
 terminal_progress = false
 display_skip_reasons = List()
+
+local cargo_manifests = List("Cargo.toml", "**/Cargo.toml", "Cargo.lock", "rust-toolchain.toml")
 
 steps {
   ["autocorrect"] {
     profiles = List("docs")
-    glob = List("*.md")
+    glob = List("**/*.md")
     check = "autocorrect --config .config/autocorrectrc --lint {{files}}"
     fix = "autocorrect --config .config/autocorrectrc --fix {{files}}"
   }
 
   ["rumdl"] {
     profiles = List("docs")
-    glob = List("*.md")
+    glob = List("**/*.md")
     check = "rumdl check --config .config/rumdl.toml {{files}}"
     fix = "rumdl check --config .config/rumdl.toml --fix {{files}}"
   }
 
   ["mmdr"] {
     profiles = List("docs", "!fmt")
-    glob = List("*.md")
-    check = "for f in {{files}}; do if grep -q '```mermaid' \"$f\"; then mmdr -i \"$f\" --size --fastText >/dev/null || exit 1; fi; done"
+    glob = List("**/*.md")
+    check = "rc=0; for f in {{files}}; do if grep -q '```mermaid' \"$f\"; then mmdr -i \"$f\" --size --fastText >/dev/null || rc=1; fi; done; exit \"$rc\""
   }
 
   ["lychee"] {
     profiles = List("docs", "!fmt")
-    glob = List("*.md")
+    glob = List("**/*.md")
     check = "lychee --config .config/lychee.toml --offline {{files}}"
   }
 
   ["typos"] = (Builtins.typos) {
     profiles = List("docs", "!fmt")
-    exclude = List(".copier-answers.yml")
+    exclude = List("CHANGELOG.md")
   }
 
   ["zizmor"] {
-    profiles = List("code", "!fmt")
+    profiles = List("security", "!fmt")
     glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
     check = "zizmor --offline --quiet {{files}}"
+  }
+
+  ["jactionlint"] {
+    profiles = List("security", "!fmt")
+    glob = List(".github/workflows/*.yml", ".github/workflows/*.yaml")
+    check = "jactionlint {{files}}"
   }
 
   ["cargo_fmt"] = (Builtins.cargo_fmt) {
@@ -61,14 +69,22 @@ steps {
 
   ["cargo_clippy"] {
     profiles = List("code", "!fmt")
-    glob = List("**/*.rs", "Cargo.toml", "Cargo.lock", "clippy.toml")
-    check = "cargo clippy --manifest-path Cargo.toml --all-targets -- -D warnings"
+    glob = cargo_manifests + List("**/*.rs", "clippy.toml", "migrations/**/*.sql")
+    check = "cargo clippy -q --workspace --all-targets --locked -- -D warnings"
   }
 
   ["cargo_test"] {
     profiles = List("code", "!fmt")
-    glob = List("**/*.rs", "Cargo.toml", "Cargo.lock")
-    check = "cargo nextest run --manifest-path Cargo.toml --workspace --locked --no-tests=pass"
+    depends = "cargo_clippy"
+    glob = cargo_manifests + List("**/*.rs", "migrations/**/*.sql")
+    check = "cargo nextest run --workspace --locked --no-tests=pass --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
+  }
+
+  ["mise_lock"] {
+    profiles = List("code")
+    glob = List("mise.toml")
+    fix = "mise lock"
+    stage = List("mise.lock")
   }
 }
 
@@ -76,6 +92,15 @@ hooks {
   ["commit-msg"] {
     steps {
       ["conventional_commit"] = Builtins.check_conventional_commit
+    }
+  }
+
+  ["pre-push"] {
+    steps {
+      ["cargo_deny"] {
+        glob = cargo_manifests + List("deny.toml")
+        check = "cargo deny --locked -L error check --hide-inclusion-graph"
+      }
     }
   }
 }

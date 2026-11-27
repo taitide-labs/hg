@@ -1,17 +1,22 @@
 #:schema https://mise.jdx.dev/schema/mise.json
 
+[settings]
+task.quiet = true
+
 [tools]
-hk = "2.12.0"
-rumdl = "0.3.4"
+hk = "2.13.0"
+rumdl = "v0.3.5"
 lychee = "0.24.2"
 typos = "1.52.2"
 gitleaks = "8.30.1"
 zizmor = "1.32.0"
+jactionlint = "2.6.0"
+shellcheck = "0.11.0"
+ast-grep = "0.51.3"
+cargo-deny = "0.21.0"
 "github:huacnlee/autocorrect" = "2.16.3"
 "github:1jehuang/mermaid-rs-renderer" = "0.3.1"
 "github:longbridge/nsh" = "0.6.1"
-cargo-deny = "0.20.2"
-ast-grep = "0.51.3"
 "github:nextest-rs/nextest" = { version = "0.9.152", version_prefix = "cargo-nextest-" }
 
 [tasks.fmt]
@@ -19,12 +24,16 @@ description = "Auto-fix documentation formatting, typography, and code formattin
 run = "hk fix --all -q -n -p docs -p code -p fmt"
 
 [tasks.check]
-description = "Run all documentation, formatting, ast-grep, clippy, and test checks"
+description = "Run all documentation, security, ast-grep, clippy, and test checks"
 run = "hk check --all -q -n"
+
+[tasks.test]
+description = "Run tests via nextest (supports -p <crate>, <filter>, or -E <expr>)"
+run = "cargo nextest run --workspace --locked --no-tests=pass --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
 
 [tasks.audit]
 description = "Audit dependencies for vulnerabilities and license compliance"
-run = "cargo deny check"
+run = "cargo deny --locked -L error check --hide-inclusion-graph"
 
 [tasks.app]
 description = "Run NSH client app"
@@ -32,11 +41,11 @@ run = "nsh run clients/app"
 
 [tasks.e2e]
 description = "Run deterministic end-to-end integration test suite"
-run = "cargo nextest run -p hg-e2e --locked"
+run = "cargo nextest run -p hg-e2e --locked --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
 
 [tasks."e2e:live"]
 description = "Run live upstream smoke test"
-run = "cargo nextest run -p hg-e2e --locked --run-ignored ignored-only live_"
+run = "cargo nextest run -p hg-e2e --locked --run-ignored ignored-only live_ --cargo-quiet --status-level=fail --final-status-level=fail --show-progress=none"
 
 [tasks."visual:capture"]
 description = "Capture on-demand macOS screenshots of key screens into .visual-shots/"
@@ -52,4 +61,5 @@ run = [
   "hk install --mise",
   "git config hook.hk-pre-commit.command 'test \"${HK:-1}\" = \"0\" || mise x -- hk run pre-commit --from-hook -q -n'",
   "git config hook.hk-commit-msg.command 'test \"${HK:-1}\" = \"0\" || mise x -- hk run commit-msg --from-hook -q -n'",
+  "git config hook.hk-pre-push.command 'test \"${HK:-1}\" = \"0\" || mise x -- hk run pre-push --from-hook -q -n'",
 ]

@@ -15,6 +15,7 @@ mise run hooks
 
 - **`pre-commit`**：校验并尝试修复文档规范；执行 GitHub Workflows 安全检查，以及 `cargo fmt`、`ast-grep` 架构检查、`cargo clippy`、`cargo nextest`。
 - **`commit-msg`**：校验提交信息是否符合 Conventional Commits 规范。
+- **`pre-push`**：当依赖或策略配置变更时执行 `cargo deny` 合规审计。
 
 ## Commit 与版本规范
 
@@ -32,4 +33,4 @@ mise run hooks
 ## Pull Request 流程
 
 1. 从 `main` 切出分支。
-2. 创建 PR 并开启自动合并与删除分支，确保标题符合 Commit 规范、正文符合 `pull_request_template.md` 规范。
+2. 创建 PR 并开启自动合并与删除分支，确保标题符合 Commit 规范、正文符合 [pull_request_template.md](.github/pull_request_template.md) 规范。

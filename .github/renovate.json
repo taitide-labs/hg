@@ -10,9 +10,6 @@
   "schedule": ["before 4am on Monday"],
   "labels": ["dependencies"],
   "minimumReleaseAge": "7 days",
-  "copier": {
-    "enabled": false
-  },
   "customManagers": [
     {
       "customType": "regex",

@@ -3,3 +3,4 @@ name: "Workspace CodeQL Config"
 paths-ignore:
   - "**/tests/**"
   - "**/src/tests/**"
+  - "**/tests.rs"

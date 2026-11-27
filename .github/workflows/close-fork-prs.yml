@@ -8,13 +8,17 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: close-fork-prs-${{ github.event.pull_request.number }}
+
 jobs:
   close-external-pr:
     name: Close External Fork PR
     if: ${{ github.event.pull_request.head.repo.fork == true }}
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     permissions:
-      pull-requests: write
+      pull-requests: write # Close external fork PRs and post polite notice
     steps:
       - name: Politely close external pull request
         env:
