@@ -1,7 +1,7 @@
 {
   "name": "HG",
   "id": "com.taitidelabs.hg",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "build": 1,
   "appearance": "system",
   "rust": ".",
